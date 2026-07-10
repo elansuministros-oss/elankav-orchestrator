@@ -6,7 +6,7 @@ const path = require('node:path');
 const { getDockerStatus } = require('./adapters/dockerAdapter');
 const { getEcosystemStatus } = require('./adapters/ecosystemAdapter');
 const { getGithubStatus } = require('./adapters/githubAdapter');
-const { getSystemStatus } = require('./adapters/systemAdapter');
+const { getDashboardStatus } = require('./adapters/dashboardAdapter');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -464,21 +464,19 @@ function renderDashboard() {
 const server = http.createServer(async (req, res) => {
   if (req.url === '/api/dashboard') {
     try {
-      const systemStatus = await getSystemStatus();
+      const dashboardStatus = await getDashboardStatus();
 
       sendJson(res, 200, {
         service: 'ELANKAV Orchestrator',
-        status: systemStatus.healthy ? 'OK' : 'DEGRADED',
         version: VERSION,
-        system: systemStatus,
-        checked_at: new Date().toISOString()
+        ...dashboardStatus
       });
     } catch (error) {
       sendJson(res, 503, {
         available: false,
         service: 'ELANKAV Orchestrator',
         status: 'ERROR',
-        error: 'No fue posible consultar el estado del sistema',
+        error: 'No fue posible consultar el dashboard ejecutivo',
         detail: error.message,
         checked_at: new Date().toISOString()
       });
