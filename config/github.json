@@ -1,0 +1,20 @@
+[
+  {
+    "id": "elanvisual",
+    "owner": "elansuministros-oss",
+    "repo": "elanvisual-platform",
+    "branch": "ESM-19-REBUILD-ELANVISUAL-CLEAN"
+  },
+  {
+    "id": "elanpet",
+    "owner": "elansuministros-oss",
+    "repo": "elanpet-platform",
+    "branch": "main"
+  },
+  {
+    "id": "elankav-core",
+    "owner": "elansuministros-oss",
+    "repo": "elankav-core",
+    "branch": "main"
+  }
+]

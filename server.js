@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { getDockerStatus } = require('./adapters/dockerAdapter');
 const { getEcosystemStatus } = require('./adapters/ecosystemAdapter');
+const { getGithubStatus } = require('./adapters/githubAdapter');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -473,6 +474,26 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+
+if (req.url === '/api/github') {
+  try {
+    const githubStatus = await getGithubStatus();
+
+    sendJson(res, 200, githubStatus);
+
+  } catch (error) {
+
+    sendJson(res, 503, {
+      available: false,
+      error: 'No fue posible consultar GitHub',
+      detail: error.message,
+      checked_at: new Date().toISOString()
+    });
+
+  }
+
+  return;
+}
 
   if (req.url === '/api/docker') {
     try {
