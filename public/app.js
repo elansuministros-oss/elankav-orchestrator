@@ -604,27 +604,24 @@ setInterval(() => {
 // Pull Request
 // ===============================
 
-async function fetchPullRequest(number, platform, token) {
+async function fetchPullRequest(number, platform) {
   const response = await fetch(
     `/api/pull-requests/${number}?platform=${encodeURIComponent(platform)}`,
     {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      credentials: 'same-origin'
     }
   );
 
   return response.json();
 }
 
-async function approvePullRequest(number, platform, token) {
+async function approvePullRequest(number, platform) {
   const response = await fetch(
     `/api/pull-requests/${number}/decision`,
     {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         platform,
@@ -643,15 +640,15 @@ async function rejectPullRequest(number, platform, token, reason) {
     {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         platform,
         action: 'reject',
         confirmation: `REJECT PR ${number}`,
         reason
-      })
+      }),
+      credentials: 'same-origin'
     }
   );
 
@@ -670,35 +667,66 @@ const prElements = {
 
 prControlsReady = true;
 
-try {
-  const savedToken =
-    sessionStorage.getItem('elankav.prApprovalToken');
+let approvalSessionActive = false;
 
-  if (savedToken) {
-    prElements.token.value = savedToken;
-  }
-} catch (error) {
-  console.warn('No fue posible recuperar el token de sesión:', error);
+async function checkApprovalSession() {
+  const response = await fetch(
+    '/api/approval-session/status',
+    {
+      cache: 'no-store',
+      credentials: 'same-origin'
+    }
+  );
+
+  const data = await response.json();
+
+  approvalSessionActive =
+    response.ok &&
+    data.authenticated === true;
+
+  prElements.token.closest(
+    '.job-detail-block'
+  ).style.display =
+    approvalSessionActive ? 'none' : '';
+
+  return approvalSessionActive;
 }
 
-prElements.token.addEventListener('input', () => {
-  try {
-    const token = prElements.token.value.trim();
-
-    if (token) {
-      sessionStorage.setItem(
-        'elankav.prApprovalToken',
-        token
-      );
-    } else {
-      sessionStorage.removeItem(
-        'elankav.prApprovalToken'
-      );
-    }
-  } catch (error) {
-    console.warn('No fue posible guardar el token de sesión:', error);
+async function activateApprovalSession() {
+  if (!token) {
+    throw new Error(
+      'Pegá el token una sola vez para activar esta computadora.'
+    );
   }
-});
+
+  const response = await fetch(
+    '/api/approval-session',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      credentials: 'same-origin'
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(
+      data.error || 'No fue posible activar la sesión'
+    );
+  }
+
+  prElements.token.value = '';
+  approvalSessionActive = true;
+
+  prElements.token.closest(
+    '.job-detail-block'
+  ).style.display = 'none';
+
+  return true;
+}
 
 function getPrInput() {
   const platform = prElements.platform.value.trim();
@@ -713,14 +741,9 @@ function getPrInput() {
     throw new Error('Número de PR inválido');
   }
 
-  if (!token) {
-    throw new Error('Token obligatorio');
-  }
-
   return {
     platform,
-    number,
-    token
+    number
   };
 }
 
@@ -770,10 +793,13 @@ async function inspectCurrentPullRequest() {
 
     prElements.result.innerHTML = '<p>Consultando PR...</p>';
 
+    if (!approvalSessionActive) {
+      await activateApprovalSession();
+    }
+
     const data = await fetchPullRequest(
       input.number,
-      input.platform,
-      input.token
+      input.platform
     );
 
     renderPullRequest(data);
@@ -796,10 +822,13 @@ prElements.approve.addEventListener('click', async () => {
 
     prElements.result.innerHTML = '<p>Aprobando PR...</p>';
 
+    if (!approvalSessionActive) {
+      await activateApprovalSession();
+    }
+
     const data = await approvePullRequest(
       input.number,
-      input.platform,
-      input.token
+      input.platform
     );
 
     renderPullRequest(data);
@@ -821,10 +850,13 @@ prElements.reject.addEventListener('click', async () => {
 
     prElements.result.innerHTML = '<p>Rechazando PR...</p>';
 
+    if (!approvalSessionActive) {
+      await activateApprovalSession();
+    }
+
     const data = await rejectPullRequest(
       input.number,
       input.platform,
-      input.token,
       reason
     );
 
@@ -834,4 +866,12 @@ prElements.reject.addEventListener('click', async () => {
       <p>${escapeHtml(error.message)}</p>
     `;
   }
+});
+
+
+checkApprovalSession().catch(error => {
+  console.warn(
+    'No fue posible verificar sesión de aprobación:',
+    error
+  );
 });

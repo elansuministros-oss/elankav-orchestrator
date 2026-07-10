@@ -1,30 +1,113 @@
+const crypto = require('node:crypto');
+
 const {
   inspectJobPullRequest,
   decideJobPullRequest
 } = require('../services/pullRequestDecisionService');
 
+// ORCH-022 — sesión segura de aprobación
+const APPROVAL_COOKIE = 'elankav_approval_session';
+const SESSION_SECONDS = 30 * 24 * 60 * 60;
+
 const MAX_BODY_BYTES = 16 * 1024;
 
-function isAuthorized(req) {
-  const configuredToken =
-    process.env.ORCHESTRATOR_APPROVAL_TOKEN;
+function safeEqual(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
 
-  if (!configuredToken) {
+  return a.length === b.length &&
+    crypto.timingSafeEqual(a, b);
+}
+
+function sessionSecret() {
+  return (
+    process.env.ORCHESTRATOR_SESSION_SECRET ||
+    process.env.ORCHESTRATOR_APPROVAL_TOKEN ||
+    ''
+  );
+}
+
+function signSession(expiresAt) {
+  return crypto
+    .createHmac('sha256', sessionSecret())
+    .update(String(expiresAt))
+    .digest('hex');
+}
+
+function readCookies(req) {
+  return String(req.headers.cookie || '')
+    .split(';')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .reduce((cookies, item) => {
+      const separator = item.indexOf('=');
+
+      if (separator < 1) return cookies;
+
+      cookies[item.slice(0, separator)] =
+        decodeURIComponent(item.slice(separator + 1));
+
+      return cookies;
+    }, {});
+}
+
+function hasValidSession(req) {
+  const value = readCookies(req)[APPROVAL_COOKIE];
+
+  if (!value || !sessionSecret()) return false;
+
+  const [expiresRaw, signature] = value.split('.');
+  const expiresAt = Number(expiresRaw);
+
+  if (
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= Date.now() ||
+    !signature
+  ) {
     return false;
   }
 
-  const authorization = String(
-    req.headers.authorization || ''
-  );
+  return safeEqual(signature, signSession(expiresAt));
+}
+
+function hasValidBearer(req) {
+  const configuredToken =
+    process.env.ORCHESTRATOR_APPROVAL_TOKEN;
+
+  if (!configuredToken) return false;
+
+  const authorization =
+    String(req.headers.authorization || '');
 
   if (!authorization.startsWith('Bearer ')) {
     return false;
   }
 
-  const suppliedToken =
-    authorization.slice(7).trim();
+  return safeEqual(
+    authorization.slice(7).trim(),
+    configuredToken
+  );
+}
 
-  return suppliedToken === configuredToken;
+function isAuthorized(req) {
+  return hasValidSession(req) || hasValidBearer(req);
+}
+
+function createApprovalSession(res) {
+  const expiresAt =
+    Date.now() + SESSION_SECONDS * 1000;
+
+  const value =
+    `${expiresAt}.${signSession(expiresAt)}`;
+
+  res.setHeader(
+    'Set-Cookie',
+    `${APPROVAL_COOKIE}=${encodeURIComponent(value)}; ` +
+    `Path=/; HttpOnly; Secure; SameSite=Strict; ` +
+    `Max-Age=${SESSION_SECONDS}`
+  );
+
+  return expiresAt;
 }
 
 function readJsonBody(req) {
@@ -87,6 +170,47 @@ async function handlePullRequestDecisionApi({
     req.url,
     `http://${req.headers.host || 'localhost'}`
   );
+
+  if (requestUrl.pathname === '/api/approval-session') {
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+
+      sendJson(res, 405, {
+        success: false,
+        error: 'Método no permitido'
+      });
+
+      return true;
+    }
+
+    if (!hasValidBearer(req)) {
+      sendJson(res, 401, {
+        success: false,
+        error: 'Token inválido'
+      });
+
+      return true;
+    }
+
+    const expiresAt = createApprovalSession(res);
+
+    sendJson(res, 200, {
+      success: true,
+      authenticated: true,
+      expiresAt
+    });
+
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/approval-session/status') {
+    sendJson(res, 200, {
+      success: true,
+      authenticated: hasValidSession(req)
+    });
+
+    return true;
+  }
 
   const match = requestUrl.pathname.match(
     /^\/api\/pull-requests\/(\d+)(?:\/decision)?$/
