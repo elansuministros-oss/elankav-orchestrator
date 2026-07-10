@@ -1,0 +1,10 @@
+{
+  "name": "elankav-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Centro de control remoto del ecosistema ELANKAV",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
