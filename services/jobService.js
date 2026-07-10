@@ -3,6 +3,7 @@ const {
   getJob,
   listJobs
 } = require('./jobs/jobEngine');
+
 const { executeJob } = require('./jobs/jobExecutor');
 
 function normalizeRequiredString(value, fieldName) {
@@ -14,6 +15,28 @@ function normalizeRequiredString(value, fieldName) {
   }
 
   return normalized;
+}
+
+function serializeJob(job) {
+  if (!job) {
+    return null;
+  }
+
+  return {
+    id: job.id,
+    type: job.type,
+    platform: job.platform,
+    task: job.task,
+    branch: job.branch,
+    status: job.status,
+    steps: job.steps,
+    result: job.result || null,
+    error: job.error || null,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt || null,
+    startedAt: job.startedAt || null,
+    finishedAt: job.finishedAt || null
+  };
 }
 
 function createJobRequest({ platform, task, type }) {
@@ -52,8 +75,31 @@ function createJobRequest({ platform, task, type }) {
   };
 }
 
+function getJobRequest(jobId) {
+  const normalizedJobId =
+    normalizeRequiredString(jobId, 'jobId');
+
+  const job = getJob(normalizedJobId);
+
+  if (!job) {
+    return null;
+  }
+
+  return serializeJob(job);
+}
+
+function listJobsRequest() {
+  return listJobs()
+    .map(serializeJob)
+    .sort((left, right) => {
+      return String(right.createdAt).localeCompare(
+        String(left.createdAt)
+      );
+    });
+}
+
 module.exports = {
   createJobRequest,
-  getJob,
-  listJobs
+  getJobRequest,
+  listJobsRequest
 };
