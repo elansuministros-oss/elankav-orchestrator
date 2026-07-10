@@ -14,6 +14,7 @@ const JOB_STEPS = Object.freeze([
   'workspace',
   'openai',
   'codex',
+  'changes',
   'qa',
   'pr',
 ]);

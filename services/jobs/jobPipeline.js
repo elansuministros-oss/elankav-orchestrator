@@ -1,10 +1,13 @@
 const { githubHealth } = require('./jobGithub');
 const { openaiHealth } = require('./jobOpenAI');
-const { codexAnalyze } = require('./jobCodex');
 
 const {
   prepareJobWorkspace
 } = require('../repositoryWorkspaceService');
+
+const {
+  applyJobChanges
+} = require('../repositoryChangeService');
 
 async function run(job) {
   if (!job) {
@@ -57,16 +60,26 @@ async function run(job) {
     );
   }
 
-  const codexResult = await codexAnalyze(job.task);
+  const changesResult = await applyJobChanges({
+    job,
+    workspace: workspaceResult
+  });
 
   result.steps.push({
     step: 'codex',
-    ...codexResult
+    healthy: changesResult.codex != null,
+    model: changesResult.codex?.model,
+    sandbox: changesResult.codex?.sandbox
   });
 
-  if (!codexResult.healthy) {
+  result.steps.push({
+    step: 'changes',
+    ...changesResult
+  });
+
+  if (!changesResult.healthy) {
     throw new Error(
-      codexResult.error || 'Codex no completó el análisis'
+      'Codex no completó los cambios'
     );
   }
 
