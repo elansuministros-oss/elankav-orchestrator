@@ -1,5 +1,6 @@
 const { githubHealth } = require('./jobGithub');
 const { openaiHealth } = require('./jobOpenAI');
+const { codexHealth } = require('./jobCodex');
 
 async function run(job) {
 
@@ -21,7 +22,7 @@ async function run(job) {
 
   result.steps.push({
     step: 'codex',
-    status: 'pending'
+    ...(await codexHealth())
   });
 
   result.steps.push({

@@ -1,0 +1,5 @@
+{
+  "binary": "/usr/local/bin/codex",
+  "model": "gpt-5.5",
+  "timeout_ms": 120000
+}
