@@ -16,6 +16,7 @@ const JOB_STEPS = Object.freeze([
   'codex',
   'changes',
   'qa',
+  'publish',
   'pr',
 ]);
 

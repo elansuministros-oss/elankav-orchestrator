@@ -13,6 +13,10 @@ const {
   runJobQa
 } = require('../qaService');
 
+const {
+  publishJobChanges
+} = require('../gitPublishService');
+
 async function run(job) {
   if (!job) {
     throw new Error('job requerido');
@@ -46,6 +50,12 @@ async function run(job) {
     ...workspaceResult
   });
 
+  if (!workspaceResult.healthy) {
+    throw new Error(
+      'Workspace no saludable'
+    );
+  }
+
   const openaiResult = await openaiHealth();
 
   result.steps.push({
@@ -77,6 +87,12 @@ async function run(job) {
     ...changesResult
   });
 
+  if (!changesResult.changed) {
+    throw new Error(
+      'Codex no produjo cambios'
+    );
+  }
+
   const qaResult = await runJobQa({
     job,
     workspace: workspaceResult,
@@ -90,6 +106,25 @@ async function run(job) {
 
   if (!qaResult.healthy) {
     throw new Error('QA no aprobado');
+  }
+
+  const publishResult =
+    await publishJobChanges({
+      job,
+      workspace: workspaceResult,
+      changes: changesResult,
+      qa: qaResult
+    });
+
+  result.steps.push({
+    step: 'publish',
+    ...publishResult
+  });
+
+  if (!publishResult.healthy) {
+    throw new Error(
+      'No fue posible publicar la rama temporal'
+    );
   }
 
   result.steps.push({
