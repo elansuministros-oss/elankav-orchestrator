@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { get } = require('../services/httpClient');
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -32,21 +33,14 @@ async function checkService(service, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const startedAt = nowMilliseconds();
 
   try {
-    const response = await fetch(service.url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'ELANKAV-Orchestrator/0.5'
-      }
-    });
+    const result = await get(service.url);
 
     return {
       ...service,
       online: true,
       status: 'online',
-      http_status: response.status,
-      response_time_ms: nowMilliseconds() - startedAt,
+      http_status: result.status,
+      response_time_ms: result.elapsed,
       checked_at: new Date().toISOString()
     };
 
@@ -59,7 +53,7 @@ async function checkService(service, timeoutMs = DEFAULT_TIMEOUT_MS) {
       online: false,
       status: timeoutError ? 'timeout' : 'offline',
       http_status: null,
-      response_time_ms: nowMilliseconds() - startedAt,
+      response_time_ms: result.elapsed,
       error: timeoutError
         ? `Tiempo agotado (${timeoutMs} ms)`
         : error.message,
