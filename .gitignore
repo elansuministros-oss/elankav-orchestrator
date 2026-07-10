@@ -6,3 +6,8 @@ logs/
 state/
 *.pid
 *.bak
+*.env
+config/secrets*
+secrets*
+*.secret
+*.credentials

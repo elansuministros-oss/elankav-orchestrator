@@ -1,0 +1,8 @@
+{
+  "provider": "openai",
+  "api": "responses",
+  "model": "gpt-5.5",
+  "reasoningEffort": "low",
+  "timeoutMs": 60000,
+  "maxRetries": 2
+}

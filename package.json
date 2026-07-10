@@ -8,6 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "openai": "^6.46.0"
   }
 }
