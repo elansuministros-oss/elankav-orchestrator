@@ -16,7 +16,7 @@ Rama:
 main
 
 Versión:
-0.2.0
+0.3.0
 
 Servicio:
 elankav-orchestrator.service
@@ -41,6 +41,10 @@ Validado
 
 ## FUNCIONES DISPONIBLES
 
+- Monitor Docker en tiempo real.
+- Frontend desacoplado en carpeta public.
+- Actualización automática cada 15 segundos.
+
 - Dashboard responsive.
 - Vista inicial del ecosistema.
 - Endpoint de salud.
@@ -53,6 +57,7 @@ Validado
 - /health
 - /api/health
 - /api/projects
+- /api/docker
 
 ## SERVICIOS REGISTRADOS
 

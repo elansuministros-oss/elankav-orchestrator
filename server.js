@@ -1,10 +1,34 @@
 const http = require('node:http');
 const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
 const { getDockerStatus } = require('./adapters/dockerAdapter');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
 const VERSION = '0.2.0';
+
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+function sendFile(res, filename, contentType) {
+  const filePath = path.join(PUBLIC_DIR, filename);
+
+  fs.readFile(filePath, (error, content) => {
+    if (error) {
+      sendJson(res, 500, {
+        error: 'No fue posible cargar el recurso'
+      });
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store'
+    });
+
+    res.end(content);
+  });
+}
 
 const projects = [
   {
@@ -470,11 +494,17 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url === '/' || req.url === '/index.html') {
-    res.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store'
-    });
-    res.end(renderDashboard());
+    sendFile(res, 'index.html', 'text/html; charset=utf-8');
+    return;
+  }
+
+  if (req.url === '/styles.css') {
+    sendFile(res, 'styles.css', 'text/css; charset=utf-8');
+    return;
+  }
+
+  if (req.url === '/app.js') {
+    sendFile(res, 'app.js', 'application/javascript; charset=utf-8');
     return;
   }
 

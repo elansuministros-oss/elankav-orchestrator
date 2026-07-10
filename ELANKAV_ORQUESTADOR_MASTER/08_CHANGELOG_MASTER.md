@@ -76,3 +76,58 @@ Riesgos:
 
 Estado:
 COMPLETADO
+
+## 2026-07-10 — ORCH-004
+
+Proyecto:
+ELANKAV ORCHESTRATOR
+
+Movimiento:
+Dashboard Docker desacoplado
+
+Objetivo:
+Mostrar dentro del panel web el estado real de la infraestructura Docker.
+
+Cambios:
+- Se creó la carpeta public.
+- Se separaron HTML, CSS y JavaScript del backend.
+- Se creó public/index.html.
+- Se creó public/styles.css.
+- Se creó public/app.js.
+- server.js ahora sirve archivos estáticos.
+- El frontend consulta /api/docker.
+- Los datos se actualizan automáticamente cada 15 segundos.
+- Se muestran métricas reales de WAHA, Nginx Proxy Manager y Portainer.
+
+Archivos modificados:
+- server.js
+
+Archivos nuevos:
+- public/index.html
+- public/styles.css
+- public/app.js
+
+Datos mostrados:
+- estado
+- tiempo activo
+- CPU
+- memoria
+- porcentaje de RAM
+- procesos
+
+Validaciones:
+- node --check server.js: OK
+- node --check public/app.js: OK
+- git diff --check: OK
+- HTML: HTTP 200
+- CSS: HTTP 200
+- JavaScript: HTTP 200
+- /api/docker: operativo
+- Vista de escritorio: validada
+- Vista móvil: validada
+
+Deploy:
+https://orchestrator.elankav.com
+
+Estado:
+COMPLETADO

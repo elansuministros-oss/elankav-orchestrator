@@ -84,3 +84,31 @@ Estado validado:
 - waha: running
 - nginx-proxy-manager: running
 - portainer: running
+
+## ORCH-004 — DASHBOARD DOCKER
+
+Frontend:
+- public/index.html
+- public/styles.css
+- public/app.js
+
+Backend:
+- server.js
+- adapters/dockerAdapter.js
+
+Flujo:
+Dashboard
+→ /api/docker
+→ Docker Adapter
+→ Docker Engine
+
+Actualización:
+Cada 15 segundos.
+
+Contenedores visibles:
+- waha
+- nginx-proxy-manager
+- portainer
+
+Estado:
+Validado en computadora y celular.

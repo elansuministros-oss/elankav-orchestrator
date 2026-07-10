@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>ELANKAV Orchestrator</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">ELANKAV ORCHESTRATOR</span>
+        <h1>Infraestructura Docker</h1>
+        <p>Lectura operativa en tiempo real del VPS ELANKAV.</p>
+      </div>
+      <span id="global-status" class="global-status">Consultando...</span>
+    </header>
+
+    <section class="summary">
+      <article>
+        <span>Total</span>
+        <strong id="docker-total">—</strong>
+      </article>
+      <article>
+        <span>Activos</span>
+        <strong id="docker-running">—</strong>
+      </article>
+      <article>
+        <span>Detenidos</span>
+        <strong id="docker-stopped">—</strong>
+      </article>
+    </section>
+
+    <div class="section-heading">
+      <h2>Contenedores</h2>
+      <span id="docker-checked">Esperando datos...</span>
+    </div>
+
+    <section id="docker-grid" class="docker-grid">
+      <div class="message">Consultando Docker...</div>
+    </section>
+  </main>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
