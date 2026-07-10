@@ -1,0 +1,26 @@
+name: ELANKAV Orchestrator
+
+on:
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install
+
+      - name: Syntax Check
+        run: |
+          node --check server.js
+
+      - name: Success
+        run: echo "ELANKAV ORCHESTRATOR OK"
