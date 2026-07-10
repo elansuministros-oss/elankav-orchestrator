@@ -15,9 +15,10 @@ function runCommand({
       {
         cwd,
         env: {
-          ...process.env,
-          CI: 'true'
-        },
+  ...process.env,
+  CI: 'true',
+  NODE_ENV: 'development'
+},
         stdio: ['ignore', 'pipe', 'pipe']
       }
     );
