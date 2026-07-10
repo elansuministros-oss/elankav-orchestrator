@@ -271,6 +271,116 @@ function renderJobResult(value) {
   }
 }
 
+// ORCH-020 — PR asociado automáticamente al Job
+
+let prControlsReady = false;
+
+function normalizePrPlatform(platform) {
+  const value = String(platform || '')
+    .trim()
+    .toLowerCase();
+
+  const aliases = {
+    elanvisual: 'elanvisual',
+    elanpet: 'elanpet',
+    'elankav-core': 'elankav-core'
+  };
+
+  return aliases[value] || '';
+}
+
+function findJobPullRequest(value, visited = new Set()) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  if (visited.has(value)) {
+    return null;
+  }
+
+  visited.add(value);
+
+  const directPullRequest =
+    value.pullRequest && typeof value.pullRequest === 'object'
+      ? value.pullRequest
+      : null;
+
+  const directNumber = Number(
+    directPullRequest?.number ??
+    value.pullRequestNumber ??
+    (
+      value.step === 'pr'
+        ? value.number
+        : undefined
+    )
+  );
+
+  if (Number.isInteger(directNumber) && directNumber > 0) {
+    return {
+      number: directNumber,
+      url:
+        directPullRequest?.url ||
+        value.url ||
+        null
+    };
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findJobPullRequest(item, visited);
+
+      if (found) {
+        return found;
+      }
+    }
+
+    return null;
+  }
+
+  for (const nested of Object.values(value)) {
+    const found = findJobPullRequest(nested, visited);
+
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+function syncPullRequestFromJob(job) {
+  if (!prControlsReady) {
+    return;
+  }
+
+  const platform = normalizePrPlatform(job?.platform);
+  const pullRequest = findJobPullRequest(job?.result);
+
+  if (platform) {
+    prElements.platform.value = platform;
+  }
+
+  if (!pullRequest) {
+    prElements.number.value = '';
+    prElements.result.innerHTML =
+      '<p>Este Job todavía no tiene Pull Request asociado.</p>';
+    return;
+  }
+
+  prElements.number.value = String(pullRequest.number);
+
+  prElements.result.innerHTML = `
+    <p>
+      Job asociado automáticamente al PR
+      <strong>#${escapeHtml(pullRequest.number)}</strong>.
+    </p>
+  `;
+
+  if (prElements.token.value.trim()) {
+    inspectCurrentPullRequest();
+  }
+}
+
 function renderJobDetail(job) {
   const status = normalizeJobStatus(job.status);
 
@@ -332,6 +442,8 @@ function renderJobDetail(job) {
       ` : ''}
     </div>
   `;
+
+  syncPullRequestFromJob(job);
 }
 
 async function fetchJobs() {
@@ -554,6 +666,38 @@ const prElements = {
   reject: document.getElementById('pr-reject'),
   result: document.getElementById('pr-result')
 };
+
+prControlsReady = true;
+
+try {
+  const savedToken =
+    sessionStorage.getItem('elankav.prApprovalToken');
+
+  if (savedToken) {
+    prElements.token.value = savedToken;
+  }
+} catch (error) {
+  console.warn('No fue posible recuperar el token de sesión:', error);
+}
+
+prElements.token.addEventListener('input', () => {
+  try {
+    const token = prElements.token.value.trim();
+
+    if (token) {
+      sessionStorage.setItem(
+        'elankav.prApprovalToken',
+        token
+      );
+    } else {
+      sessionStorage.removeItem(
+        'elankav.prApprovalToken'
+      );
+    }
+  } catch (error) {
+    console.warn('No fue posible guardar el token de sesión:', error);
+  }
+});
 
 function getPrInput() {
   const platform = prElements.platform.value.trim();
