@@ -27,14 +27,11 @@ function nowMilliseconds() {
 }
 
 async function checkService(service, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const result = await get(service.url, {
+    timeout: timeoutMs
+  });
 
-  const startedAt = nowMilliseconds();
-
-  try {
-    const result = await get(service.url);
-
+  if (result.ok || result.status !== null) {
     return {
       ...service,
       online: true,
@@ -43,26 +40,21 @@ async function checkService(service, timeoutMs = DEFAULT_TIMEOUT_MS) {
       response_time_ms: result.elapsed,
       checked_at: new Date().toISOString()
     };
-
-  } catch (error) {
-
-    const timeoutError = error?.name === 'AbortError';
-
-    return {
-      ...service,
-      online: false,
-      status: timeoutError ? 'timeout' : 'offline',
-      http_status: null,
-      response_time_ms: result.elapsed,
-      error: timeoutError
-        ? `Tiempo agotado (${timeoutMs} ms)`
-        : error.message,
-      checked_at: new Date().toISOString()
-    };
-
-  } finally {
-    clearTimeout(timeout);
   }
+
+  const timeoutError = result.error?.name === 'AbortError';
+
+  return {
+    ...service,
+    online: false,
+    status: timeoutError ? 'timeout' : 'offline',
+    http_status: null,
+    response_time_ms: result.elapsed,
+    error: timeoutError
+      ? `Tiempo agotado (${timeoutMs} ms)`
+      : result.error?.message || 'Error HTTP desconocido',
+    checked_at: new Date().toISOString()
+  };
 }
 
 async function getEcosystemStatus() {
