@@ -24,8 +24,10 @@ function createJob({ platform, task, type = JOB_TYPES.CODE }) {
 }
 
 const { githubHealth } = require('./jobGithub');
+const { openaiHealth } = require('./jobOpenAI');
 
 module.exports = {
+  openaiHealth,
   githubHealth,
   createJob,
   getJob,
