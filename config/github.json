@@ -16,5 +16,11 @@
     "owner": "elansuministros-oss",
     "repo": "elankav-core",
     "branch": "main"
+  },
+  {
+    "id": "elankav-platform",
+    "owner": "elansuministros-oss",
+    "repo": "elankav-platform",
+    "branch": "main"
   }
 ]
