@@ -1,0 +1,38 @@
+[
+  {
+    "id": "elanvisual",
+    "name": "ELANVISUAL",
+    "url": "https://visual.elankav.com",
+    "category": "Producción"
+  },
+  {
+    "id": "elanpet",
+    "name": "ELANPET",
+    "url": "https://pet.elankav.com",
+    "category": "Producción"
+  },
+  {
+    "id": "elankav-core",
+    "name": "ELANKAV CORE",
+    "url": "https://elankav-core.vercel.app",
+    "category": "Core / IA"
+  },
+  {
+    "id": "elankav-platform",
+    "name": "ELANKAV PLATFORM",
+    "url": "https://elankav-platform.vercel.app",
+    "category": "Plataforma"
+  },
+  {
+    "id": "waha",
+    "name": "WAHA",
+    "url": "https://waha.elankav.com",
+    "category": "Integración"
+  },
+  {
+    "id": "orchestrator",
+    "name": "ORCHESTRATOR",
+    "url": "https://orchestrator.elankav.com/health",
+    "category": "Centro de Control"
+  }
+]

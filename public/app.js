@@ -1,10 +1,17 @@
 const elements = {
-  total: document.getElementById('docker-total'),
-  running: document.getElementById('docker-running'),
-  stopped: document.getElementById('docker-stopped'),
-  checked: document.getElementById('docker-checked'),
-  grid: document.getElementById('docker-grid'),
-  globalStatus: document.getElementById('global-status')
+  globalStatus: document.getElementById('global-status'),
+
+  ecosystemTotal: document.getElementById('ecosystem-total'),
+  ecosystemOnline: document.getElementById('ecosystem-online'),
+  ecosystemOffline: document.getElementById('ecosystem-offline'),
+  ecosystemChecked: document.getElementById('ecosystem-checked'),
+  ecosystemGrid: document.getElementById('ecosystem-grid'),
+
+  dockerTotal: document.getElementById('docker-total'),
+  dockerRunning: document.getElementById('docker-running'),
+  dockerStopped: document.getElementById('docker-stopped'),
+  dockerChecked: document.getElementById('docker-checked'),
+  dockerGrid: document.getElementById('docker-grid')
 };
 
 function escapeHtml(value) {
@@ -25,6 +32,35 @@ function renderRow(label, value) {
   `;
 }
 
+function renderService(service) {
+  const stateClass = service.online ? '' : ' offline';
+  const stateLabel = service.online ? 'ONLINE' : 'OFFLINE';
+
+  return `
+    <article class="service-card${stateClass}">
+      <span class="service-category">
+        ${escapeHtml(service.category)}
+      </span>
+
+      <h3>${escapeHtml(service.name)}</h3>
+
+      <span class="state">${stateLabel}</span>
+
+      <div class="data-list">
+        ${renderRow('HTTP', service.http_status ?? 'Sin respuesta')}
+        ${renderRow('Respuesta', `${service.response_time_ms} ms`)}
+        ${renderRow('Estado', service.status)}
+      </div>
+
+      <a href="${escapeHtml(service.url)}"
+         target="_blank"
+         rel="noreferrer">
+        Abrir servicio
+      </a>
+    </article>
+  `;
+}
+
 function renderContainer(container) {
   const stats = container.stats || {};
   const stateClass = container.running ? '' : ' offline';
@@ -33,6 +69,7 @@ function renderContainer(container) {
   return `
     <article class="docker-card${stateClass}">
       <span class="state">${stateLabel}</span>
+
       <h3>${escapeHtml(container.name)}</h3>
 
       <div class="data-list">
@@ -46,43 +83,87 @@ function renderContainer(container) {
   `;
 }
 
+function updateGlobalStatus(ecosystem, docker) {
+  const ecosystemHealthy = ecosystem?.healthy === true;
+  const dockerHealthy = docker?.stopped === 0;
+
+  if (ecosystemHealthy && dockerHealthy) {
+    elements.globalStatus.textContent = '● SISTEMA OPERATIVO';
+    elements.globalStatus.className = 'global-status online';
+    return;
+  }
+
+  elements.globalStatus.textContent = '● REVISIÓN REQUERIDA';
+  elements.globalStatus.className = 'global-status offline';
+}
+
+async function loadEcosystemStatus() {
+  const response = await fetch('/api/ecosystem', {
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ecosistema HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  elements.ecosystemTotal.textContent = data.total;
+  elements.ecosystemOnline.textContent = data.online;
+  elements.ecosystemOffline.textContent = data.offline;
+
+  elements.ecosystemChecked.textContent = data.checked_at
+    ? `Actualizado: ${new Date(data.checked_at).toLocaleString('es-NI')}`
+    : 'Estado actualizado';
+
+  elements.ecosystemGrid.innerHTML = data.services.length
+    ? data.services.map(renderService).join('')
+    : '<div class="message">No se registraron servicios.</div>';
+
+  return data;
+}
+
 async function loadDockerStatus() {
+  const response = await fetch('/api/docker', {
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    throw new Error(`Docker HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  elements.dockerTotal.textContent = data.total;
+  elements.dockerRunning.textContent = data.running;
+  elements.dockerStopped.textContent = data.stopped;
+
+  elements.dockerChecked.textContent = data.checked_at
+    ? `Actualizado: ${new Date(data.checked_at).toLocaleString('es-NI')}`
+    : 'Estado actualizado';
+
+  elements.dockerGrid.innerHTML = data.containers.length
+    ? data.containers.map(renderContainer).join('')
+    : '<div class="message">No se detectaron contenedores.</div>';
+
+  return data;
+}
+
+async function refreshDashboard() {
   try {
-    const response = await fetch('/api/docker', { cache: 'no-store' });
+    const [ecosystem, docker] = await Promise.all([
+      loadEcosystemStatus(),
+      loadDockerStatus()
+    ]);
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    elements.total.textContent = data.total;
-    elements.running.textContent = data.running;
-    elements.stopped.textContent = data.stopped;
-
-    elements.globalStatus.textContent =
-      data.stopped === 0 ? '● SISTEMA OPERATIVO' : '● REVISIÓN REQUERIDA';
-
-    elements.globalStatus.className =
-      data.stopped === 0
-        ? 'global-status online'
-        : 'global-status offline';
-
-    elements.checked.textContent = data.checked_at
-      ? `Actualizado: ${new Date(data.checked_at).toLocaleString('es-NI')}`
-      : 'Estado actualizado';
-
-    elements.grid.innerHTML = data.containers.length
-      ? data.containers.map(renderContainer).join('')
-      : '<div class="message">No se detectaron contenedores.</div>';
+    updateGlobalStatus(ecosystem, docker);
   } catch (error) {
     elements.globalStatus.textContent = '● SIN CONEXIÓN';
     elements.globalStatus.className = 'global-status offline';
-    elements.checked.textContent = 'No fue posible consultar Docker';
-    elements.grid.innerHTML =
-      `<div class="message">Error: ${escapeHtml(error.message)}</div>`;
+
+    console.error('Dashboard refresh error:', error);
   }
 }
 
-loadDockerStatus();
-setInterval(loadDockerStatus, 15000);
+refreshDashboard();
+setInterval(refreshDashboard, 30000);

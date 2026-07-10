@@ -3,10 +3,11 @@ const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 const { getDockerStatus } = require('./adapters/dockerAdapter');
+const { getEcosystemStatus } = require('./adapters/ecosystemAdapter');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
-const VERSION = '0.2.0';
+const VERSION = '0.4.0';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -458,6 +459,21 @@ function renderDashboard() {
 }
 
 const server = http.createServer(async (req, res) => {
+  if (req.url === '/api/ecosystem') {
+    try {
+      const ecosystemStatus = await getEcosystemStatus();
+      sendJson(res, 200, ecosystemStatus);
+    } catch (error) {
+      sendJson(res, 503, {
+        available: false,
+        error: 'No fue posible consultar el ecosistema',
+        detail: error.message,
+        checked_at: new Date().toISOString()
+      });
+    }
+    return;
+  }
+
   if (req.url === '/api/docker') {
     try {
       const dockerStatus = await getDockerStatus();

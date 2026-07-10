@@ -12,31 +12,62 @@
     <header class="hero">
       <div>
         <span class="eyebrow">ELANKAV ORCHESTRATOR</span>
-        <h1>Infraestructura Docker</h1>
-        <p>Lectura operativa en tiempo real del VPS ELANKAV.</p>
+        <h1>Centro de Control</h1>
+        <p>Estado operativo en tiempo real del ecosistema ELANKAV.</p>
       </div>
-      <span id="global-status" class="global-status">Consultando...</span>
+
+      <span id="global-status" class="global-status">
+        Consultando...
+      </span>
     </header>
+
+    <div class="section-heading">
+      <h2>Ecosistema ELANKAV</h2>
+      <span id="ecosystem-checked">Esperando datos...</span>
+    </div>
+
+    <section class="summary">
+      <article>
+        <span>Servicios</span>
+        <strong id="ecosystem-total">—</strong>
+      </article>
+
+      <article>
+        <span>Online</span>
+        <strong id="ecosystem-online">—</strong>
+      </article>
+
+      <article>
+        <span>Offline</span>
+        <strong id="ecosystem-offline">—</strong>
+      </article>
+    </section>
+
+    <section id="ecosystem-grid" class="service-grid">
+      <div class="message">Consultando servicios...</div>
+    </section>
+
+    <div class="section-heading">
+      <h2>Infraestructura Docker</h2>
+      <span id="docker-checked">Esperando datos...</span>
+    </div>
 
     <section class="summary">
       <article>
         <span>Total</span>
         <strong id="docker-total">—</strong>
       </article>
+
       <article>
         <span>Activos</span>
         <strong id="docker-running">—</strong>
       </article>
+
       <article>
         <span>Detenidos</span>
         <strong id="docker-stopped">—</strong>
       </article>
     </section>
-
-    <div class="section-heading">
-      <h2>Contenedores</h2>
-      <span id="docker-checked">Esperando datos...</span>
-    </div>
 
     <section id="docker-grid" class="docker-grid">
       <div class="message">Consultando Docker...</div>
