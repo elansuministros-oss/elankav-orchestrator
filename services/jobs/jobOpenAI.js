@@ -1,9 +1,10 @@
-const { createResponse } = require('../openaiService');
+const { generateText } = require('../openaiService');
 
 async function openaiHealth() {
   try {
-    const response = await createResponse({
-      input: 'Responder únicamente: OK'
+    const response = await generateText({
+      input: 'Responder únicamente: OK',
+      instructions: 'Prueba técnica de conectividad. No agregues explicación.'
     });
 
     return {
