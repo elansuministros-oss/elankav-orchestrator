@@ -3,26 +3,30 @@ const {
   getJob,
   listJobs
 } = require('./jobs/jobEngine');
+const { executeJob } = require('./jobs/jobExecutor');
+
+function normalizeRequiredString(value, fieldName) {
+  const normalized =
+    typeof value === 'string' ? value.trim() : '';
+
+  if (!normalized) {
+    throw new Error(`${fieldName} es obligatorio`);
+  }
+
+  return normalized;
+}
 
 function createJobRequest({ platform, task, type }) {
   const normalizedPlatform =
-    typeof platform === 'string' ? platform.trim() : '';
+    normalizeRequiredString(platform, 'platform');
 
   const normalizedTask =
-    typeof task === 'string' ? task.trim() : '';
+    normalizeRequiredString(task, 'task');
 
   const normalizedType =
     typeof type === 'string' && type.trim()
       ? type.trim()
       : undefined;
-
-  if (!normalizedPlatform) {
-    throw new Error('platform es obligatorio');
-  }
-
-  if (!normalizedTask) {
-    throw new Error('task es obligatorio');
-  }
 
   const job = createJob({
     platform: normalizedPlatform,
@@ -30,8 +34,15 @@ function createJobRequest({ platform, task, type }) {
     ...(normalizedType ? { type: normalizedType } : {})
   });
 
+  executeJob(job.id).catch(error => {
+    console.error(
+      `[JOB_EXECUTION_ERROR] ${job.id}: ${error.message}`
+    );
+  });
+
   return {
     success: true,
+    accepted: true,
     jobId: job.id,
     status: job.status,
     platform: job.platform,

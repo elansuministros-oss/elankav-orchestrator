@@ -1,10 +1,12 @@
 const { runCodexTask } = require('../codexService');
 
-async function codexHealth() {
+async function codexAnalyze(task) {
+  if (!task) {
+    throw new Error('task requerida para Codex');
+  }
+
   try {
-    const result = await runCodexTask({
-      task: 'Validar conexión con ELANKAV Orchestrator'
-    });
+    const result = await runCodexTask({ task });
 
     const output = [
       result.lastMessage,
@@ -14,7 +16,7 @@ async function codexHealth() {
 
     return {
       available: true,
-      healthy: output.includes('CODEX_OK'),
+      healthy: Boolean(result.success),
       model: result.model,
       output
     };
@@ -27,6 +29,13 @@ async function codexHealth() {
   }
 }
 
+async function codexHealth() {
+  return codexAnalyze(
+    'Validar conexión con ELANKAV Orchestrator'
+  );
+}
+
 module.exports = {
-  codexHealth,
+  codexAnalyze,
+  codexHealth
 };
