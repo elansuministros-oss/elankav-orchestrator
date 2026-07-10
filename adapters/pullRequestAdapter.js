@@ -51,17 +51,6 @@ function assertSafeBranch(branch, label) {
     );
   }
 
-  if (
-    label === 'baseBranch' &&
-    (
-      branch === 'main' ||
-      branch === 'master'
-    )
-  ) {
-    throw new Error(
-      'Pull Request directo a main/master bloqueado'
-    );
-  }
 }
 
 async function findExistingPullRequest({
