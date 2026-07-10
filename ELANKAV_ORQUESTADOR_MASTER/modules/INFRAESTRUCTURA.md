@@ -56,3 +56,31 @@ No agregar todavía:
 - Escritura en Git.
 - Ejecución libre de comandos.
 - Secretos.
+
+## ORCH-003 — DOCKER EN TIEMPO REAL
+
+Endpoint:
+- /api/docker
+
+Adapter:
+- adapters/dockerAdapter.js
+
+Datos expuestos:
+- nombre
+- estado
+- tiempo activo
+- CPU
+- memoria
+- procesos
+
+Datos internos no expuestos:
+- container ID
+- imagen
+- puertos
+- network I/O
+- block I/O
+
+Estado validado:
+- waha: running
+- nginx-proxy-manager: running
+- portainer: running

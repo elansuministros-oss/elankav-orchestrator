@@ -35,3 +35,44 @@ Producción activa en https://orchestrator.elankav.com
 
 Estado:
 COMPLETADO
+
+## 2026-07-10 — ORCH-003
+
+Proyecto:
+ELANKAV ORCHESTRATOR
+
+Movimiento:
+Docker Adapter en tiempo real
+
+Cambios:
+- Se creó adapters/dockerAdapter.js.
+- Se agregó lectura segura de contenedores Docker.
+- Se agregó endpoint /api/docker.
+- Se integraron métricas de CPU, memoria y procesos.
+- Se sanitizó la respuesta pública.
+- Se eliminaron IDs, imágenes, puertos y tráfico interno de la API.
+
+Contenedores detectados:
+- waha
+- nginx-proxy-manager
+- portainer
+
+Build:
+- node --check adapters/dockerAdapter.js: OK
+- node --check server.js: OK
+- git diff --check: OK
+
+QA:
+- Servicio systemd activo.
+- Endpoint /api/docker operativo.
+- 3 contenedores detectados.
+- 3 contenedores activos.
+- 0 contenedores detenidos.
+
+Riesgos:
+- El endpoint es solo de lectura.
+- No permite iniciar, detener ni reiniciar contenedores.
+- No se agregaron credenciales ni secretos.
+
+Estado:
+COMPLETADO

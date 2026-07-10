@@ -1,5 +1,6 @@
 const http = require('node:http');
 const os = require('node:os');
+const { getDockerStatus } = require('./adapters/dockerAdapter');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -432,7 +433,22 @@ function renderDashboard() {
 </html>`;
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
+  if (req.url === '/api/docker') {
+    try {
+      const dockerStatus = await getDockerStatus();
+      sendJson(res, 200, dockerStatus);
+    } catch (error) {
+      sendJson(res, 503, {
+        available: false,
+        error: 'No fue posible consultar Docker',
+        detail: error.message,
+        checked_at: new Date().toISOString()
+      });
+    }
+    return;
+  }
+
   if (req.url === '/health' || req.url === '/api/health') {
     sendJson(res, 200, {
       service: 'ELANKAV Orchestrator',
