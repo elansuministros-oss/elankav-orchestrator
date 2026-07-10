@@ -1,3 +1,4 @@
+require("dotenv").config({ path: "/etc/elankav-orchestrator.env" });
 const http = require('node:http');
 const os = require('node:os');
 const fs = require('node:fs');
