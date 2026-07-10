@@ -250,3 +250,275 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ORCH-015A — Job Engine */
+
+.job-control {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+
+.job-panel,
+.job-detail {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: linear-gradient(145deg, #152238, #0c1728);
+}
+
+.job-panel h3 {
+  margin: 9px 0 20px;
+  font-size: 20px;
+}
+
+.job-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 14px;
+}
+
+.job-form {
+  display: grid;
+  gap: 16px;
+}
+
+.job-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.job-form select,
+.job-form textarea {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  outline: none;
+  background: #08111f;
+  color: var(--text);
+  font: inherit;
+}
+
+.job-form textarea {
+  min-height: 145px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.job-form select:focus,
+.job-form textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, .1);
+}
+
+.job-form button,
+.secondary-button,
+.job-list-button {
+  padding: 12px 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.job-form button {
+  border-color: rgba(56, 189, 248, .5);
+  background: rgba(56, 189, 248, .14);
+}
+
+.job-form button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.secondary-button {
+  background: transparent;
+  font-size: 12px;
+}
+
+.form-message {
+  min-height: 18px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.form-message.success {
+  color: #86efac;
+}
+
+.form-message.error {
+  color: #fca5a5;
+}
+
+.jobs-list {
+  display: grid;
+  gap: 10px;
+  max-height: 430px;
+  overflow-y: auto;
+}
+
+.job-list-button {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  text-align: left;
+  background: rgba(8, 17, 31, .58);
+}
+
+.job-list-button:hover,
+.job-list-button.active {
+  border-color: var(--blue);
+  background: rgba(56, 189, 248, .08);
+}
+
+.job-list-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-list-platform {
+  color: var(--blue);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.job-list-task {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-status {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.job-status.running,
+.job-status.executing,
+.job-status.processing {
+  color: #7dd3fc;
+}
+
+.job-status.completed,
+.job-status.success,
+.job-status.finished {
+  color: #86efac;
+}
+
+.job-status.failed,
+.job-status.error {
+  color: #fca5a5;
+}
+
+.job-detail {
+  margin-top: 16px;
+}
+
+.job-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.job-detail-header h3 {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.job-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.job-detail-block {
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, .13);
+  border-radius: 12px;
+  background: rgba(8, 17, 31, .48);
+}
+
+.job-detail-block.full {
+  grid-column: 1 / -1;
+}
+
+.job-detail-block span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.job-detail-block strong,
+.job-detail-block p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.job-result {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #cbd5e1;
+  font: 12px/1.55 Consolas, monospace;
+}
+
+.job-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.job-step {
+  padding: 10px 12px;
+  border-left: 3px solid var(--line);
+  background: rgba(8, 17, 31, .45);
+  font-size: 12px;
+}
+
+@media (max-width: 820px) {
+  .job-control,
+  .job-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .job-detail-block.full {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .job-panel,
+  .job-detail {
+    padding: 16px;
+  }
+
+  .job-panel-heading,
+  .job-detail-header {
+    flex-direction: column;
+  }
+
+  .secondary-button,
+  .job-form button {
+    width: 100%;
+  }
+}

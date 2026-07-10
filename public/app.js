@@ -158,3 +158,330 @@ updateGlobalStatus(ecosystem,docker);
 
 refreshDashboard();
 setInterval(refreshDashboard, 30000);
+
+
+// ORCH-015A — Job Engine
+
+const jobElements = {
+  form: document.getElementById('job-form'),
+  platform: document.getElementById('job-platform'),
+  task: document.getElementById('job-task'),
+  submit: document.getElementById('job-submit'),
+  message: document.getElementById('job-form-message'),
+  checked: document.getElementById('jobs-checked'),
+  refresh: document.getElementById('jobs-refresh'),
+  list: document.getElementById('jobs-list'),
+  detail: document.getElementById('job-detail')
+};
+
+let activeJobId = null;
+let jobsRefreshRunning = false;
+
+function normalizeJobStatus(status) {
+  return String(status || 'unknown')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+}
+
+function formatJobDate(value) {
+  if (!value) {
+    return 'No disponible';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString('es-NI');
+}
+
+function renderJobListItem(job) {
+  const status = normalizeJobStatus(job.status);
+  const activeClass = job.id === activeJobId ? ' active' : '';
+
+  return `
+    <button
+      type="button"
+      class="job-list-button${activeClass}"
+      data-job-id="${escapeHtml(job.id)}"
+    >
+      <span class="job-list-top">
+        <span class="job-list-platform">
+          ${escapeHtml(job.platform)}
+        </span>
+
+        <span class="job-status ${escapeHtml(status)}">
+          ${escapeHtml(job.status || 'Sin estado')}
+        </span>
+      </span>
+
+      <span class="job-list-task">
+        ${escapeHtml(job.task)}
+      </span>
+
+      <span class="job-list-platform">
+        ${escapeHtml(formatJobDate(job.createdAt))}
+      </span>
+    </button>
+  `;
+}
+
+function renderJobSteps(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return '<p>No hay pasos registrados.</p>';
+  }
+
+  return `
+    <div class="job-steps">
+      ${steps.map((step, index) => {
+        const label =
+          typeof step === 'string'
+            ? step
+            : step?.name ||
+              step?.label ||
+              step?.status ||
+              JSON.stringify(step);
+
+        return `
+          <div class="job-step">
+            ${index + 1}. ${escapeHtml(label)}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderJobResult(value) {
+  if (value === null || value === undefined || value === '') {
+    return 'Resultado todavía no disponible.';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function renderJobDetail(job) {
+  const status = normalizeJobStatus(job.status);
+
+  jobElements.detail.innerHTML = `
+    <div class="job-detail-header">
+      <div>
+        <span class="service-category">
+          DETALLE DEL JOB
+        </span>
+        <h3>${escapeHtml(job.id)}</h3>
+      </div>
+
+      <span class="job-status ${escapeHtml(status)}">
+        ${escapeHtml(job.status || 'Sin estado')}
+      </span>
+    </div>
+
+    <div class="job-detail-grid">
+      <div class="job-detail-block">
+        <span>Plataforma</span>
+        <strong>${escapeHtml(job.platform)}</strong>
+      </div>
+
+      <div class="job-detail-block">
+        <span>Rama temporal</span>
+        <strong>${escapeHtml(job.branch || 'Pendiente')}</strong>
+      </div>
+
+      <div class="job-detail-block">
+        <span>Creado</span>
+        <strong>${escapeHtml(formatJobDate(job.createdAt))}</strong>
+      </div>
+
+      <div class="job-detail-block">
+        <span>Finalizado</span>
+        <strong>${escapeHtml(formatJobDate(job.finishedAt))}</strong>
+      </div>
+
+      <div class="job-detail-block full">
+        <span>Instrucción</span>
+        <p>${escapeHtml(job.task)}</p>
+      </div>
+
+      <div class="job-detail-block full">
+        <span>Pasos</span>
+        ${renderJobSteps(job.steps)}
+      </div>
+
+      <div class="job-detail-block full">
+        <span>Resultado</span>
+        <pre class="job-result">${escapeHtml(renderJobResult(job.result))}</pre>
+      </div>
+
+      ${job.error ? `
+        <div class="job-detail-block full">
+          <span>Error</span>
+          <pre class="job-result">${escapeHtml(renderJobResult(job.error))}</pre>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+async function fetchJobs() {
+  const response = await fetch('/api/jobs', {
+    cache: 'no-store'
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.error || `Jobs HTTP ${response.status}`);
+  }
+
+  return Array.isArray(data.jobs) ? data.jobs : [];
+}
+
+async function fetchJob(jobId) {
+  const response = await fetch(
+    `/api/jobs/${encodeURIComponent(jobId)}`,
+    { cache: 'no-store' }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.error || `Job HTTP ${response.status}`);
+  }
+
+  return data.job;
+}
+
+async function refreshJobs({ refreshDetail = true } = {}) {
+  if (jobsRefreshRunning) {
+    return;
+  }
+
+  jobsRefreshRunning = true;
+
+  try {
+    const jobs = await fetchJobs();
+
+    jobElements.checked.textContent =
+      `Actualizado: ${new Date().toLocaleString('es-NI')}`;
+
+    jobElements.list.innerHTML = jobs.length
+      ? jobs.map(renderJobListItem).join('')
+      : '<div class="message">No hay Jobs registrados.</div>';
+
+    if (refreshDetail && activeJobId) {
+      const job = await fetchJob(activeJobId);
+      renderJobDetail(job);
+    }
+  } catch (error) {
+    jobElements.checked.textContent = 'No fue posible consultar Jobs';
+    jobElements.list.innerHTML = `
+      <div class="message">
+        ${escapeHtml(error.message)}
+      </div>
+    `;
+    console.error('Jobs refresh error:', error);
+  } finally {
+    jobsRefreshRunning = false;
+  }
+}
+
+async function openJob(jobId) {
+  activeJobId = jobId;
+
+  try {
+    const job = await fetchJob(jobId);
+    renderJobDetail(job);
+    await refreshJobs({ refreshDetail: false });
+  } catch (error) {
+    jobElements.detail.innerHTML = `
+      <div class="message">
+        ${escapeHtml(error.message)}
+      </div>
+    `;
+  }
+}
+
+async function createJob(event) {
+  event.preventDefault();
+
+  const platform = jobElements.platform.value.trim();
+  const task = jobElements.task.value.trim();
+
+  if (!platform || !task) {
+    jobElements.message.textContent =
+      'Plataforma e instrucción son obligatorias.';
+    jobElements.message.className = 'form-message error';
+    return;
+  }
+
+  jobElements.submit.disabled = true;
+  jobElements.message.textContent = 'Creando Job...';
+  jobElements.message.className = 'form-message';
+
+  try {
+    const response = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        platform,
+        task
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.success !== true) {
+      throw new Error(data.error || `Job HTTP ${response.status}`);
+    }
+
+    activeJobId = data.jobId;
+    jobElements.task.value = '';
+    jobElements.message.textContent =
+      `Job creado: ${data.jobId}`;
+    jobElements.message.className = 'form-message success';
+
+    await refreshJobs({ refreshDetail: false });
+    await openJob(data.jobId);
+  } catch (error) {
+    jobElements.message.textContent = error.message;
+    jobElements.message.className = 'form-message error';
+  } finally {
+    jobElements.submit.disabled = false;
+  }
+}
+
+jobElements.form.addEventListener('submit', createJob);
+
+jobElements.refresh.addEventListener('click', () => {
+  refreshJobs();
+});
+
+jobElements.list.addEventListener('click', event => {
+  const button = event.target.closest('[data-job-id]');
+
+  if (!button) {
+    return;
+  }
+
+  openJob(button.dataset.jobId);
+});
+
+refreshJobs();
+
+setInterval(() => {
+  refreshJobs();
+}, 5000);

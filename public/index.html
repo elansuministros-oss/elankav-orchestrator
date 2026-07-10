@@ -48,6 +48,69 @@
     </section>
 
     <div class="section-heading">
+      <h2>Operaciones automatizadas</h2>
+      <span id="jobs-checked">Esperando datos...</span>
+    </div>
+
+    <section class="job-control">
+      <article class="job-panel">
+        <span class="service-category">JOB ENGINE</span>
+        <h3>Crear Job</h3>
+
+        <form id="job-form" class="job-form">
+          <label>
+            Plataforma
+            <select id="job-platform" required>
+              <option value="elanvisual">ELANVISUAL</option>
+              <option value="elanpet">ELANPET</option>
+              <option value="elankav-core">ELANKAV CORE</option>
+            </select>
+          </label>
+
+          <label>
+            Instrucción
+            <textarea
+              id="job-task"
+              rows="6"
+              maxlength="12000"
+              placeholder="Describí el cambio exacto que debe realizar Codex."
+              required
+            ></textarea>
+          </label>
+
+          <button id="job-submit" type="submit">
+            Crear Job
+          </button>
+
+          <p id="job-form-message" class="form-message"></p>
+        </form>
+      </article>
+
+      <article class="job-panel">
+        <div class="job-panel-heading">
+          <div>
+            <span class="service-category">HISTORIAL</span>
+            <h3>Jobs recientes</h3>
+          </div>
+
+          <button id="jobs-refresh" class="secondary-button" type="button">
+            Actualizar
+          </button>
+        </div>
+
+        <div id="jobs-list" class="jobs-list">
+          <div class="message">Consultando Jobs...</div>
+        </div>
+      </article>
+    </section>
+
+    <section id="job-detail" class="job-detail">
+      <div class="message">
+        Seleccioná un Job para ver su estado y resultado.
+      </div>
+    </section>
+
+    <div class="section-heading">
       <h2>Infraestructura Docker</h2>
       <span id="docker-checked">Esperando datos...</span>
     </div>
