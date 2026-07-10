@@ -23,7 +23,10 @@ function createJob({ platform, task, type = JOB_TYPES.CODE }) {
   return addJob(job);
 }
 
+const { githubHealth } = require('./jobGithub');
+
 module.exports = {
+  githubHealth,
   createJob,
   getJob,
   listJobs,
