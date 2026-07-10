@@ -283,7 +283,8 @@ function normalizePrPlatform(platform) {
   const aliases = {
     elanvisual: 'elanvisual',
     elanpet: 'elanpet',
-    'elankav-core': 'elankav-core'
+    'elankav-core': 'elankav-core',
+    'elankav-platform': 'elankav-platform'
   };
 
   return aliases[value] || '';
