@@ -17,6 +17,10 @@ const {
   publishJobChanges
 } = require('../gitPublishService');
 
+const {
+  openJobPullRequest
+} = require('../pullRequestService');
+
 async function run(job) {
   if (!job) {
     throw new Error('job requerido');
@@ -127,10 +131,24 @@ async function run(job) {
     );
   }
 
+  const pullRequestResult =
+    await openJobPullRequest({
+      job,
+      workspace: workspaceResult,
+      publish: publishResult,
+      qa: qaResult
+    });
+
   result.steps.push({
     step: 'pr',
-    status: 'pending'
+    ...pullRequestResult
   });
+
+  if (!pullRequestResult.healthy) {
+    throw new Error(
+      'No fue posible crear el Pull Request'
+    );
+  }
 
   result.finishedAt = new Date().toISOString();
 
