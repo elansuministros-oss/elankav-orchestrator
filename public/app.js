@@ -97,66 +97,57 @@ function updateGlobalStatus(ecosystem, docker) {
   elements.globalStatus.className = 'global-status offline';
 }
 
-async function loadEcosystemStatus() {
-  const response = await fetch('/api/ecosystem', {
+async function loadDashboard() {
+  const response = await fetch('/api/dashboard', {
     cache: 'no-store'
   });
 
   if (!response.ok) {
-    throw new Error(`Ecosistema HTTP ${response.status}`);
+    throw new Error(`Dashboard HTTP ${response.status}`);
   }
 
-  const data = await response.json();
-
-  elements.ecosystemTotal.textContent = data.total;
-  elements.ecosystemOnline.textContent = data.online;
-  elements.ecosystemOffline.textContent = data.offline;
-
-  elements.ecosystemChecked.textContent = data.checked_at
-    ? `Actualizado: ${new Date(data.checked_at).toLocaleString('es-NI')}`
-    : 'Estado actualizado';
-
-  elements.ecosystemGrid.innerHTML = data.services.length
-    ? data.services.map(renderService).join('')
-    : '<div class="message">No se registraron servicios.</div>';
-
-  return data;
+  return response.json();
 }
 
-async function loadDockerStatus() {
-  const response = await fetch('/api/docker', {
-    cache: 'no-store'
-  });
 
-  if (!response.ok) {
-    throw new Error(`Docker HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-
-  elements.dockerTotal.textContent = data.total;
-  elements.dockerRunning.textContent = data.running;
-  elements.dockerStopped.textContent = data.stopped;
-
-  elements.dockerChecked.textContent = data.checked_at
-    ? `Actualizado: ${new Date(data.checked_at).toLocaleString('es-NI')}`
-    : 'Estado actualizado';
-
-  elements.dockerGrid.innerHTML = data.containers.length
-    ? data.containers.map(renderContainer).join('')
-    : '<div class="message">No se detectaron contenedores.</div>';
-
-  return data;
-}
 
 async function refreshDashboard() {
   try {
-    const [ecosystem, docker] = await Promise.all([
-      loadEcosystemStatus(),
-      loadDockerStatus()
-    ]);
+    const dashboard = await loadDashboard();
 
-    updateGlobalStatus(ecosystem, docker);
+const ecosystem = dashboard.data.ecosystem;
+const docker = dashboard.data.docker;
+
+elements.ecosystemTotal.textContent = ecosystem.total;
+elements.ecosystemOnline.textContent = ecosystem.online;
+elements.ecosystemOffline.textContent = ecosystem.offline;
+elements.ecosystemChecked.textContent =
+  ecosystem.checked_at
+    ? 'Actualizado: ' +
+      new Date(ecosystem.checked_at).toLocaleString('es-NI')
+    : 'Estado actualizado';
+
+elements.ecosystemGrid.innerHTML =
+  ecosystem.services.length
+    ? ecosystem.services.map(renderService).join('')
+    : '<div class="message">Sin datos</div>';
+
+elements.dockerTotal.textContent = docker.total;
+elements.dockerRunning.textContent = docker.running;
+elements.dockerStopped.textContent = docker.stopped;
+
+elements.dockerChecked.textContent =
+  docker.checked_at
+    ? 'Actualizado: ' +
+      new Date(docker.checked_at).toLocaleString('es-NI')
+    : 'Estado actualizado';
+
+elements.dockerGrid.innerHTML =
+  docker.containers.length
+    ? docker.containers.map(renderContainer).join('')
+    : '<div class="message">Sin datos</div>';
+
+updateGlobalStatus(ecosystem,docker);
   } catch (error) {
     elements.globalStatus.textContent = '● SIN CONEXIÓN';
     elements.globalStatus.className = 'global-status offline';
