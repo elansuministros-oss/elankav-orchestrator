@@ -485,3 +485,208 @@ refreshJobs();
 setInterval(() => {
   refreshJobs();
 }, 5000);
+
+// ===============================
+// ORCH-015B
+// Pull Request
+// ===============================
+
+async function fetchPullRequest(number, platform, token) {
+  const response = await fetch(
+    `/api/pull-requests/${number}?platform=${encodeURIComponent(platform)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    }
+  );
+
+  return response.json();
+}
+
+async function approvePullRequest(number, platform, token) {
+  const response = await fetch(
+    `/api/pull-requests/${number}/decision`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        platform,
+        action: 'approve',
+        confirmation: `APPROVE PR ${number}`
+      })
+    }
+  );
+
+  return response.json();
+}
+
+async function rejectPullRequest(number, platform, token, reason) {
+  const response = await fetch(
+    `/api/pull-requests/${number}/decision`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        platform,
+        action: 'reject',
+        confirmation: `REJECT PR ${number}`,
+        reason
+      })
+    }
+  );
+
+  return response.json();
+}
+
+const prElements = {
+  platform: document.getElementById('pr-platform'),
+  number: document.getElementById('pr-number'),
+  token: document.getElementById('pr-token'),
+  inspect: document.getElementById('pr-inspect'),
+  approve: document.getElementById('pr-approve'),
+  reject: document.getElementById('pr-reject'),
+  result: document.getElementById('pr-result')
+};
+
+function getPrInput() {
+  const platform = prElements.platform.value.trim();
+  const number = Number(prElements.number.value);
+  const token = prElements.token.value.trim();
+
+  if (!platform) {
+    throw new Error('Plataforma obligatoria');
+  }
+
+  if (!Number.isInteger(number) || number < 1) {
+    throw new Error('Número de PR inválido');
+  }
+
+  if (!token) {
+    throw new Error('Token obligatorio');
+  }
+
+  return {
+    platform,
+    number,
+    token
+  };
+}
+
+function renderPullRequest(data) {
+  if (data.success !== true) {
+    prElements.result.innerHTML = `
+      <p>${escapeHtml(data.error || 'No fue posible consultar el PR')}</p>
+    `;
+    return;
+  }
+
+  const pullRequest = data.pullRequest;
+  const checks = data.checks;
+
+  prElements.result.innerHTML = `
+    <div class="data-list">
+      ${renderRow('Repositorio', data.repository)}
+      ${renderRow('PR', `#${pullRequest.number}`)}
+      ${renderRow('Título', pullRequest.title)}
+      ${renderRow('Estado', pullRequest.state)}
+      ${renderRow(
+        'Checks',
+        checks.healthy
+          ? `OK (${checks.total})`
+          : `Bloqueados (${checks.total})`
+      )}
+      ${renderRow('Mergeable', pullRequest.mergeable)}
+      ${renderRow('Origen', pullRequest.headBranch)}
+      ${renderRow('Destino', pullRequest.baseBranch)}
+    </div>
+
+    <p>
+      <a
+        href="${escapeHtml(pullRequest.url)}"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Abrir Pull Request en GitHub
+      </a>
+    </p>
+  `;
+}
+
+async function inspectCurrentPullRequest() {
+  try {
+    const input = getPrInput();
+
+    prElements.result.innerHTML = '<p>Consultando PR...</p>';
+
+    const data = await fetchPullRequest(
+      input.number,
+      input.platform,
+      input.token
+    );
+
+    renderPullRequest(data);
+  } catch (error) {
+    prElements.result.innerHTML = `
+      <p>${escapeHtml(error.message)}</p>
+    `;
+  }
+}
+
+prElements.inspect.addEventListener('click', inspectCurrentPullRequest);
+
+prElements.approve.addEventListener('click', async () => {
+  try {
+    const input = getPrInput();
+
+    if (!confirm(`¿Aprobar y mergear PR #${input.number}?`)) {
+      return;
+    }
+
+    prElements.result.innerHTML = '<p>Aprobando PR...</p>';
+
+    const data = await approvePullRequest(
+      input.number,
+      input.platform,
+      input.token
+    );
+
+    renderPullRequest(data);
+  } catch (error) {
+    prElements.result.innerHTML = `
+      <p>${escapeHtml(error.message)}</p>
+    `;
+  }
+});
+
+prElements.reject.addEventListener('click', async () => {
+  try {
+    const input = getPrInput();
+    const reason = prompt('Motivo del rechazo:') || '';
+
+    if (!confirm(`¿Rechazar PR #${input.number}?`)) {
+      return;
+    }
+
+    prElements.result.innerHTML = '<p>Rechazando PR...</p>';
+
+    const data = await rejectPullRequest(
+      input.number,
+      input.platform,
+      input.token,
+      reason
+    );
+
+    renderPullRequest(data);
+  } catch (error) {
+    prElements.result.innerHTML = `
+      <p>${escapeHtml(error.message)}</p>
+    `;
+  }
+});

@@ -522,3 +522,65 @@ h1 {
     width: 100%;
   }
 }
+
+/* ORCH-015B — Pull Request */
+
+#pr-control input,
+#pr-control select {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  outline: none;
+  background: #08111f;
+  color: var(--text);
+  font: inherit;
+}
+
+#pr-control input:focus,
+#pr-control select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, .1);
+}
+
+#pr-control button {
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+  background: rgba(56, 189, 248, .12);
+}
+
+#pr-control button:hover {
+  border-color: var(--blue);
+}
+
+.pr-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+#pr-approve {
+  border-color: rgba(34, 197, 94, .45) !important;
+  background: rgba(34, 197, 94, .12) !important;
+}
+
+#pr-reject {
+  border-color: rgba(239, 68, 68, .45) !important;
+  background: rgba(239, 68, 68, .12) !important;
+}
+
+#pr-result a {
+  color: var(--blue);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .pr-actions {
+    grid-template-columns: 1fr;
+  }
+}

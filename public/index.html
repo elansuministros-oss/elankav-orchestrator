@@ -110,6 +110,49 @@
       </div>
     </section>
 
+    <section id="pr-control" class="job-detail">
+      <div class="job-detail-header">
+        <div>
+          <span class="service-category">PULL REQUEST</span>
+          <h3>Control de aprobación</h3>
+        </div>
+      </div>
+
+      <div class="job-detail-grid">
+        <div class="job-detail-block">
+          <span>Plataforma</span>
+          <select id="pr-platform">
+            <option value="elanvisual">ELANVISUAL</option>
+            <option value="elanpet">ELANPET</option>
+            <option value="elankav-core">ELANKAV CORE</option>
+          </select>
+        </div>
+
+        <div class="job-detail-block">
+          <span>Número de PR</span>
+          <input id="pr-number" type="number" min="1" placeholder="1">
+        </div>
+
+        <div class="job-detail-block full">
+          <span>Token de aprobación</span>
+          <input id="pr-token" type="password" autocomplete="off">
+        </div>
+
+        <div class="job-detail-block full">
+          <button id="pr-inspect" type="button">Consultar PR</button>
+        </div>
+
+        <div id="pr-result" class="job-detail-block full">
+          <p>Sin consulta.</p>
+        </div>
+
+        <div class="job-detail-block full pr-actions">
+          <button id="pr-approve" type="button">Aprobar PR</button>
+          <button id="pr-reject" type="button">Rechazar PR</button>
+        </div>
+      </div>
+    </section>
+
     <div class="section-heading">
       <h2>Infraestructura Docker</h2>
       <span id="docker-checked">Esperando datos...</span>
