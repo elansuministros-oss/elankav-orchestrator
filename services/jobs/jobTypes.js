@@ -11,6 +11,7 @@ const JOB_STATUS = Object.freeze({
 
 const JOB_STEPS = Object.freeze([
   'github',
+  'workspace',
   'openai',
   'codex',
   'qa',

@@ -2,6 +2,10 @@ const { githubHealth } = require('./jobGithub');
 const { openaiHealth } = require('./jobOpenAI');
 const { codexAnalyze } = require('./jobCodex');
 
+const {
+  prepareJobWorkspace
+} = require('../repositoryWorkspaceService');
+
 async function run(job) {
   if (!job) {
     throw new Error('job requerido');
@@ -23,6 +27,20 @@ async function run(job) {
   if (!githubResult.healthy) {
     throw new Error(
       githubResult.error || 'GitHub no está saludable'
+    );
+  }
+
+  const workspaceResult =
+    await prepareJobWorkspace(job);
+
+  result.steps.push({
+    step: 'workspace',
+    ...workspaceResult
+  });
+
+  if (!workspaceResult.healthy) {
+    throw new Error(
+      'No fue posible preparar el workspace'
     );
   }
 
