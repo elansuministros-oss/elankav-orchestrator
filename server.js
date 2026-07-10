@@ -7,6 +7,7 @@ const { getDockerStatus } = require('./adapters/dockerAdapter');
 const { getEcosystemStatus } = require('./adapters/ecosystemAdapter');
 const { getGithubStatus } = require('./adapters/githubAdapter');
 const { getDashboardStatus } = require('./adapters/dashboardAdapter');
+const { handleJobApi } = require('./api/jobApi');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -462,6 +463,16 @@ function renderDashboard() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const jobApiHandled = await handleJobApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (jobApiHandled) {
+    return;
+  }
+
   if (req.url === '/api/dashboard') {
     try {
       const dashboardStatus = await getDashboardStatus();
