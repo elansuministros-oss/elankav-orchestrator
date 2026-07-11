@@ -84,7 +84,16 @@ const projects = [
     branch: 'main',
     status: 'Operativo',
     type: 'Centro de Control'
-  }
+  },
+  {
+    name: 'ELAN AI',
+    service: 'elan-ai',
+    url: 'https://github.com/elansuministros-oss/elan-ai',
+    branch: 'main',
+    status: 'Operativo',
+    type: 'Inteligencia Operacional'
+  },
+
 ];
 
 function sendJson(res, statusCode, data) {

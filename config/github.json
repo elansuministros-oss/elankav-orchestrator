@@ -22,5 +22,11 @@
     "owner": "elansuministros-oss",
     "repo": "elankav-platform",
     "branch": "main"
+  },
+  {
+    "id": "elan-ai",
+    "owner": "elansuministros-oss",
+    "repo": "elan-ai",
+    "branch": "main"
   }
 ]

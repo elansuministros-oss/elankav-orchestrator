@@ -284,7 +284,8 @@ function normalizePrPlatform(platform) {
     elanvisual: 'elanvisual',
     elanpet: 'elanpet',
     'elankav-core': 'elankav-core',
-    'elankav-platform': 'elankav-platform'
+    'elankav-platform': 'elankav-platform',
+    'elan-ai': 'elan-ai'
   };
 
   return aliases[value] || '';
