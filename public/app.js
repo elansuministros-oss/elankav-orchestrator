@@ -394,19 +394,9 @@ function renderJobDetail(job) {
         <h3>${escapeHtml(job.id)}</h3>
       </div>
 
-      <div class="job-detail-actions">
-        <span class="job-status ${escapeHtml(status)}">
-          ${escapeHtml(job.status || 'Sin estado')}
-        </span>
-
-        <button
-          id="job-detail-copy"
-          class="secondary-button"
-          type="button"
-        >
-          📋 Copiar detalle
-        </button>
-      </div>
+      <span class="job-status ${escapeHtml(status)}">
+        ${escapeHtml(job.status || 'Sin estado')}
+      </span>
     </div>
 
     <div class="job-detail-grid">
@@ -441,8 +431,22 @@ function renderJobDetail(job) {
       </div>
 
       <div class="job-detail-block full">
-        <span>Resultado</span>
-        <pre class="job-result">${escapeHtml(renderJobResult(job.result))}</pre>
+        <div class="job-panel-heading">
+          <span>Resultado</span>
+
+          <button
+            id="job-result-copy"
+            class="secondary-button"
+            type="button"
+          >
+            📋 Copiar resultado
+          </button>
+        </div>
+
+        <pre
+          id="job-result-content"
+          class="job-result"
+        >${escapeHtml(renderJobResult(job.result))}</pre>
       </div>
 
       ${job.error ? `
@@ -454,30 +458,32 @@ function renderJobDetail(job) {
     </div>
   `;
 
-  const copyButton =
-    document.getElementById('job-detail-copy');
+  const resultCopyButton =
+    document.getElementById('job-result-copy');
 
-  copyButton?.addEventListener('click', async () => {
-    const detailGrid =
-      jobElements.detail.querySelector('.job-detail-grid');
+  resultCopyButton?.addEventListener('click', async () => {
+    const resultContent =
+      document.getElementById('job-result-content');
 
-    const content = [
-      `Job: ${job.id || 'No disponible'}`,
-      `Estado: ${job.status || 'Sin estado'}`,
-      '',
-      detailGrid?.innerText?.trim() || ''
-    ].join('\n');
+    const content =
+      resultContent?.textContent || '';
 
-    const originalLabel = copyButton.textContent;
+    const originalLabel =
+      resultCopyButton.textContent;
 
     try {
+      if (!content.trim()) {
+        throw new Error('El resultado está vacío');
+      }
+
       if (
         navigator.clipboard &&
         window.isSecureContext
       ) {
         await navigator.clipboard.writeText(content);
       } else {
-        const textarea = document.createElement('textarea');
+        const textarea =
+          document.createElement('textarea');
 
         textarea.value = content;
         textarea.setAttribute('readonly', '');
@@ -499,18 +505,20 @@ function renderJobDetail(job) {
         }
       }
 
-      copyButton.textContent = '✓ Copiado';
+      resultCopyButton.textContent = '✓ Copiado';
     } catch (error) {
       console.error(
-        'No fue posible copiar el detalle del Job:',
+        'No fue posible copiar el resultado del Job:',
         error
       );
 
-      copyButton.textContent = 'Error al copiar';
+      resultCopyButton.textContent =
+        'Error al copiar';
     }
 
     window.setTimeout(() => {
-      copyButton.textContent = originalLabel;
+      resultCopyButton.textContent =
+        originalLabel;
     }, 1800);
   });
 
