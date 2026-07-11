@@ -693,6 +693,8 @@ async function checkApprovalSession() {
 }
 
 async function activateApprovalSession() {
+  const token = prElements.token.value.trim();
+
   if (!token) {
     throw new Error(
       'Pegá el token una sola vez para activar esta computadora.'
