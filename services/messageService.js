@@ -1,5 +1,9 @@
 const { generateText } = require('./openaiService');
 const { routeContext } = require('./context/index');
+const {
+  detectOwnerCommand,
+  executeOwnerCommand
+} = require('./ownerCommandService');
 
 const DEFAULT_INSTRUCTIONS = [
   'Sos el asistente técnico del ELANKAV Orchestrator.',
@@ -59,9 +63,29 @@ async function processMessage({
         instructions: normalizedInstructions || DEFAULT_INSTRUCTIONS
       }
     },
-    context => {
+    async context => {
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
+      const ownerCommand = ownerMode
+        ? detectOwnerCommand(normalizedMessage)
+        : null;
+
+      if (ownerCommand) {
+        const commandResult = await executeOwnerCommand({
+          command: ownerCommand,
+          platform: context.platform || platform || 'elankav'
+        });
+
+        return {
+          outputText: commandResult.outputText,
+          model: 'elankav-owner-command',
+          id: commandResult.job.id,
+          status: commandResult.job.status,
+          usage: null,
+          ownerCommand,
+          jobId: commandResult.job.id
+        };
+      }
 
       return generateText({
         input: normalizedMessage,
@@ -85,11 +109,13 @@ async function processMessage({
   return {
     message: normalizedMessage,
     reply: response.outputText.trim(),
-    provider: 'openai',
+    provider: response.ownerCommand ? 'elankav' : 'openai',
     model: response.model,
     responseId: response.id,
     status: response.status,
     usage: response.usage,
+    command: response.ownerCommand || null,
+    jobId: response.jobId || null,
     context: {
       version: resolvedContext?.version || null,
       platform: resolvedContext?.platform || null,
