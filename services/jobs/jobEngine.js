@@ -1,10 +1,20 @@
 const crypto = require('node:crypto');
-const { JOB_TYPES, JOB_STATUS, JOB_STEPS } = require('./jobTypes');
+const {
+  JOB_TYPES,
+  JOB_STATUS,
+  getJobSteps
+} = require('./jobTypes');
 const { addJob, getJob, listJobs } = require('./jobQueue');
 
 function createJob({ platform, task, type = JOB_TYPES.CODE }) {
   if (!platform || !task) {
     throw new Error('platform y task son obligatorios');
+  }
+
+  const allowedTypes = Object.values(JOB_TYPES);
+
+  if (!allowedTypes.includes(type)) {
+    throw new Error(`Tipo de job no soportado: ${type}`);
   }
 
   const id = `JOB-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
@@ -14,9 +24,12 @@ function createJob({ platform, task, type = JOB_TYPES.CODE }) {
     type,
     platform,
     task,
-    branch: `job/${id.toLowerCase()}`,
+    branch:
+      type === JOB_TYPES.CODE
+        ? `job/${id.toLowerCase()}`
+        : null,
     status: JOB_STATUS.PENDING,
-    steps: [...JOB_STEPS],
+    steps: getJobSteps(type),
     createdAt: new Date().toISOString(),
   };
 
