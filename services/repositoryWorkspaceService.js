@@ -8,7 +8,10 @@ function normalizePlatform(platform) {
   return String(platform || '')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '');
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function resolveRepository(platform) {

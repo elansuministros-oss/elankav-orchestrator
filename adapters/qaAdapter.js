@@ -184,23 +184,19 @@ async function executeWorkspaceQa({
 
   const scripts = packageJson.scripts || {};
 
-  if (!scripts.build) {
-    throw new Error(
-      'El repositorio no tiene script build'
+  if (scripts.build) {
+    results.push(
+      await runCommand({
+        command: packageManager.name,
+        args:
+          packageManager.name === 'yarn'
+            ? ['build']
+            : ['run', 'build'],
+        cwd: workspacePath,
+        timeoutMs: 600000
+      })
     );
   }
-
-  results.push(
-    await runCommand({
-      command: packageManager.name,
-      args:
-        packageManager.name === 'yarn'
-          ? ['build']
-          : ['run', 'build'],
-      cwd: workspacePath,
-      timeoutMs: 600000
-    })
-  );
 
   if (scripts.test) {
     results.push(

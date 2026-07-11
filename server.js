@@ -9,6 +9,7 @@ const { getGithubStatus } = require('./adapters/githubAdapter');
 const { getDashboardStatus } = require('./adapters/dashboardAdapter');
 const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
+const { handleMessageApi } = require('./api/messageApi');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -473,6 +474,17 @@ function renderDashboard() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const messageApiHandled =
+    await handleMessageApi({
+      req,
+      res,
+      sendJson
+    });
+
+  if (messageApiHandled) {
+    return;
+  }
+
   const pullRequestDecisionHandled =
     await handlePullRequestDecisionApi({
       req,
