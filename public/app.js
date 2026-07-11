@@ -394,9 +394,19 @@ function renderJobDetail(job) {
         <h3>${escapeHtml(job.id)}</h3>
       </div>
 
-      <span class="job-status ${escapeHtml(status)}">
-        ${escapeHtml(job.status || 'Sin estado')}
-      </span>
+      <div class="job-detail-actions">
+        <span class="job-status ${escapeHtml(status)}">
+          ${escapeHtml(job.status || 'Sin estado')}
+        </span>
+
+        <button
+          id="job-detail-copy"
+          class="secondary-button"
+          type="button"
+        >
+          📋 Copiar detalle
+        </button>
+      </div>
     </div>
 
     <div class="job-detail-grid">
@@ -443,6 +453,66 @@ function renderJobDetail(job) {
       ` : ''}
     </div>
   `;
+
+  const copyButton =
+    document.getElementById('job-detail-copy');
+
+  copyButton?.addEventListener('click', async () => {
+    const detailGrid =
+      jobElements.detail.querySelector('.job-detail-grid');
+
+    const content = [
+      `Job: ${job.id || 'No disponible'}`,
+      `Estado: ${job.status || 'Sin estado'}`,
+      '',
+      detailGrid?.innerText?.trim() || ''
+    ].join('\n');
+
+    const originalLabel = copyButton.textContent;
+
+    try {
+      if (
+        navigator.clipboard &&
+        window.isSecureContext
+      ) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        const textarea = document.createElement('textarea');
+
+        textarea.value = content;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        const copied =
+          document.execCommand('copy');
+
+        textarea.remove();
+
+        if (!copied) {
+          throw new Error(
+            'El navegador no permitió copiar'
+          );
+        }
+      }
+
+      copyButton.textContent = '✓ Copiado';
+    } catch (error) {
+      console.error(
+        'No fue posible copiar el detalle del Job:',
+        error
+      );
+
+      copyButton.textContent = 'Error al copiar';
+    }
+
+    window.setTimeout(() => {
+      copyButton.textContent = originalLabel;
+    }, 1800);
+  });
 
   syncPullRequestFromJob(job);
 }
