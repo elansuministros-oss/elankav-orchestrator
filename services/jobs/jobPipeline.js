@@ -1,3 +1,5 @@
+const { JOB_TYPES } = require('./jobTypes');
+const { runContextSyncJob } = require('./contextSyncJob');
 const { githubHealth } = require('./jobGithub');
 const { openaiHealth } = require('./jobOpenAI');
 
@@ -21,11 +23,7 @@ const {
   openJobPullRequest
 } = require('../pullRequestService');
 
-async function run(job) {
-  if (!job) {
-    throw new Error('job requerido');
-  }
-
+async function runCodeJob(job) {
   const result = {
     jobId: job.id,
     startedAt: new Date().toISOString(),
@@ -55,9 +53,7 @@ async function run(job) {
   });
 
   if (!workspaceResult.healthy) {
-    throw new Error(
-      'Workspace no saludable'
-    );
+    throw new Error('Workspace no saludable');
   }
 
   const openaiResult = await openaiHealth();
@@ -92,9 +88,7 @@ async function run(job) {
   });
 
   if (!changesResult.changed) {
-    throw new Error(
-      'Codex no produjo cambios'
-    );
+    throw new Error('Codex no produjo cambios');
   }
 
   const qaResult = await runJobQa({
@@ -112,13 +106,12 @@ async function run(job) {
     throw new Error('QA no aprobado');
   }
 
-  const publishResult =
-    await publishJobChanges({
-      job,
-      workspace: workspaceResult,
-      changes: changesResult,
-      qa: qaResult
-    });
+  const publishResult = await publishJobChanges({
+    job,
+    workspace: workspaceResult,
+    changes: changesResult,
+    qa: qaResult
+  });
 
   result.steps.push({
     step: 'publish',
@@ -131,13 +124,12 @@ async function run(job) {
     );
   }
 
-  const pullRequestResult =
-    await openJobPullRequest({
-      job,
-      workspace: workspaceResult,
-      publish: publishResult,
-      qa: qaResult
-    });
+  const pullRequestResult = await openJobPullRequest({
+    job,
+    workspace: workspaceResult,
+    publish: publishResult,
+    qa: qaResult
+  });
 
   result.steps.push({
     step: 'pr',
@@ -151,8 +143,19 @@ async function run(job) {
   }
 
   result.finishedAt = new Date().toISOString();
-
   return result;
+}
+
+async function run(job) {
+  if (!job) {
+    throw new Error('job requerido');
+  }
+
+  if (job.type === JOB_TYPES.CONTEXT_SYNC) {
+    return runContextSyncJob(job);
+  }
+
+  return runCodeJob(job);
 }
 
 module.exports = {
