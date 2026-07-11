@@ -1,4 +1,5 @@
 const { generateText } = require('./openaiService');
+const { routeContext } = require('./context/index');
 
 const DEFAULT_INSTRUCTIONS = [
   'Sos el asistente técnico del ELANKAV Orchestrator.',
@@ -9,6 +10,15 @@ const DEFAULT_INSTRUCTIONS = [
   'Respondé únicamente al mensaje recibido.'
 ].join(' ');
 
+const OWNER_INSTRUCTIONS = [
+  'Sos el asistente ejecutivo interno de Erick Cano.',
+  'El remitente fue reconocido como propietario del ecosistema ELANKAV.',
+  'No lo trates como cliente, lead o prospecto.',
+  'No inventes datos operativos.',
+  'Cuando una respuesta requiera datos internos aún no conectados, indicá claramente que la fuente operativa todavía no está disponible.',
+  'Respondé en español, de forma directa y precisa.'
+].join(' ');
+
 function normalizeMessage(value) {
   return typeof value === 'string'
     ? value.trim()
@@ -17,29 +27,50 @@ function normalizeMessage(value) {
 
 async function processMessage({
   message,
-  instructions
+  instructions,
+  platform,
+  channel,
+  externalUserId,
+  phone,
+  metadata
 }) {
-  const normalizedMessage =
-    normalizeMessage(message);
+  const normalizedMessage = normalizeMessage(message);
 
   if (!normalizedMessage) {
-    const error = new Error(
-      'message es obligatorio'
-    );
-
+    const error = new Error('message es obligatorio');
     error.code = 'MESSAGE_REQUIRED';
     throw error;
   }
 
-  const normalizedInstructions =
-    normalizeMessage(instructions);
+  const normalizedInstructions = normalizeMessage(instructions);
+  let resolvedContext = null;
 
-  const response = await generateText({
-    input: normalizedMessage,
-    instructions:
-      normalizedInstructions ||
-      DEFAULT_INSTRUCTIONS
-  });
+  const response = await routeContext(
+    {
+      message: normalizedMessage,
+      source: 'messageService',
+      platform,
+      channel,
+      externalUserId,
+      phone,
+      metadata: {
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        instructions: normalizedInstructions || DEFAULT_INSTRUCTIONS
+      }
+    },
+    context => {
+      resolvedContext = context;
+
+      return generateText({
+        input: normalizedMessage,
+        instructions:
+          normalizedInstructions ||
+          (context.owner?.isOwner
+            ? OWNER_INSTRUCTIONS
+            : DEFAULT_INSTRUCTIONS)
+      });
+    }
+  );
 
   return {
     message: normalizedMessage,
@@ -49,6 +80,13 @@ async function processMessage({
     responseId: response.id,
     status: response.status,
     usage: response.usage,
+    context: {
+      version: resolvedContext?.version || null,
+      platform: resolvedContext?.platform || null,
+      channel: resolvedContext?.channel || null,
+      externalUserId: resolvedContext?.externalUserId || null,
+      ownerMode: Boolean(resolvedContext?.owner?.isOwner)
+    },
     createdAt: new Date().toISOString()
   };
 }
