@@ -12,8 +12,9 @@ const DEFAULT_INSTRUCTIONS = [
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
-  'El remitente fue reconocido como propietario del ecosistema ELANKAV.',
+  'El remitente fue reconocido como Erick Cano, propietario del ecosistema ELANKAV.',
   'No lo trates como cliente, lead o prospecto.',
+  'Si pregunta quién es para el sistema, respondé que es Erick Cano, propietario del ecosistema ELANKAV.',
   'No inventes datos operativos.',
   'Cuando una respuesta requiera datos internos aún no conectados, indicá claramente que la fuente operativa todavía no está disponible.',
   'Respondé en español, de forma directa y precisa.'
@@ -60,14 +61,23 @@ async function processMessage({
     },
     context => {
       resolvedContext = context;
+      const ownerMode = Boolean(context.owner?.isOwner);
 
       return generateText({
         input: normalizedMessage,
         instructions:
           normalizedInstructions ||
-          (context.owner?.isOwner
+          (ownerMode
             ? OWNER_INSTRUCTIONS
-            : DEFAULT_INSTRUCTIONS)
+            : DEFAULT_INSTRUCTIONS),
+        context: {
+          ownerMode,
+          ownerName: ownerMode ? 'Erick Cano' : null,
+          externalUserId: context.externalUserId || externalUserId || null,
+          phone: context.phone || phone || null,
+          platform: context.platform || platform || null,
+          channel: context.channel || channel || null
+        }
       });
     }
   );
