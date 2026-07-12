@@ -31,9 +31,9 @@ function writeStates(states) {
 function detectCommand(message) {
   const raw = normalize(message);
   const value = normalizeCommand(raw);
-  let match = value.match(/^(?:agregar|anadir|añadir|crear) contacto (?:a|para) (.+)$/);
+  let match = value.match(/^(?:agregar|agrega|agregá|anadir|añadir|crear) contacto (?:a|para) (.+)$/);
   if (match) return { type: 'addContact', supplierName: match[1].trim() };
-  match = value.match(/^editar contacto (?:de|del|en) (.+)$/);
+  match = value.match(/^(?:editar|edita|editá) contacto (?:de|del|en) (.+)$/);
   if (match) return { type: 'editContact', supplierName: match[1].trim() };
   if (/(crear|agregar|registrar).*(proveedor)/.test(value) || value.includes('quiero agregar un proveedor')) return { type: 'supplier' };
   if (/(crear|agregar|registrar).*(cliente)/.test(value) || value.includes('quiero agregar un cliente')) return { type: 'client' };
