@@ -1,0 +1,70 @@
+{
+  "name": "elankav-control",
+  "displayName": "ELANKAV Control",
+  "description": "Acceso seguro de solo lectura a ELANKAV Orchestrator desde Visual Studio Code.",
+  "version": "0.1.0",
+  "publisher": "elankav",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "elankav.configureConnection",
+        "title": "ELANKAV: Configurar conexión"
+      },
+      {
+        "command": "elankav.showHealth",
+        "title": "ELANKAV: Ver salud del Orchestrator"
+      },
+      {
+        "command": "elankav.showDashboard",
+        "title": "ELANKAV: Ver dashboard ejecutivo"
+      },
+      {
+        "command": "elankav.showProjects",
+        "title": "ELANKAV: Ver proyectos"
+      },
+      {
+        "command": "elankav.showEcosystem",
+        "title": "ELANKAV: Ver ecosistema"
+      },
+      {
+        "command": "elankav.showGithub",
+        "title": "ELANKAV: Ver GitHub"
+      },
+      {
+        "command": "elankav.showDocker",
+        "title": "ELANKAV: Ver contenedores"
+      }
+    ],
+    "configuration": {
+      "title": "ELANKAV Control",
+      "properties": {
+        "elankav.orchestratorUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4100",
+          "description": "URL del Orchestrator. Para VSC-001 se recomienda un túnel SSH local al VPS."
+        },
+        "elankav.requestTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "Tiempo máximo de espera por consulta."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.95.0"
+  }
+}
