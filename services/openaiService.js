@@ -83,7 +83,7 @@ function buildContextInstructions(context) {
 
   if (context.crm) {
     if (context.crm.available) {
-      lines.push('CRM Core conectado y disponible en modo de solo lectura.');
+      lines.push('CRM Core conectado y disponible para consultas. Las escrituras se ejecutan únicamente mediante comandos CRM autorizados.');
       lines.push(`CRM identidades=${context.crm.counts?.identities ?? 0}.`);
       lines.push(`CRM conversaciones=${context.crm.counts?.conversations ?? 0}.`);
       lines.push(`CRM mensajes=${context.crm.counts?.messages ?? 0}.`);
@@ -99,6 +99,41 @@ function buildContextInstructions(context) {
       }
     } else {
       lines.push('CRM Core no está disponible en esta solicitud.');
+    }
+  }
+
+  if (context.ecosystem) {
+    if (context.ecosystem.available) {
+      lines.push('ELANKAV Orchestrator está conectado como fuente operativa verificada del ecosistema.');
+      lines.push(`Estado general=${context.ecosystem.status || 'DESCONOCIDO'}; saludable=${context.ecosystem.healthy === true}; alertas=${context.ecosystem.alerts ?? 'desconocido'}.`);
+      lines.push(`GitHub autenticado=${context.ecosystem.githubAuthenticated === true}.`);
+
+      const services = Array.isArray(context.ecosystem.services)
+        ? context.ecosystem.services
+        : [];
+      const repositories = Array.isArray(context.ecosystem.repositories)
+        ? context.ecosystem.repositories
+        : [];
+      const containers = Array.isArray(context.ecosystem.containers)
+        ? context.ecosystem.containers
+        : [];
+
+      if (services.length) {
+        lines.push(`Servicios verificados: ${JSON.stringify(services)}.`);
+      }
+
+      if (repositories.length) {
+        lines.push(`Repositorios GitHub verificados: ${JSON.stringify(repositories)}.`);
+      }
+
+      if (containers.length) {
+        lines.push(`Contenedores verificados: ${JSON.stringify(containers)}.`);
+      }
+
+      lines.push('No afirmes que GitHub, Docker, WAHA, el Orchestrator o los servicios listados no están conectados cuando el contexto verificado indique lo contrario.');
+      lines.push('Distinguí entre una capacidad inexistente y una capacidad existente que todavía no fue expuesta a este contexto.');
+    } else {
+      lines.push('El contexto operativo del Orchestrator no estuvo disponible en esta solicitud; no infieras que el ecosistema está desconectado.');
     }
   }
 
@@ -121,5 +156,6 @@ async function generateText({ input, instructions, context }) {
 
 module.exports = {
   testOpenAIConnection,
+  buildContextInstructions,
   generateText
 };
