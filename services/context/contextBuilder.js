@@ -5,7 +5,9 @@ const {
 } = require('./identityResolver');
 
 const CONTEXT_VERSION = 'ORCH-035B';
-const OWNER_PHONE = '50588388940';
+const DEFAULT_OWNER_PHONES = Object.freeze([
+  '50588388940'
+]);
 
 function normalizeText(value) {
   return typeof value === 'string'
@@ -38,6 +40,35 @@ function normalizePhone(value) {
   }
 
   return digits;
+}
+
+function normalizePhoneList(value) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '').split(',');
+
+  return [...new Set(
+    source
+      .map(normalizePhone)
+      .filter(Boolean)
+  )];
+}
+
+function getOwnerPhones() {
+  const configured =
+    process.env.ORCHESTRATOR_OWNER_PHONES ||
+    process.env.ORCHESTRATOR_OWNER_PHONE ||
+    '';
+
+  const phones = normalizePhoneList(configured);
+
+  return Object.freeze(
+    phones.length ? phones : [...DEFAULT_OWNER_PHONES]
+  );
+}
+
+function getOwnerPhone() {
+  return getOwnerPhones()[0] || '';
 }
 
 function findMessage(value, depth = 0) {
@@ -76,6 +107,7 @@ function buildContext(input = {}) {
     input.metadata?.phone;
   const identity = resolveCanonicalIdentity(receivedIdentity);
   const phone = normalizePhone(identity.canonicalId);
+  const ownerPhones = getOwnerPhones();
   const platform = normalizePlatform(input.platform);
   const channel = normalizeChannel(input.channel);
 
@@ -89,7 +121,7 @@ function buildContext(input = {}) {
     channel: channel || null,
     externalUserId: phone || null,
     owner: Object.freeze({
-      isOwner: phone === OWNER_PHONE,
+      isOwner: Boolean(phone && ownerPhones.includes(phone)),
       phone: phone || null
     }),
     identity: Object.freeze({
@@ -117,10 +149,13 @@ function buildContext(input = {}) {
 
 module.exports = {
   CONTEXT_VERSION,
-  OWNER_PHONE,
+  DEFAULT_OWNER_PHONES,
+  getOwnerPhone,
+  getOwnerPhones,
   buildContext,
   findMessage,
   normalizePlatform,
   normalizeChannel,
-  normalizePhone
+  normalizePhone,
+  normalizePhoneList
 };
