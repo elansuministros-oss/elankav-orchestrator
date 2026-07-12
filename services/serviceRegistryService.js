@@ -1,6 +1,6 @@
 'use strict';
 
-const REGISTRY_VERSION = '1.0.0';
+const REGISTRY_VERSION = '1.1.0';
 
 const services = Object.freeze([
   {
@@ -9,11 +9,7 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'source-control',
     permissions: ['github.read'],
-    capabilities: {
-      read: true,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: true, write: false, execute: false },
     access: 'orchestrator-only',
     notes: 'Consulta de repositorios y estado mediante Adapter y Service.'
   },
@@ -23,11 +19,7 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'infrastructure',
     permissions: ['docker.read'],
-    capabilities: {
-      read: true,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: true, write: false, execute: false },
     access: 'orchestrator-only',
     notes: 'Consulta de contenedores. Escritura administrativa no habilitada por SRV-001A.'
   },
@@ -37,11 +29,7 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'channel',
     permissions: ['waha.read'],
-    capabilities: {
-      read: true,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: true, write: false, execute: false },
     access: 'orchestrator-only',
     notes: 'Estado del canal WhatsApp disponible mediante Orchestrator.'
   },
@@ -51,11 +39,7 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'observability',
     permissions: ['dashboard.read'],
-    capabilities: {
-      read: true,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: true, write: false, execute: false },
     access: 'orchestrator-only',
     notes: 'Resumen ejecutivo consolidado del ecosistema.'
   },
@@ -65,11 +49,7 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'observability',
     permissions: ['health.read'],
-    capabilities: {
-      read: true,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: true, write: false, execute: false },
     access: 'orchestrator-only',
     notes: 'Estado vivo del Orchestrator y servicios conectados.'
   },
@@ -79,11 +59,7 @@ const services = Object.freeze([
     state: 'REGISTERED',
     category: 'business',
     permissions: ['crm.read'],
-    capabilities: {
-      read: false,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: false, write: false, execute: false },
     access: 'pending-adapter',
     notes: 'Registrado oficialmente; requiere contrato directo del Orchestrator para considerarse integrado.'
   },
@@ -93,11 +69,7 @@ const services = Object.freeze([
     state: 'REGISTERED',
     category: 'quality',
     permissions: ['qa.read', 'qa.execute'],
-    capabilities: {
-      read: false,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: false, write: false, execute: false },
     access: 'pending-service',
     notes: 'Registrado. La ejecución controlada por Job se habilitará en una fase posterior.'
   },
@@ -107,27 +79,19 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'operations',
     permissions: ['jobs.read', 'jobs.create'],
-    capabilities: {
-      read: true,
-      write: true,
-      execute: true
-    },
+    capabilities: { read: true, write: true, execute: true },
     access: 'orchestrator-only',
     notes: 'Job Engine existente. Sus operaciones conservan sus controles actuales.'
   },
   {
     id: 'documentation',
     name: 'Documentación',
-    state: 'REGISTERED',
+    state: 'INTEGRATED',
     category: 'knowledge',
     permissions: ['documentation.read', 'documentation.write'],
-    capabilities: {
-      read: false,
-      write: false,
-      execute: false
-    },
-    access: 'pending-adapter',
-    notes: 'Base Oficial de Conocimiento registrada. Lectura y edición controladas se implementarán después de SRV-001A.'
+    capabilities: { read: true, write: false, execute: false },
+    access: 'orchestrator-only',
+    notes: 'KB-001A habilita lectura interna segura y registro de impacto. La edición Markdown permanece deshabilitada.'
   },
   {
     id: 'vscode-web',
@@ -135,11 +99,7 @@ const services = Object.freeze([
     state: 'INTEGRATED',
     category: 'development',
     permissions: ['vscode.workspaces.read'],
-    capabilities: {
-      read: true,
-      write: false,
-      execute: false
-    },
+    capabilities: { read: true, write: false, execute: false },
     access: 'owner-session',
     notes: 'Acceso mediado por Orchestrator; workspace oficial permanece en modo lectura.'
   }
