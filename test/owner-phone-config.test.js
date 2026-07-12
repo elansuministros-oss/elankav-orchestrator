@@ -32,25 +32,29 @@ function withOwnerEnv(value, callback) {
   }
 }
 
-test('Owner Mode reconoce los dos números configurados', () => {
+test('Owner Mode reconoce número IA y número personal', () => {
   withOwnerEnv('+505 8838 8940, +505 7882 8089', () => {
     assert.deepEqual(getOwnerPhones(), [
       '50588388940',
       '50578828089'
     ]);
 
-    for (const externalUserId of [
-      '50588388940@c.us',
-      '50578828089@c.us'
-    ]) {
+    const cases = [
+      { externalUserId: '50588388940@c.us', role: 'IA' },
+      { externalUserId: '50578828089@c.us', role: 'PERSONAL' }
+    ];
+
+    for (const item of cases) {
       const context = buildContext({
         message: 'estado del ecosistema',
         platform: 'elanvisual',
         channel: 'whatsapp',
-        externalUserId
+        externalUserId: item.externalUserId,
+        metadata: { ownerPhoneRole: item.role }
       });
 
       assert.equal(context.owner.isOwner, true);
+      assert.equal(context.metadata.ownerPhoneRole, item.role);
     }
   });
 });
