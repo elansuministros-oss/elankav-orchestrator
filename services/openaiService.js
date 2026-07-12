@@ -81,6 +81,27 @@ function buildContextInstructions(context) {
     lines.push(`channel=${context.channel}.`);
   }
 
+  if (context.crm) {
+    if (context.crm.available) {
+      lines.push('CRM Core conectado y disponible en modo de solo lectura.');
+      lines.push(`CRM identidades=${context.crm.counts?.identities ?? 0}.`);
+      lines.push(`CRM conversaciones=${context.crm.counts?.conversations ?? 0}.`);
+      lines.push(`CRM mensajes=${context.crm.counts?.messages ?? 0}.`);
+
+      const identities = Array.isArray(context.crm.recentIdentities)
+        ? context.crm.recentIdentities
+        : [];
+
+      if (identities.length) {
+        lines.push(
+          `Identidades recientes verificadas: ${JSON.stringify(identities)}.`
+        );
+      }
+    } else {
+      lines.push('CRM Core no está disponible en esta solicitud.');
+    }
+  }
+
   lines.push('No contradigas ni ignores este contexto. No muestres identificadores técnicos salvo que el remitente los solicite.');
 
   return lines.join(' ');

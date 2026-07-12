@@ -4,6 +4,9 @@ const {
   detectOwnerCommand,
   executeOwnerCommand
 } = require('./ownerCommandService');
+const {
+  loadCrmContext
+} = require('./crmContextService');
 
 const DEFAULT_INSTRUCTIONS = [
   'Sos el asistente técnico del ELANKAV Orchestrator.',
@@ -87,6 +90,10 @@ async function processMessage({
         };
       }
 
+      const crm = ownerMode
+        ? await loadCrmContext()
+        : null;
+
       return generateText({
         input: normalizedMessage,
         instructions:
@@ -100,7 +107,8 @@ async function processMessage({
           externalUserId: context.externalUserId || externalUserId || null,
           phone: context.phone || phone || null,
           platform: context.platform || platform || null,
-          channel: context.channel || channel || null
+          channel: context.channel || channel || null,
+          crm
         }
       });
     }
