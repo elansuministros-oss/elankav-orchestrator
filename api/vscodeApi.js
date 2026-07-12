@@ -358,5 +358,6 @@ module.exports = {
   OWNER_PHONE,
   handleVscodeApi,
   isOwnerCredential,
+  isOwnerRequest,
   renderAccessPage
 };
