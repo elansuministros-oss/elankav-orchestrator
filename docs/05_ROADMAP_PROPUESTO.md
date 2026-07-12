@@ -161,6 +161,67 @@ Solo después de IAM operativo:
 - operaciones Docker estrictamente autorizadas;
 - deploy y rollback como movimientos independientes.
 
+## Línea de voz y audio de ELAN IA
+
+Esta línea es independiente de VSC y no modifica el orden de seguridad, IAM o producción.
+
+### Movimientos cerrados
+
+| Movimiento | Resultado | Estado |
+|---|---|---|
+| `AUD-001A` | Audio Intake Adapter, Audio Intake Service y webhook WAHA documentados/validados | CERRADO |
+| `VOICE-001` | Identidad oficial de voz, diccionario, configuración y matriz A/B | CERRADO |
+
+### Movimiento siguiente
+
+#### STT-001A — Diseño de reconocimiento de audio
+
+Objetivo único:
+
+Definir e implementar de forma desacoplada la descarga temporal y transcripción de audio recibido, sin incorporar síntesis de voz.
+
+Arquitectura objetivo:
+
+```text
+WAHA
+  ↓
+api/whatsapp-v2
+  ↓
+Audio Intake Adapter
+  ↓
+Audio Intake Service
+  ↓
+STT Service
+  ↓
+STT Provider Adapter
+  ↓
+Proveedor STT
+  ↓
+Resultado normalizado
+```
+
+Condiciones obligatorias:
+
+- auditar primero el contrato real de audio WAHA;
+- conservar AUD-001A;
+- no mezclar STT con TTS;
+- proveedor sustituible;
+- archivo temporal controlado;
+- límites de tamaño, duración, formato y timeout;
+- limpieza garantizada;
+- trazabilidad sin exponer audio sensible;
+- pruebas unitarias y de integración;
+- documentación y rollback.
+
+### Movimientos posteriores, no autorizados todavía
+
+| Movimiento | Alcance |
+|---|---|
+| `STT-001B` | Robustez, formatos, fallback y observabilidad STT |
+| `TTS-001A` | Síntesis de voz usando el contrato `VOICE-001` |
+| `MEDIA-001` | Almacenamiento, retención, acceso y eliminación multimedia |
+| `VOICE-002` | Ajustes del perfil oficial sustentados por pruebas A/B |
+
 ## Normalización documental por repositorio
 
 Cada producto conserva su README y contrato local. La documentación transversal se mantiene únicamente en Orchestrator. No mezclar productos ni copiar el mismo tema en varios documentos.
@@ -180,10 +241,22 @@ Mantener:
 
 ## Orden inmediato aprobado
 
-1. Sincronizar documentación existente.
-2. Abrir y aprobar el cambio documental.
-3. Ejecutar auditoría diferencial del VPS para VSC-001.
-4. Diseñar el movimiento de instalación sin tocar producción.
-5. Implementar VSC-001.
-6. Validar IAM, proxy, health, workspace y rollback.
-7. Actualizar línea base y Knowledge Base.
+1. `KB-001A` — cerrado.
+2. `AUD-001A` — cerrado.
+3. `VOICE-001` — documentado y cerrado.
+4. Iniciar `STT-001A` mediante auditoría diferencial del contrato real de audio.
+5. Diseñar Adapter, Service, contrato neutral, errores y rollback de STT.
+6. Implementar un movimiento pequeño sin síntesis de voz.
+7. Ejecutar build, pruebas y validación funcional.
+8. Actualizar índice, línea base y roadmap al cierre.
+
+## Regla de continuidad para futuros chats
+
+Todo chat que continúe esta línea debe leer, en este orden:
+
+1. `docs/00_MASTER_INDEX.md`;
+2. `docs/06_LINEA_BASE_ECOSISTEMA.md`;
+3. `docs/VOICE-001.md`;
+4. el documento del movimiento activo.
+
+No debe reconstruir el estado desde memoria conversacional ni crear una estructura documental paralela.
