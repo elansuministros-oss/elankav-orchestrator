@@ -32,3 +32,39 @@ La Base Oficial de Conocimiento debe permanecer sincronizada con:
 - línea base;
 - roadmap;
 - Orchestrator desplegado.
+
+## KB-001 — Knowledge Engine
+
+El Knowledge Engine administra la lectura segura de la Base Oficial de Conocimiento y el control de impacto documental de cada movimiento.
+
+### Fuentes autorizadas
+
+Solo se consideran oficiales los documentos Markdown ubicados dentro de:
+
+- `docs/`;
+- `knowledge/`.
+
+No se permite resolver rutas fuera de esas raíces, seguir rutas con traversal ni leer archivos no Markdown mediante este servicio.
+
+### Control obligatorio por movimiento
+
+Cada Job o cambio validado debe registrar:
+
+- identificador del Job o movimiento;
+- plataforma o módulo afectado;
+- commit o PR relacionado;
+- documentos maestros afectados;
+- estado documental: `NO_REQUIERE_CAMBIO`, `PENDIENTE` o `ACTUALIZADO`;
+- fecha de detección y cierre.
+
+KB-001A habilita lectura y detección/registro de impacto. No modifica documentos maestros automáticamente. La escritura controlada corresponde a un movimiento posterior y requiere aprobación Owner, validación y commit documental.
+
+### Orden permanente de ejecución
+
+Todo movimiento debe seguir este orden:
+
+1. documentar el alcance en el documento maestro existente;
+2. guardar en GitHub;
+3. ejecutar el cambio técnico;
+4. validar pruebas, funcionamiento y Git;
+5. cerrar guardando código, documentación, estado e impacto documental.

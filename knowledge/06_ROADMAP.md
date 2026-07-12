@@ -9,8 +9,10 @@
 - Health integrado;
 - Owner Mode activo para `50588388940`;
 - IAM inicial;
-- Knowledge Base en evolución;
-- VS Code Web planificado.
+- Service Registry protegido en lectura;
+- VS Code Web operativo y protegido por Orchestrator;
+- acceso SSH persistente desde VS Code Web;
+- Knowledge Base en evolución.
 
 ## IAM
 
@@ -26,7 +28,41 @@
 - índice sincronizado;
 - relaciones entre módulos;
 - trazabilidad a código, pruebas y commits;
-- consulta mediante Servicio Autorizado de Documentación.
+- consulta mediante Servicio Autorizado de Documentación;
+- registro de impacto documental por Job o movimiento;
+- estado documental obligatorio: `NO_REQUIERE_CAMBIO`, `PENDIENTE` o `ACTUALIZADO`.
+
+## KB-001A — Lectura e impacto documental
+
+- listar documentos Markdown oficiales dentro de `docs/` y `knowledge/`;
+- leer documentos autorizados sin permitir traversal;
+- no leer archivos fuera de las raíces oficiales;
+- registrar documentos afectados por Job o movimiento;
+- consultar pendientes documentales;
+- no editar documentos automáticamente.
+
+## KB-001B — API protegida
+
+- exponer lectura del Knowledge Engine mediante Orchestrator;
+- aplicar IAM y Owner Mode;
+- permitir consulta por ELAN IA y Jobs autorizados;
+- auditar actor, documento, acción y resultado.
+
+## KB-002 — Escritura controlada
+
+- actualizar únicamente documentos maestros existentes;
+- impedir duplicación documental;
+- exigir aprobación Owner;
+- validar contenido y relaciones;
+- generar commit documental;
+- cerrar el impacto como `ACTUALIZADO`.
+
+## KB-003 — Auditoría de integridad
+
+- detectar código o módulos sin documentación sincronizada;
+- calcular integridad documental;
+- identificar roadmap, arquitectura y línea base pendientes;
+- bloquear cierre cuando exista impacto obligatorio no registrado.
 
 ## Servicios Autorizados
 
@@ -38,7 +74,8 @@
 - CRM;
 - QA;
 - Jobs;
-- Documentación.
+- Documentación;
+- VS Code Web.
 
 ## VSC-001
 
@@ -68,4 +105,4 @@
 
 ## Regla de avance
 
-No continuar al siguiente movimiento sin build, revisión de errores, validación funcional y actualización documental del movimiento concluido.
+No continuar al siguiente movimiento sin documentación previa, guardado en GitHub, build, revisión de errores, validación funcional y cierre documental del movimiento concluido.

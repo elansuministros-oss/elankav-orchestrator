@@ -26,21 +26,22 @@ test('registro diferencia integrado de registrado', () => {
 
   assert.equal(snapshot.mode, 'read-only');
   assert.equal(snapshot.count, 10);
-  assert.equal(snapshot.integrated, 7);
-  assert.equal(snapshot.registered, 3);
+  assert.equal(snapshot.integrated, 8);
+  assert.equal(snapshot.registered, 2);
 });
 
-test('documentación está registrada sin habilitar escritura todavía', () => {
+test('documentación integra lectura sin habilitar escritura todavía', () => {
   const documentation = getAuthorizedService('documentation');
 
-  assert.equal(documentation.state, 'REGISTERED');
+  assert.equal(documentation.state, 'INTEGRATED');
   assert.deepEqual(documentation.permissions, [
     'documentation.read',
     'documentation.write'
   ]);
-  assert.equal(documentation.capabilities.read, false);
+  assert.equal(documentation.capabilities.read, true);
   assert.equal(documentation.capabilities.write, false);
-  assert.equal(documentation.access, 'pending-adapter');
+  assert.equal(documentation.capabilities.execute, false);
+  assert.equal(documentation.access, 'orchestrator-only');
 });
 
 test('consulta devuelve copia y no permite mutar el registro', () => {
