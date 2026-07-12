@@ -8,6 +8,7 @@ const { registerClient } = require('./clientService');
 const STATE_FILE = process.env.CRM_COMMAND_STATE_FILE || '/opt/elankav/state/crm-command-state.json';
 const normalize = value => String(value || '').trim();
 const normalizeCommand = value => normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const normalizePhone = value => normalize(value).replace(/\D/g, '');
 
 function readStates() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) || {}; }
@@ -64,15 +65,29 @@ async function processSupplier(state, message) {
     const categories = splitCategories(message);
     if (!categories.length) return { done: false, text: 'Necesito al menos un material o servicio.' };
     state.data.categories = categories;
+    state.step = 'contactName';
+    return { done: false, text: '¿Cuál es el nombre del contacto principal? Podés responder “omitir” si aún no lo tenés.' };
+  }
+  if (state.step === 'contactName') {
+    state.data.contactName = /^omitir$/i.test(normalize(message)) ? '' : normalize(message);
+    state.step = 'whatsapp';
+    return { done: false, text: '¿Cuál es el número de WhatsApp del proveedor? Es obligatorio para guardar.' };
+  }
+  if (state.step === 'whatsapp') {
+    const whatsapp = normalizePhone(message);
+    if (whatsapp.length < 8) {
+      return { done: false, text: 'El número de WhatsApp no es válido. Enviámelo con código de país, por ejemplo +505 8888 8888.' };
+    }
+    state.data.whatsapp = whatsapp;
     state.step = 'confirm';
     return {
       done: false,
-      text: `Voy a registrar este proveedor:\n\nNombre: ${state.data.name}\nTipo: ${state.data.supplierType}\nRubro: ${categories.join(', ')}\n\n¿Confirmás que lo guarde?`
+      text: `Voy a registrar este proveedor:\n\nNombre: ${state.data.name}\nTipo: ${state.data.supplierType}\nRubro: ${state.data.categories.join(', ')}\nContacto: ${state.data.contactName || 'No indicado'}\nWhatsApp: +${whatsapp}\n\n¿Confirmás que lo guarde?`
     };
   }
   if (!isConfirm(message)) return { done: false, text: 'Respondé “Sí” para guardar o “Cancelar” para detener.' };
   await registerSupplier(state.data);
-  return { done: true, text: `Proveedor registrado correctamente en el CRM.\n\nNombre: ${state.data.name}\nEstado: activo` };
+  return { done: true, text: `Proveedor registrado correctamente en el CRM.\n\nNombre: ${state.data.name}\nWhatsApp: +${state.data.whatsapp}\nEstado: activo` };
 }
 
 async function processClient(state, message) {
@@ -84,14 +99,17 @@ async function processClient(state, message) {
   if (state.step === 'name') {
     state.data.name = normalize(message);
     state.step = 'phone';
-    return { done: false, text: '¿Cuál es su teléfono o WhatsApp? Podés responder “omitir”.' };
+    return { done: false, text: '¿Cuál es su número de WhatsApp? Es obligatorio para guardar.' };
   }
   if (state.step === 'phone') {
-    state.data.phone = /^omitir$/i.test(normalize(message)) ? '' : normalize(message);
+    const whatsapp = normalizePhone(message);
+    if (whatsapp.length < 8) return { done: false, text: 'El número de WhatsApp no es válido. Enviámelo con código de país.' };
+    state.data.phone = whatsapp;
+    state.data.whatsapp = whatsapp;
     state.step = 'confirm';
     return {
       done: false,
-      text: `Voy a registrar este cliente:\n\nNombre: ${state.data.name}\nPlataforma: ${state.data.platform.toUpperCase()}\nResponsable comercial: Administrador\nTeléfono: ${state.data.phone || 'No indicado'}\n\n¿Confirmás que lo guarde?`
+      text: `Voy a registrar este cliente:\n\nNombre: ${state.data.name}\nPlataforma: ${state.data.platform.toUpperCase()}\nResponsable comercial: Administrador\nWhatsApp: +${whatsapp}\n\n¿Confirmás que lo guarde?`
     };
   }
   if (!isConfirm(message)) return { done: false, text: 'Respondé “Sí” para guardar o “Cancelar” para detener.' };
@@ -103,11 +121,7 @@ async function processClient(state, message) {
     throw error;
   }
 
-  await registerClient({
-    ...state.data,
-    responsibleCommercialId
-  });
-
+  await registerClient({ ...state.data, responsibleCommercialId });
   return { done: true, text: `Cliente registrado correctamente.\n\nNombre: ${state.data.name}\nPlataforma: ${state.data.platform.toUpperCase()}\nResponsable comercial: Administrador` };
 }
 
