@@ -13,8 +13,11 @@ function getConfig() {
   return { url, token };
 }
 
-async function requestCrmWrite(payload) {
-  const { url, token } = getConfig();
+function getContactUrl(url) {
+  return url.replace(/\/api\/crm\/?$/, '/api/crm-contact');
+}
+
+async function request(url, token, payload) {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -37,16 +40,32 @@ async function requestCrmWrite(payload) {
   return data;
 }
 
+async function requestCrmWrite(payload) {
+  const { url, token } = getConfig();
+  return request(url, token, payload);
+}
+
+async function requestContactWrite(payload) {
+  const { url, token } = getConfig();
+  return request(getContactUrl(url), token, payload);
+}
+
 const createSupplier = payload => requestCrmWrite({ action: 'create_supplier', ...payload });
 const createClient = payload => requestCrmWrite({ action: 'create_client', ...payload });
-const addContact = payload => requestCrmWrite({ action: 'add_contact', ...payload });
-const updateContact = payload => requestCrmWrite({ action: 'update_contact', ...payload });
+const findSupplier = name => requestContactWrite({ action: 'find_supplier', name });
+const listContacts = identityId => requestContactWrite({ action: 'list_contacts', identityId });
+const addContact = payload => requestContactWrite({ action: 'add_contact', ...payload });
+const updateContact = payload => requestContactWrite({ action: 'update_contact', ...payload });
 
 module.exports = {
   getConfig,
+  getContactUrl,
   requestCrmWrite,
+  requestContactWrite,
   createSupplier,
   createClient,
+  findSupplier,
+  listContacts,
   addContact,
   updateContact
 };
