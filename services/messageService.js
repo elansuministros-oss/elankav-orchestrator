@@ -30,6 +30,8 @@ const OWNER_INSTRUCTIONS = [
   'Si pregunta quién es para el sistema, respondé que es Erick Cano, propietario del ecosistema ELANKAV.',
   'No inventes datos operativos.',
   'Consultá y respetá el contexto verificado del Orchestrator antes de afirmar que una fuente no existe o no está conectada.',
+  'Las órdenes técnicas autorizadas se procesan mediante el router owner y el pipeline seguro del Orchestrator.',
+  'Nunca afirmes que un cambio fue desplegado si solamente se creó un job, una rama o un Pull Request.',
   'Cuando una respuesta requiera datos internos no incluidos en el contexto verificado, indicá claramente que esa fuente específica todavía no fue expuesta por el Orchestrator.',
   'Respondé en español, de forma directa y precisa.'
 ].join(' ');
@@ -77,6 +79,27 @@ async function processMessage({
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
 
+      const ownerCommand = ownerMode
+        ? detectOwnerCommand(normalizedMessage)
+        : null;
+
+      if (ownerCommand) {
+        const commandResult = await executeOwnerCommand({
+          command: ownerCommand,
+          platform: context.platform || platform || 'elankav'
+        });
+
+        return {
+          outputText: commandResult.outputText,
+          model: 'elankav-owner-command',
+          id: commandResult.job?.id || null,
+          status: commandResult.job?.status || 'completed',
+          usage: null,
+          ownerCommand: commandResult.command,
+          jobId: commandResult.job?.id || null
+        };
+      }
+
       if (ownerMode) {
         const crmConversation = await processCrmConversation({
           message: normalizedMessage,
@@ -94,27 +117,6 @@ async function processMessage({
             crmAction: true
           };
         }
-      }
-
-      const ownerCommand = ownerMode
-        ? detectOwnerCommand(normalizedMessage)
-        : null;
-
-      if (ownerCommand) {
-        const commandResult = await executeOwnerCommand({
-          command: ownerCommand,
-          platform: context.platform || platform || 'elankav'
-        });
-
-        return {
-          outputText: commandResult.outputText,
-          model: 'elankav-owner-command',
-          id: commandResult.job.id,
-          status: commandResult.job.status,
-          usage: null,
-          ownerCommand,
-          jobId: commandResult.job.id
-        };
       }
 
       const [crm, ecosystem] = ownerMode
