@@ -1,116 +1,173 @@
-# 05 — Roadmap propuesto sin implementación
+# 05 — Roadmap oficial de evolución
 
-Este documento contiene propuestas. No autoriza cambios automáticos.
+Este documento ordena los movimientos futuros. No autoriza cambios automáticos ni permite omitir auditoría, validación o rollback.
 
-## Prioridad 0 — Congelamiento controlado
+## Principios de ejecución
 
-Hasta cerrar CRM-042:
+- Un movimiento = un objetivo.
+- Producción tiene prioridad.
+- No duplicar módulos ni documentación.
+- Todo acceso sensible pasa por IAM y Orchestrator.
+- Todo cambio debe actualizar código, pruebas, arquitectura y Base Oficial de Conocimiento.
 
-- no agregar funciones CRM nuevas;
+## Prioridad 0 — Estabilidad y cierre de movimientos abiertos
+
+- cerrar incidencias y contratos CRM pendientes;
 - no recrear WAHA;
 - no duplicar integraciones;
-- no rediseñar interfaces;
-- no crear nuevas tablas para evadir el problema;
-- no ejecutar backfill sin auditoría de datos.
+- no rediseñar interfaces sin alcance aprobado;
+- no ejecutar migraciones o backfill sin evidencia, respaldo y rollback.
 
-## Prioridad 1 — Certificar la fuente histórica de contactos
+## Prioridad 1 — Orchestrator como Centro de Control
+
+### Estado
+
+**EN EVOLUCIÓN.**
+
+Consolidar oficialmente:
+
+- descubrimiento del ecosistema;
+- contexto operativo;
+- GitHub;
+- Docker;
+- WAHA;
+- Dashboard;
+- Health;
+- documentación;
+- auditoría;
+- Servicios Autorizados.
+
+Criterio de cierre: ELAN IA debe consultar el estado mediante Orchestrator y no asumirlo desde memoria conversacional.
+
+## Prioridad 2 — Knowledge Base
 
 ### Objetivo
 
-Determinar dónde están los contactos previos a `crm_contacts`.
+Convertir la documentación existente en la Base Oficial de Conocimiento, sin crear documentación paralela.
 
-### Evidencia requerida
+### Entregables
 
-- definición de `crm_identities`;
-- definición y datos de `crm_supplier_profiles`;
-- existencia de `crm_supplier_contacts` u otras tablas;
-- columnas telefónicas o de contacto heredadas;
-- `identity_id` real de Vargas Centro;
-- conteos antes y después de CRM-042H;
-- registros duplicados por WhatsApp.
+- índice maestro sincronizado;
+- documento maestro único por tema;
+- relaciones entre módulos;
+- estado implementado/planificado explícito;
+- trazabilidad a código, pruebas, commits y migraciones;
+- consulta mediante Servicio Autorizado de Documentación.
 
-### Salida esperada
+## Prioridad 3 — IAM
 
-Informe de correspondencia:
+### Estado
+
+**IAM INICIAL.** Owner Mode existe; la autorización granular permanece pendiente.
+
+### Orden
+
+1. identidad canónica;
+2. roles: Owner, Administrador, Ejecutivo, Operador, Proveedor, Cliente e Invitado;
+3. catálogo versionado de permisos;
+4. Authorization Service;
+5. registro de auditoría;
+6. pruebas positivas y negativas por rol;
+7. denegación por defecto en todos los Servicios Autorizados.
+
+Identidades oficiales:
+
+- `50588388940`: único Owner;
+- `50578828089`: número comercial receptor de ELAN IA, sin privilegios administrativos.
+
+## Prioridad 4 — Servicios Autorizados
+
+Servicios registrados:
+
+- GitHub;
+- Docker;
+- WAHA;
+- Dashboard;
+- Health;
+- CRM;
+- QA;
+- Jobs;
+- Documentación.
+
+Todo servicio futuro deberá registrarse mediante el mismo mecanismo: contrato, permisos, service, adapter, auditoría, pruebas y estado.
+
+## Prioridad 5 — VSC-001: VS Code Web base
+
+### Estado
+
+**PLANIFICADO.**
+
+### Objetivo único
+
+Integrar VS Code Web sin acceso lateral directo a infraestructura.
+
+### Arquitectura obligatoria
 
 ```text
-fuente histórica → transformación → crm_contacts
+Usuario autorizado
+  ↓
+VS Code Web
+  ↓
+Workspace VPS autorizado
+  ↓
+ELANKAV Orchestrator
+  ↓
+Servicios Autorizados
 ```
 
-Sin ejecutar todavía la transformación.
+### Alcance VSC-001
 
-## Prioridad 2 — Diseñar backfill seguro
+- seleccionar tecnología compatible con el VPS;
+- desplegar servicio aislado;
+- publicar detrás del proxy existente;
+- autenticar mediante IAM/Owner Mode inicial;
+- limitar workspaces permitidos;
+- registrar el servicio en Orchestrator;
+- exponer health y estado;
+- registrar auditoría de acceso;
+- validar rollback.
 
-Solo después de identificar la fuente:
+### Prohibiciones
 
-1. consulta de previsualización;
-2. respaldo verificable;
-3. regla de normalización E.164;
-4. regla de deduplicación por identidad y WhatsApp;
-5. selección de contacto principal;
-6. conteos esperados;
-7. ejecución transaccional o reversible;
-8. validación postmigración;
-9. rollback documentado.
+VS Code Web no accederá directamente a GitHub, Docker, Supabase, WAHA ni Producción. No se habilitarán acciones destructivas, deploy ni terminal privilegiada en VSC-001.
 
-## Prioridad 3 — Certificación E2E CRM-042
+### Criterio de cierre
 
-Probar en orden:
+- servicio accesible únicamente por identidad autorizada;
+- workspace limitado;
+- health visible desde Orchestrator;
+- sin puertos administrativos expuestos directamente;
+- pruebas de acceso autorizado y denegado;
+- rollback probado;
+- documentación existente actualizada.
 
-1. proveedor nuevo;
-2. cliente nuevo;
-3. contacto principal automático;
-4. segundo contacto;
-5. listado;
-6. edición;
-7. cancelación;
-8. reinicio del Orchestrator;
-9. WhatsApp real;
-10. dato histórico migrado.
+## Prioridad 6 — VSC-002: autorización granular
 
-No avanzar hasta obtener evidencia de cada movimiento.
+- permisos por workspace;
+- permisos de lectura/escritura;
+- sesiones y expiración;
+- auditoría detallada;
+- revocación inmediata;
+- pruebas de escalamiento de privilegios.
 
-## Prioridad 4 — Normalización documental por repositorio
+## Prioridad 7 — VSC-003: operaciones autorizadas
 
-### ELANKAV CORE
+Solo después de IAM operativo:
 
-- reemplazar README de Vite;
-- documentar `/api/crm` y `/api/crm-contact`;
-- catálogo de migraciones;
-- variables requeridas;
-- modelo de seguridad.
+- consulta GitHub mediante Orchestrator;
+- QA y build mediante Jobs;
+- creación de rama;
+- commit y PR;
+- operaciones Docker estrictamente autorizadas;
+- deploy y rollback como movimientos independientes.
 
-### ELANVISUAL
+## Normalización documental por repositorio
 
-- sustituir README heredado de ELANPET;
-- declarar rama operativa real;
-- documentar Supabase Auth, EMC, AI-23, cotizador y producción;
-- separar estado actual de funcionalidades proyectadas.
+Cada producto conserva su README y contrato local. La documentación transversal se mantiene únicamente en Orchestrator. No mezclar productos ni copiar el mismo tema en varios documentos.
 
-### ELANPET
+## Control de producción
 
-- revisar usuarios demo y confirmar si deben permanecer documentados;
-- documentar autenticación real y despliegue actual.
-
-### ELANKAV PLATFORM
-
-- reemplazar README de Vite;
-- definir responsabilidad frente a ELANKAV OS y Orchestrator.
-
-### ELAN AI
-
-- completar contratos de Channel, Dispatcher, Planner, Memory, Knowledge, Reasoning, Operators, Tools y Business Engine;
-- documentar integración real con WAHA y Orchestrator.
-
-### ELANKAV OS
-
-- inventariar contenido privado;
-- crear README y límites del producto;
-- evitar duplicidad con Orchestrator y Platform.
-
-## Prioridad 5 — Control de producción
-
-Proponer posteriormente:
+Mantener:
 
 - manifiesto por servicio con commit desplegado;
 - health check semántico;
@@ -121,24 +178,12 @@ Proponer posteriormente:
 - procedimiento de rollback;
 - registro de incidentes.
 
-## Orden recomendado de proyectos
+## Orden inmediato aprobado
 
-1. Cerrar CRM-042 y contactos heredados.
-2. Certificar Orchestrator como plano de control de lectura.
-3. Normalizar documentación de CORE.
-4. Normalizar documentación de ELANVISUAL.
-5. Auditar ELAN AI y cadena WAHA.
-6. Definir límites ELANKAV Platform / ELANKAV OS.
-7. Implantar QA y CI.
-8. Reanudar nuevas funciones.
-
-## Criterio para retomar desarrollo
-
-El desarrollo puede continuar cuando:
-
-- el incidente de contacto histórico tiene causa y resolución verificadas;
-- los contratos CRM están documentados;
-- existe una prueba E2E aprobada;
-- producción está vinculada a un commit conocido;
-- hay rollback definido;
-- el próximo movimiento tiene un único objetivo y dependencias identificadas.
+1. Sincronizar documentación existente.
+2. Abrir y aprobar el cambio documental.
+3. Ejecutar auditoría diferencial del VPS para VSC-001.
+4. Diseñar el movimiento de instalación sin tocar producción.
+5. Implementar VSC-001.
+6. Validar IAM, proxy, health, workspace y rollback.
+7. Actualizar línea base y Knowledge Base.
