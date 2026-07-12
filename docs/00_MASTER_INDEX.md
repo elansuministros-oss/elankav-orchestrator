@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Establecer una fuente documental única, auditable y separada del código funcional.
+Establecer una fuente documental única, auditable y separada del código funcional. La documentación oficial forma parte del ecosistema y constituye la **Base Oficial de Conocimiento**.
 
 ## Índice
 
@@ -10,12 +10,12 @@ Establecer una fuente documental única, auditable y separada del código funcio
 |---|---|---|
 | `README.md` | Entrada oficial del repositorio | VERIFICADO |
 | `01_AUDITORIA_MAESTRA.md` | Inventario, evidencia y calidad documental | VERIFICADO |
-| `02_ARQUITECTURA_Y_ACCESOS.md` | Componentes, rutas y límites de acceso | VERIFICADO/PENDIENTE |
+| `02_ARQUITECTURA_Y_ACCESOS.md` | Centro de Control, componentes, Servicios Autorizados, VS Code Web y límites de acceso | ACTUALIZADO |
 | `03_CRM_CONTACTOS.md` | Contrato CRM-042 y causa técnica del incidente | VERIFICADO |
 | `04_RIESGOS_Y_QA.md` | Riesgos, pruebas, seguridad y operación | VERIFICADO/PROPUESTA |
-| `05_ROADMAP_PROPUESTO.md` | Orden recomendado para continuar | PROPUESTA |
-| `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir la auditoría maestra | VERIFICADO/PENDIENTE |
-| `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación por órdenes | DOCUMENTADO/PROPUESTA |
+| `05_ROADMAP_PROPUESTO.md` | Orden recomendado, VSC-001, IAM y Knowledge Base | ACTUALIZADO |
+| `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir auditorías | VERIFICADO/EVOLUCIÓN |
+| `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación | DOCUMENTADO/IAM INICIAL |
 
 ## Documento obligatorio de inicio
 
@@ -25,13 +25,17 @@ Todo operador, chat o auditoría nueva debe comenzar por:
 docs/06_LINEA_BASE_ECOSISTEMA.md
 ```
 
-Para cualquier trabajo relacionado con usuarios, permisos, Owner Mode o delegación debe leerse también:
+Para usuarios, permisos, Owner Mode o delegación debe leerse también:
 
 ```text
 docs/07_IAM_ROLES_Y_PERMISOS.md
 ```
 
-La línea base registra el inventario conocido, arquitectura, funciones, contratos, riesgos, límites y pendientes. Las auditorías futuras deben ser diferenciales respecto a esa línea base.
+Para infraestructura, contexto operativo, Servicios Autorizados o VS Code Web debe leerse:
+
+```text
+docs/02_ARQUITECTURA_Y_ACCESOS.md
+```
 
 ## Jerarquía documental
 
@@ -44,68 +48,55 @@ Arquitectura
   ↓
 Identidad, roles y permisos
   ↓
+Servicios Autorizados
+  ↓
 Contratos API y datos
   ↓
 Operación y QA
   ↓
 Estado de proyectos
   ↓
-Roadmap propuesto
+Roadmap
 ```
 
-## Fuentes de evidencia utilizadas
+## Base Oficial de Conocimiento
 
-1. Metadatos de los repositorios GitHub accesibles.
-2. Rama principal y commits actuales.
-3. Pull requests y descripciones de alcance.
-4. Código versionado del Orchestrator y CORE.
-5. Migraciones SQL versionadas.
-6. README y package.json existentes.
-7. Contexto conversacional, solo como fuente DECLARADA.
-8. Validaciones vivas del Orchestrator ejecutadas en el VPS.
+La documentación no se administra como archivos Markdown aislados. Es la Base Oficial de Conocimiento del ecosistema.
 
-## Fuentes todavía no verificadas directamente
+Todo cambio debe mantener sincronizados:
 
-- Datos reales completos de Supabase.
-- Configuración DNS, TLS y proxy completa.
-- Esquema IAM central, todavía no implementado.
-- Permisos efectivos por rol fuera de Owner Mode.
+- documento maestro correspondiente;
+- índice maestro;
+- estado del módulo;
+- relaciones arquitectónicas;
+- código y pruebas relacionados;
+- línea base y roadmap cuando corresponda.
+
+## Fuentes de evidencia
+
+1. Metadatos y contenido de repositorios GitHub.
+2. Ramas, commits y pull requests.
+3. Código versionado del Orchestrator y servicios relacionados.
+4. Migraciones SQL versionadas.
+5. README, contratos y configuración sin secretos.
+6. Validaciones vivas ejecutadas mediante el Orchestrator.
+7. Contexto conversacional únicamente como fuente declarada, nunca como estado operativo oficial.
 
 ## Norma de actualización
 
-Cada cambio documental futuro debe indicar:
+Cada cambio documental debe indicar fecha, evidencia, commit o migración, clasificación e impacto.
 
-- fecha;
-- fuente de evidencia;
-- commit o migración relacionados;
-- clasificación VERIFICADO, DECLARADO, PENDIENTE o PROPUESTA;
-- impacto en otros documentos.
+La línea base debe actualizarse cuando cambie un contrato, servicio, rol, permiso, integración, rama, migración o estado certificado.
 
-La línea base debe actualizarse cuando:
+## Regla permanente contra duplicación
 
-- se confirma o descarta una hipótesis;
-- cambia un contrato API;
-- se agrega una migración;
-- cambia una rama operativa;
-- se certifica un dato vivo de producción;
-- se incorpora un nuevo repositorio o servicio;
-- cambia un rol, permiso o regla de autorización.
+- Nunca crear documentación duplicada.
+- Un tema corresponde a un único documento maestro.
+- Siempre evolucionar el documento existente.
+- No crear archivos nuevos cuando el tema pueda integrarse en la estructura actual.
+- Toda documentación debe permanecer sincronizada con código, pruebas, arquitectura y Orchestrator.
+- No debe repetirse una auditoría maestra cuando basta una auditoría diferencial.
 
 ## Criterio de cierre documental
 
-Un bloque se considera documentado cuando contiene:
-
-1. objetivo;
-2. dependencias;
-3. flujo;
-4. contrato de entrada y salida;
-5. errores conocidos;
-6. pruebas disponibles;
-7. riesgos;
-8. estado de producción;
-9. rollback o límite de cambio;
-10. evidencia trazable.
-
-## Regla contra repetición
-
-No debe repetirse la auditoría maestra completa si el alcance ya está cubierto por la línea base y no existen cambios posteriores. Se debe comparar el estado actual contra el último commit documentado y auditar solo las diferencias.
+Un bloque se considera documentado cuando registra objetivo, dependencias, flujo, contratos, errores, pruebas, riesgos, estado de producción, rollback o límite de cambio y evidencia trazable.
