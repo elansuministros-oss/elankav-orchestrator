@@ -4,6 +4,9 @@ const {
 const {
   handleVscodeApi
 } = require('./vscodeApi');
+const {
+  handleServiceRegistryApi
+} = require('./serviceRegistryApi');
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -70,6 +73,16 @@ async function handleMessageApi({
   });
 
   if (vscodeHandled) {
+    return true;
+  }
+
+  const serviceRegistryHandled = handleServiceRegistryApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (serviceRegistryHandled) {
     return true;
   }
 
