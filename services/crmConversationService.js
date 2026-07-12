@@ -95,7 +95,19 @@ async function processClient(state, message) {
     };
   }
   if (!isConfirm(message)) return { done: false, text: 'Respondé “Sí” para guardar o “Cancelar” para detener.' };
-  await registerClient(state.data);
+
+  const responsibleCommercialId = normalize(process.env.CRM_DEFAULT_ADMIN_IDENTITY_ID);
+  if (!responsibleCommercialId) {
+    const error = new Error('CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED');
+    error.code = 'CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED';
+    throw error;
+  }
+
+  await registerClient({
+    ...state.data,
+    responsibleCommercialId
+  });
+
   return { done: true, text: `Cliente registrado correctamente.\n\nNombre: ${state.data.name}\nPlataforma: ${state.data.platform.toUpperCase()}\nResponsable comercial: Administrador` };
 }
 
