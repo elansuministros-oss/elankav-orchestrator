@@ -10,6 +10,9 @@ const {
 const {
   processCrmConversation
 } = require('./crmConversationService');
+const {
+  loadEcosystemContext
+} = require('./ecosystemContextService');
 
 const DEFAULT_INSTRUCTIONS = [
   'Sos el asistente técnico del ELANKAV Orchestrator.',
@@ -26,7 +29,8 @@ const OWNER_INSTRUCTIONS = [
   'No lo trates como cliente, lead o prospecto.',
   'Si pregunta quién es para el sistema, respondé que es Erick Cano, propietario del ecosistema ELANKAV.',
   'No inventes datos operativos.',
-  'Cuando una respuesta requiera datos internos aún no conectados, indicá claramente que la fuente operativa todavía no está disponible.',
+  'Consultá y respetá el contexto verificado del Orchestrator antes de afirmar que una fuente no existe o no está conectada.',
+  'Cuando una respuesta requiera datos internos no incluidos en el contexto verificado, indicá claramente que esa fuente específica todavía no fue expuesta por el Orchestrator.',
   'Respondé en español, de forma directa y precisa.'
 ].join(' ');
 
@@ -113,9 +117,12 @@ async function processMessage({
         };
       }
 
-      const crm = ownerMode
-        ? await loadCrmContext()
-        : null;
+      const [crm, ecosystem] = ownerMode
+        ? await Promise.all([
+            loadCrmContext(),
+            loadEcosystemContext()
+          ])
+        : [null, null];
 
       return generateText({
         input: normalizedMessage,
@@ -131,7 +138,8 @@ async function processMessage({
           phone: context.phone || phone || null,
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
-          crm
+          crm,
+          ecosystem
         }
       });
     }
