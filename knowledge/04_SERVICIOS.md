@@ -45,7 +45,6 @@ El registro distingue obligatoriamente:
 
 Estado actual registrado:
 
-- Integrados: GitHub, Docker, WAHA, Dashboard, Health, Jobs y VS Code Web;
 - Integrados: GitHub, Docker, WAHA, Dashboard, Health, Jobs, Documentación y VS Code Web;
 - Registrados pendientes de integración directa: CRM y QA.
 
