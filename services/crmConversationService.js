@@ -28,7 +28,7 @@ function writeStates(states) {
   fs.renameSync(temp, STATE_FILE);
 }
 
-function detectStart(message) {
+function detectCommand(message) {
   const raw = normalize(message);
   const value = normalizeCommand(raw);
   let match = value.match(/^(?:agregar|anadir|añadir|crear) contacto (?:a|para) (.+)$/);
@@ -38,6 +38,11 @@ function detectStart(message) {
   if (/(crear|agregar|registrar).*(proveedor)/.test(value) || value.includes('quiero agregar un proveedor')) return { type: 'supplier' };
   if (/(crear|agregar|registrar).*(cliente)/.test(value) || value.includes('quiero agregar un cliente')) return { type: 'client' };
   return null;
+}
+
+function detectStart(message) {
+  const command = detectCommand(message);
+  return command ? command.type : null;
 }
 
 const isCancel = message => /^(cancelar|cancela|detener|no guardar)$/i.test(normalize(message));
@@ -266,7 +271,7 @@ async function processCrmConversation({ message, externalUserId, phone }) {
   }
 
   if (!state) {
-    const start = detectStart(message);
+    const start = detectCommand(message);
     if (!start) return { handled: false };
     state = await initializeState(start);
     states[key] = state;
@@ -288,6 +293,7 @@ async function processCrmConversation({ message, externalUserId, phone }) {
 
 module.exports = {
   detectStart,
+  detectCommand,
   isCancel,
   isConfirm,
   parseSupplierType,
