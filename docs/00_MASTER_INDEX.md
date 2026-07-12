@@ -15,6 +15,7 @@ Establecer una fuente documental única, auditable y separada del código funcio
 | `04_RIESGOS_Y_QA.md` | Riesgos, pruebas, seguridad y operación | VERIFICADO/PROPUESTA |
 | `05_ROADMAP_PROPUESTO.md` | Orden recomendado para continuar | PROPUESTA |
 | `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir la auditoría maestra | VERIFICADO/PENDIENTE |
+| `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación por órdenes | DOCUMENTADO/PROPUESTA |
 
 ## Documento obligatorio de inicio
 
@@ -24,7 +25,13 @@ Todo operador, chat o auditoría nueva debe comenzar por:
 docs/06_LINEA_BASE_ECOSISTEMA.md
 ```
 
-Ese documento registra el inventario conocido, arquitectura, funciones, contratos, riesgos, límites y pendientes. Las auditorías futuras deben ser diferenciales respecto a esa línea base.
+Para cualquier trabajo relacionado con usuarios, permisos, Owner Mode o delegación debe leerse también:
+
+```text
+docs/07_IAM_ROLES_Y_PERMISOS.md
+```
+
+La línea base registra el inventario conocido, arquitectura, funciones, contratos, riesgos, límites y pendientes. Las auditorías futuras deben ser diferenciales respecto a esa línea base.
 
 ## Jerarquía documental
 
@@ -34,6 +41,8 @@ Reglas maestras
 Línea base del ecosistema
   ↓
 Arquitectura
+  ↓
+Identidad, roles y permisos
   ↓
 Contratos API y datos
   ↓
@@ -53,16 +62,14 @@ Roadmap propuesto
 5. Migraciones SQL versionadas.
 6. README y package.json existentes.
 7. Contexto conversacional, solo como fuente DECLARADA.
+8. Validaciones vivas del Orchestrator ejecutadas en el VPS.
 
 ## Fuentes todavía no verificadas directamente
 
-- Estado vivo del servicio systemd.
-- Contenedores Docker en ejecución.
-- Datos reales de Supabase.
-- Variables de entorno del VPS.
-- Sesión viva de WAHA.
-- Configuración DNS, TLS y proxy.
-- Commit exacto desplegado en cada servicio.
+- Datos reales completos de Supabase.
+- Configuración DNS, TLS y proxy completa.
+- Esquema IAM central, todavía no implementado.
+- Permisos efectivos por rol fuera de Owner Mode.
 
 ## Norma de actualización
 
@@ -81,7 +88,8 @@ La línea base debe actualizarse cuando:
 - se agrega una migración;
 - cambia una rama operativa;
 - se certifica un dato vivo de producción;
-- se incorpora un nuevo repositorio o servicio.
+- se incorpora un nuevo repositorio o servicio;
+- cambia un rol, permiso o regla de autorización.
 
 ## Criterio de cierre documental
 
