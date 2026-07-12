@@ -13,9 +13,10 @@ Establecer una fuente documental única, auditable y separada del código funcio
 | `02_ARQUITECTURA_Y_ACCESOS.md` | Centro de Control, componentes, Servicios Autorizados, VS Code Web y límites de acceso | ACTUALIZADO |
 | `03_CRM_CONTACTOS.md` | Contrato CRM-042 y causa técnica del incidente | VERIFICADO |
 | `04_RIESGOS_Y_QA.md` | Riesgos, pruebas, seguridad y operación | VERIFICADO/PROPUESTA |
-| `05_ROADMAP_PROPUESTO.md` | Orden recomendado, VSC-001, IAM y Knowledge Base | ACTUALIZADO |
+| `05_ROADMAP_PROPUESTO.md` | Orden recomendado, VSC-001, IAM, Knowledge Base y movimientos de voz | ACTUALIZADO |
 | `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir auditorías | VERIFICADO/EVOLUCIÓN |
 | `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación | DOCUMENTADO/IAM INICIAL |
+| `VOICE-001.md` | Identidad oficial, arquitectura, diccionario y selección futura de voz de ELAN IA | APROBADO/CERRADO |
 
 ## Documento obligatorio de inicio
 
@@ -23,6 +24,12 @@ Todo operador, chat o auditoría nueva debe comenzar por:
 
 ```text
 docs/06_LINEA_BASE_ECOSISTEMA.md
+```
+
+Para conocer la gobernanza documental y localizar documentos vigentes debe leerse también:
+
+```text
+docs/00_MASTER_INDEX.md
 ```
 
 Para usuarios, permisos, Owner Mode o delegación debe leerse también:
@@ -35,6 +42,12 @@ Para infraestructura, contexto operativo, Servicios Autorizados o VS Code Web de
 
 ```text
 docs/02_ARQUITECTURA_Y_ACCESOS.md
+```
+
+Para identidad de voz, pronunciación o selección futura de proveedor STT/TTS debe leerse:
+
+```text
+docs/VOICE-001.md
 ```
 
 ## Jerarquía documental
@@ -96,6 +109,32 @@ La línea base debe actualizarse cuando cambie un contrato, servicio, rol, permi
 - No crear archivos nuevos cuando el tema pueda integrarse en la estructura actual.
 - Toda documentación debe permanecer sincronizada con código, pruebas, arquitectura y Orchestrator.
 - No debe repetirse una auditoría maestra cuando basta una auditoría diferencial.
+
+## Gobernanza estructural permanente
+
+La estructura documental existente queda reconocida como la gobernanza oficial del repositorio.
+
+Reglas obligatorias:
+
+1. Antes de crear una convención, carpeta, índice, estándar o documento transversal se debe buscar si ya existe un equivalente.
+2. Si existe, se actualiza el documento maestro vigente; no se crea una estructura paralela.
+3. No se borran, renombran ni mueven documentos oficiales sin auditoría de referencias, evaluación de impacto, rollback y movimiento aprobado.
+4. Las carpetas nuevas solo se crean cuando un tema no cabe razonablemente en la estructura vigente y la necesidad queda documentada.
+5. La nomenclatura publicada y los identificadores cerrados no se reutilizan.
+6. Los nuevos chats deben identificar el estado mediante este índice y la línea base, no mediante memoria conversacional.
+7. Una propuesta de reorganización no se considera implementada hasta comprobar que no contradice gobernanza previa.
+8. Esta gobernanza no se modifica informalmente. Cualquier cambio material requiere movimiento de arquitectura o documentación, evidencia y actualización trazable.
+
+Esta sección consolida reglas ya presentes en la Base Oficial de Conocimiento; no crea una jerarquía documental paralela.
+
+## Movimientos documentales recientes
+
+| Movimiento | Resultado | Estado |
+|---|---|---|
+| `KB-001A` | Base Oficial de Conocimiento consolidada | CERRADO |
+| `AUD-001A` | Auditoría y Audio Intake documentados y validados | CERRADO |
+| `VOICE-001` | Identidad oficial de voz especificada sin implementar STT/TTS | CERRADO |
+| `STT-001A` | Reconocimiento de audio desacoplado | SIGUIENTE MOVIMIENTO |
 
 ## Criterio de cierre documental
 
