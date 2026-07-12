@@ -1,6 +1,6 @@
 const {
   getServiceRegistrySnapshot,
-  getServiceById
+  getAuthorizedService
 } = require('../services/serviceRegistryService');
 const {
   isOwnerRequest
@@ -46,7 +46,7 @@ function handleServiceRegistryApi({ req, res, sendJson }) {
   }
 
   const serviceId = decodeURIComponent(pathname.slice('/api/services/'.length));
-  const service = getServiceById(serviceId);
+  const service = getAuthorizedService(serviceId);
 
   if (!service) {
     sendJson(res, 404, {
