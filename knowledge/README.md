@@ -33,6 +33,10 @@ La Base Oficial de Conocimiento debe permanecer sincronizada con:
 - roadmap;
 - Orchestrator desplegado.
 
+## Movimientos operativos documentados
+
+- `docs/07_PROG_001A_PROGRAMACION_REMOTA.md`: router Owner para crear Jobs de código desde WhatsApp o canales autorizados, reutilizando Codex, ramas temporales, QA y Pull Requests sin merge ni despliegue automático.
+
 ## KB-001 — Knowledge Engine
 
 El Knowledge Engine administra la lectura segura de la Base Oficial de Conocimiento y el control de impacto documental de cada movimiento.
