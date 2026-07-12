@@ -14,11 +14,24 @@ Establecer una fuente documental única, auditable y separada del código funcio
 | `03_CRM_CONTACTOS.md` | Contrato CRM-042 y causa técnica del incidente | VERIFICADO |
 | `04_RIESGOS_Y_QA.md` | Riesgos, pruebas, seguridad y operación | VERIFICADO/PROPUESTA |
 | `05_ROADMAP_PROPUESTO.md` | Orden recomendado para continuar | PROPUESTA |
+| `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir la auditoría maestra | VERIFICADO/PENDIENTE |
+
+## Documento obligatorio de inicio
+
+Todo operador, chat o auditoría nueva debe comenzar por:
+
+```text
+docs/06_LINEA_BASE_ECOSISTEMA.md
+```
+
+Ese documento registra el inventario conocido, arquitectura, funciones, contratos, riesgos, límites y pendientes. Las auditorías futuras deben ser diferenciales respecto a esa línea base.
 
 ## Jerarquía documental
 
 ```text
 Reglas maestras
+  ↓
+Línea base del ecosistema
   ↓
 Arquitectura
   ↓
@@ -61,6 +74,15 @@ Cada cambio documental futuro debe indicar:
 - clasificación VERIFICADO, DECLARADO, PENDIENTE o PROPUESTA;
 - impacto en otros documentos.
 
+La línea base debe actualizarse cuando:
+
+- se confirma o descarta una hipótesis;
+- cambia un contrato API;
+- se agrega una migración;
+- cambia una rama operativa;
+- se certifica un dato vivo de producción;
+- se incorpora un nuevo repositorio o servicio.
+
 ## Criterio de cierre documental
 
 Un bloque se considera documentado cuando contiene:
@@ -75,3 +97,7 @@ Un bloque se considera documentado cuando contiene:
 8. estado de producción;
 9. rollback o límite de cambio;
 10. evidencia trazable.
+
+## Regla contra repetición
+
+No debe repetirse la auditoría maestra completa si el alcance ya está cubierto por la línea base y no existen cambios posteriores. Se debe comparar el estado actual contra el último commit documentado y auditar solo las diferencias.
