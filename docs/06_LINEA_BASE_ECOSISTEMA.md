@@ -518,3 +518,51 @@ Debe realizarse auditoría diferencial cuando:
 ## Regla final
 
 Este documento es la referencia inicial oficial. Cualquier operador futuro debe comenzar aquí y ampliar por evidencia, no reconstruir el ecosistema desde conversaciones anteriores.
+
+## Actualización KB-001A — 12 de julio de 2026
+
+### Identificación del movimiento
+
+| Campo | Valor |
+|---|---|
+| Movimiento | `KB-001A` |
+| Rama técnica | `kb-001a-knowledge-read-impact` |
+| Pull Request | `#16` |
+| Commit técnico final | `27ce7e6` |
+| Merge en línea base | `794f691` |
+| Rama base | `orchestrator-next` |
+| Resultado QA | `36/36 PASS` |
+| Estado | `COMPLETADO` |
+
+### Capacidades incorporadas
+
+KB-001A incorporó el Knowledge Engine en modo de lectura interna:
+
+- listado exclusivo de documentos Markdown dentro de `docs/` y `knowledge/`;
+- lectura segura con metadatos;
+- bloqueo de traversal, rutas absolutas, archivos externos y enlaces simbólicos;
+- registro persistente del impacto documental por Job o movimiento;
+- estados documentales `NO_REQUIERE_CAMBIO`, `PENDIENTE` y `ACTUALIZADO`;
+- consulta de pendientes documentales;
+- integración de Documentación en el Service Registry con capacidad de lectura.
+
+### Restricciones vigentes
+
+KB-001A no habilita:
+
+- edición automática de documentos;
+- creación de documentos duplicados;
+- escritura mediante API;
+- acceso directo fuera del Orchestrator;
+- capacidad efectiva de `documentation.write`.
+
+La escritura controlada continúa reservada para KB-002. La exposición HTTP protegida del Knowledge Engine corresponde a KB-001B.
+
+### Evidencia de validación
+
+- pruebas específicas del Service Registry: `5/5`;
+- suite completa del Orchestrator: `36/36`;
+- validación sintáctica: correcta;
+- `git diff --check`: correcto;
+- Pull Request #16 fusionado correctamente;
+- producción no fue modificada durante KB-001A.
