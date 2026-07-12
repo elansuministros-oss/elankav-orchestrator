@@ -32,7 +32,9 @@
 - registro de impacto documental por Job o movimiento;
 - estado documental obligatorio: `NO_REQUIERE_CAMBIO`, `PENDIENTE` o `ACTUALIZADO`.
 
-## KB-001A — Lectura e impacto documental
+## KB-001A — Lectura e impacto documental — COMPLETADO
+
+Estado validado: PR #16 fusionado en `orchestrator-next` mediante merge commit `794f691`; suite completa 36/36 y escritura documental automática deshabilitada.
 
 - listar documentos Markdown oficiales dentro de `docs/` y `knowledge/`;
 - leer documentos autorizados sin permitir traversal;

@@ -46,9 +46,10 @@ El registro distingue obligatoriamente:
 Estado actual registrado:
 
 - Integrados: GitHub, Docker, WAHA, Dashboard, Health, Jobs y VS Code Web;
-- Registrados pendientes de integración directa: CRM, QA y Documentación.
+- Integrados: GitHub, Docker, WAHA, Dashboard, Health, Jobs, Documentación y VS Code Web;
+- Registrados pendientes de integración directa: CRM y QA.
 
-La Documentación ya está registrada como servicio oficial con permisos nominales `documentation.read` y `documentation.write`, pero sus capacidades permanecen deshabilitadas hasta implementar el Adapter documental, IAM compartido, auditoría y pruebas. Registrar un permiso no equivale a concederlo.
+KB-001A integró la Documentación en modo de lectura interna mediante Adapter y Service, limitada exclusivamente a archivos Markdown ubicados en `docs/` y `knowledge/`. La lectura bloquea traversal, rutas externas, enlaces simbólicos y archivos no autorizados. El permiso nominal `documentation.write` continúa registrado, pero la capacidad de escritura permanece deshabilitada hasta KB-002.
 
 La exposición HTTP del Service Registry queda reservada para SRV-001B. Debe reutilizar el IAM compartido; no se permite duplicar controles Owner, Bearer o sesión en un módulo independiente.
 
