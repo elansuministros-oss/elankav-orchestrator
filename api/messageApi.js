@@ -1,6 +1,9 @@
 const {
   processMessage
 } = require('../services/messageService');
+const {
+  handleVscodeApi
+} = require('./vscodeApi');
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -60,6 +63,16 @@ async function handleMessageApi({
   res,
   sendJson
 }) {
+  const vscodeHandled = await handleVscodeApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (vscodeHandled) {
+    return true;
+  }
+
   const requestUrl = new URL(
     req.url,
     `http://${req.headers.host || 'localhost'}`
