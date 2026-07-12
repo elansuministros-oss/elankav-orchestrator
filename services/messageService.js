@@ -7,6 +7,9 @@ const {
 const {
   loadCrmContext
 } = require('./crmContextService');
+const {
+  processCrmConversation
+} = require('./crmConversationService');
 
 const DEFAULT_INSTRUCTIONS = [
   'Sos el asistente técnico del ELANKAV Orchestrator.',
@@ -69,6 +72,26 @@ async function processMessage({
     async context => {
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
+
+      if (ownerMode) {
+        const crmConversation = await processCrmConversation({
+          message: normalizedMessage,
+          externalUserId: context.externalUserId || externalUserId || null,
+          phone: context.phone || phone || null
+        });
+
+        if (crmConversation.handled) {
+          return {
+            outputText: crmConversation.outputText,
+            model: 'elankav-crm-conversation',
+            id: null,
+            status: crmConversation.completed ? 'completed' : 'in_progress',
+            usage: null,
+            crmAction: true
+          };
+        }
+      }
+
       const ownerCommand = ownerMode
         ? detectOwnerCommand(normalizedMessage)
         : null;
@@ -117,7 +140,7 @@ async function processMessage({
   return {
     message: normalizedMessage,
     reply: response.outputText.trim(),
-    provider: response.ownerCommand ? 'elankav' : 'openai',
+    provider: response.ownerCommand || response.crmAction ? 'elankav' : 'openai',
     model: response.model,
     responseId: response.id,
     status: response.status,
