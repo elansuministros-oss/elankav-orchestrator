@@ -106,7 +106,19 @@ Cada fase debe ejecutarse como movimiento independiente:
 
 ### Fase 1 — Escuchar notas de voz
 
-#### AUD-001A — Ingreso seguro de audio
+#### AUD-001A — Ingreso seguro de audio — COMPLETADO
+
+Estado validado: PR #8 fusionado en `main` mediante merge commit `e5c7404`; commit documental `4169605`; commit técnico `dd5a54a`; suite completa `25/25 PASS`; build correcto y preview de Vercel en estado Ready.
+
+Capacidad entregada:
+
+- detección y validación segura de notas de voz;
+- Adapter y Service desacoplados;
+- integración mínima en el webhook;
+- regresión del flujo textual cubierta por pruebas;
+- sin descarga, transcripción, OpenAI ni respuesta de voz.
+
+Próximo movimiento autorizado: `STT-001A — Transcripción`.
 
 - detectar mensajes de audio de WAHA;
 - descargar mediante Adapter autorizado;

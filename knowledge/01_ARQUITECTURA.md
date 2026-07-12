@@ -115,3 +115,39 @@ WAHA
 ```
 
 La primera implementación técnica será `AUD-001A`: recepción y validación segura de notas de voz, sin transcripción todavía. `STT-001A` se implementará únicamente después de validar ese ingreso.
+
+## Estado implementado AUD-001A — 12 de julio de 2026
+
+AUD-001A quedó integrado en `elankav-core` como la primera capacidad técnica de ELAN IA Multimodal.
+
+Flujo implementado:
+
+```text
+WAHA
+→ api/whatsapp-v2.js
+→ Audio Intake Adapter
+→ Audio Intake Service
+→ resultado normalizado
+```
+
+Responsabilidades incorporadas:
+
+- detección de mensajes de audio y notas de voz;
+- normalización de metadatos provenientes de WAHA;
+- validación de identificador de mensaje y chat;
+- validación de tipo MIME;
+- validación configurable de tamaño y duración;
+- validación de referencia multimedia;
+- degradación controlada ante payloads incompletos;
+- preservación del flujo textual existente.
+
+AUD-001A no incorpora:
+
+- descarga del archivo;
+- almacenamiento binario;
+- transcripción;
+- llamadas a OpenAI;
+- generación de voz;
+- respuesta automática ante el audio.
+
+La siguiente capacidad técnica autorizada es `STT-001A`, que deberá reutilizar el Adapter y el Service existentes sin trasladar lógica multimedia al webhook.

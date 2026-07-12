@@ -566,3 +566,73 @@ La escritura controlada continúa reservada para KB-002. La exposición HTTP pro
 - `git diff --check`: correcto;
 - Pull Request #16 fusionado correctamente;
 - producción no fue modificada durante KB-001A.
+
+## Actualización AUD-001A — 12 de julio de 2026
+
+### Identificación del movimiento
+
+| Campo | Valor |
+|---|---|
+| Movimiento | `AUD-001A` |
+| Repositorio técnico | `elansuministros-oss/elankav-core` |
+| Rama técnica | `aud-001a-audio-intake` |
+| Pull Request | `#8` |
+| Commit documental | `4169605` |
+| Commit técnico | `dd5a54a` |
+| Merge en `main` | `e5c7404` |
+| Resultado QA | `25/25 PASS` |
+| Build | `OK` |
+| Vercel | `Ready` |
+| Estado | `COMPLETADO` |
+
+### Capacidades incorporadas
+
+AUD-001A incorporó el ingreso seguro de notas de voz desde WAHA:
+
+```text
+WAHA
+→ webhook de ELANKAV Core
+→ Audio Intake Adapter
+→ Audio Intake Service
+→ resultado normalizado
+```
+
+La implementación:
+
+- detecta audio y notas de voz;
+- extrae metadatos sin inventar valores;
+- valida mensaje, chat, MIME, referencia, tamaño y duración;
+- rechaza payloads inválidos de forma controlada;
+- mantiene intacto el procesamiento de mensajes de texto;
+- conserva la separación entre Adapter, Service y webhook.
+
+### Restricciones preservadas
+
+AUD-001A no habilita:
+
+- descarga de archivos de audio;
+- persistencia de contenido binario;
+- transcripción;
+- llamadas a OpenAI;
+- generación o envío de voz;
+- modificación de Owner Mode;
+- procesamiento de grupos, estados o mensajes propios.
+
+### Validación
+
+- pruebas propias de AUD-001A: `13/13 PASS`;
+- suite completa de `elankav-core`: `25/25 PASS`;
+- build de producción: correcto;
+- preview de Vercel: Ready;
+- rama `main` sincronizada;
+- producción textual preservada.
+
+### Continuidad
+
+El siguiente movimiento autorizado es:
+
+```text
+STT-001A — Transcripción
+```
+
+STT-001A deberá reutilizar el contrato de audio existente y no duplicar la detección, validación ni normalización ya incorporadas por AUD-001A.
