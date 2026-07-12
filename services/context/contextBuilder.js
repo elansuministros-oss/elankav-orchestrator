@@ -5,7 +5,7 @@ const {
 } = require('./identityResolver');
 
 const CONTEXT_VERSION = 'ORCH-035B';
-const OWNER_PHONE = '50588388940';
+const DEFAULT_OWNER_PHONE = '50588388940';
 
 function normalizeText(value) {
   return typeof value === 'string'
@@ -38,6 +38,12 @@ function normalizePhone(value) {
   }
 
   return digits;
+}
+
+function getOwnerPhone() {
+  return normalizePhone(
+    process.env.ORCHESTRATOR_OWNER_PHONE || DEFAULT_OWNER_PHONE
+  );
 }
 
 function findMessage(value, depth = 0) {
@@ -76,6 +82,7 @@ function buildContext(input = {}) {
     input.metadata?.phone;
   const identity = resolveCanonicalIdentity(receivedIdentity);
   const phone = normalizePhone(identity.canonicalId);
+  const ownerPhone = getOwnerPhone();
   const platform = normalizePlatform(input.platform);
   const channel = normalizeChannel(input.channel);
 
@@ -89,7 +96,7 @@ function buildContext(input = {}) {
     channel: channel || null,
     externalUserId: phone || null,
     owner: Object.freeze({
-      isOwner: phone === OWNER_PHONE,
+      isOwner: Boolean(phone && ownerPhone && phone === ownerPhone),
       phone: phone || null
     }),
     identity: Object.freeze({
@@ -117,7 +124,8 @@ function buildContext(input = {}) {
 
 module.exports = {
   CONTEXT_VERSION,
-  OWNER_PHONE,
+  DEFAULT_OWNER_PHONE,
+  getOwnerPhone,
   buildContext,
   findMessage,
   normalizePlatform,
