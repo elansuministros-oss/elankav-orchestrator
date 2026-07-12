@@ -1,6 +1,7 @@
 'use strict';
 
 const { createSupplier } = require('../adapters/crmWriteAdapter');
+const { normalizeWhatsappE164 } = require('./phoneService');
 const TYPES = new Set(['materials', 'services', 'mixed']);
 const normalize = value => String(value || '').trim();
 const normalizePhone = value => normalize(value).replace(/\D/g, '');
@@ -11,11 +12,11 @@ function normalizeSupplierInput(input = {}) {
   const categories = Array.isArray(input.categories)
     ? input.categories.map(normalize).filter(Boolean)
     : [];
-  const whatsapp = normalizePhone(input.whatsapp || input.phone);
+  const whatsapp = normalizeWhatsappE164(input.whatsapp || input.phone);
 
   if (!name) throw Object.assign(new Error('SUPPLIER_NAME_REQUIRED'), { code: 'SUPPLIER_NAME_REQUIRED' });
   if (!TYPES.has(supplierType)) throw Object.assign(new Error('SUPPLIER_TYPE_INVALID'), { code: 'SUPPLIER_TYPE_INVALID' });
-  if (whatsapp.length < 8) throw Object.assign(new Error('SUPPLIER_WHATSAPP_REQUIRED'), { code: 'SUPPLIER_WHATSAPP_REQUIRED' });
+  if (!whatsapp) throw Object.assign(new Error('SUPPLIER_WHATSAPP_INVALID'), { code: 'SUPPLIER_WHATSAPP_INVALID' });
 
   return {
     name,
