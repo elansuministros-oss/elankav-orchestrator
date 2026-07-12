@@ -6,8 +6,7 @@ const {
 
 const CONTEXT_VERSION = 'ORCH-035B';
 const DEFAULT_OWNER_PHONES = Object.freeze([
-  '50588388940',
-  '50578828089'
+  '50588388940'
 ]);
 
 function normalizeText(value) {
