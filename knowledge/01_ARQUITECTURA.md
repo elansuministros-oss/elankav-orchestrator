@@ -56,3 +56,62 @@ Usuario autorizado
 ```
 
 La identidad determina permisos; el canal de entrada no concede privilegios.
+
+## ELAN IA Multimodal — arquitectura objetivo
+
+ELAN IA Multimodal no sustituye el núcleo conversacional ni conecta canales directamente con proveedores externos. Cada capacidad se integra como Adapter y Service desacoplado, reutilizando identidad, autorización, auditoría, Business Engine y servicios oficiales.
+
+```text
+WhatsApp / Web / App / llamada autorizada
+→ Channel Adapter
+→ Media Intake Service
+→ validación de tipo, tamaño, origen y permisos
+→ servicio multimodal autorizado
+→ normalización a evento ELAN IA
+→ Business Engine
+→ Knowledge / CRM / EMC / AI-23 / ERP
+→ respuesta textual o multimedia autorizada
+→ auditoría
+```
+
+### Módulos previstos
+
+```text
+AUD-001  Audio Intake y descarga segura
+STT-001  Speech-to-Text
+TTS-001  Text-to-Speech
+VIS-001  análisis de imágenes
+VID-001  análisis de video por muestreo controlado
+RTC-001  conversación de voz en tiempo real
+```
+
+### Reglas arquitectónicas
+
+- WAHA recibe el mensaje, pero no ejecuta razonamiento ni llama directamente al proveedor de IA;
+- los archivos se descargan mediante Adapter, se validan y se procesan con límites explícitos;
+- audio, imagen y video deben convertirse en un evento normalizado antes de llegar al Business Engine;
+- la transcripción no reemplaza el archivo original en auditoría;
+- ninguna medida inferida desde fotografía o video se considera medida de fabricación confirmada;
+- toda respuesta de voz debe originarse en una respuesta textual aprobada por el mismo Business Engine;
+- la voz no concede permisos adicionales ni altera Owner Mode;
+- no se habilita cámara, micrófono o llamada en tiempo real sin consentimiento y control de sesión;
+- costos, duración, tamaño y retención de medios deben ser configurables;
+- producción permanece aislada hasta que cada módulo complete pruebas, PR, merge y cierre documental.
+
+### Flujo inicial autorizado: notas de voz de WhatsApp
+
+```text
+WAHA
+→ Audio Adapter
+→ validación MIME, tamaño y duración
+→ almacenamiento temporal controlado
+→ Speech-to-Text Service
+→ texto normalizado + metadatos del audio
+→ Channel Engine
+→ Business Engine
+→ respuesta normal de ELAN IA
+→ eliminación o retención según política
+→ auditoría
+```
+
+La primera implementación técnica será `AUD-001A`: recepción y validación segura de notas de voz, sin transcripción todavía. `STT-001A` se implementará únicamente después de validar ese ingreso.
