@@ -12,11 +12,13 @@ const {
 } = require('./knowledgeImpactService');
 
 function listKnowledgeDocuments(repositoryRoot = process.cwd()) {
+  const documents = listOfficialDocuments(repositoryRoot);
+
   return {
     roots: ['docs', 'knowledge'],
     mode: 'read-only',
-    count: listOfficialDocuments(repositoryRoot).length,
-    documents: listOfficialDocuments(repositoryRoot)
+    count: documents.length,
+    documents
   };
 }
 
