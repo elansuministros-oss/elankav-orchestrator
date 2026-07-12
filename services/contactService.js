@@ -1,6 +1,7 @@
 'use strict';
 
 const { addContact, updateContact } = require('../adapters/crmWriteAdapter');
+const { normalizeWhatsappE164 } = require('./phoneService');
 
 const normalize = value => String(value || '').trim();
 const normalizePhone = value => normalize(value).replace(/\D/g, '');
@@ -8,7 +9,7 @@ const normalizePhone = value => normalize(value).replace(/\D/g, '');
 function normalizeContactInput(input = {}) {
   const identityId = normalize(input.identityId);
   const contactId = normalize(input.contactId);
-  const whatsapp = normalizePhone(input.whatsapp);
+  const whatsapp = normalizeWhatsappE164(input.whatsapp);
 
   if (!identityId) {
     throw Object.assign(new Error('CONTACT_IDENTITY_REQUIRED'), {
@@ -16,9 +17,9 @@ function normalizeContactInput(input = {}) {
     });
   }
 
-  if (whatsapp.length < 8) {
-    throw Object.assign(new Error('CONTACT_WHATSAPP_REQUIRED'), {
-      code: 'CONTACT_WHATSAPP_REQUIRED'
+  if (!whatsapp) {
+    throw Object.assign(new Error('CONTACT_WHATSAPP_INVALID'), {
+      code: 'CONTACT_WHATSAPP_INVALID'
     });
   }
 
