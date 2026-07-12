@@ -39,5 +39,14 @@ async function requestCrmWrite(payload) {
 
 const createSupplier = payload => requestCrmWrite({ action: 'create_supplier', ...payload });
 const createClient = payload => requestCrmWrite({ action: 'create_client', ...payload });
+const addContact = payload => requestCrmWrite({ action: 'add_contact', ...payload });
+const updateContact = payload => requestCrmWrite({ action: 'update_contact', ...payload });
 
-module.exports = { getConfig, requestCrmWrite, createSupplier, createClient };
+module.exports = {
+  getConfig,
+  requestCrmWrite,
+  createSupplier,
+  createClient,
+  addContact,
+  updateContact
+};
