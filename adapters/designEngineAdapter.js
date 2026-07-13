@@ -2,14 +2,11 @@
 
 const DESIGN_ENGINE_PROVIDER = 'ELANKAV Design Engine';
 const DESIGN_ENGINE_VERSION = '0.1.0';
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TIMEOUT_MS = 130000;
 
 function resolveDesignEngineUrl() {
   const value = String(process.env.DESIGN_ENGINE_URL || '').trim();
-
-  return value
-    ? value.replace(/\/+$/, '')
-    : null;
+  return value ? value.replace(/\/+$/, '') : null;
 }
 
 function getDesignEngineConfigurationStatus() {
@@ -17,14 +14,14 @@ function getDesignEngineConfigurationStatus() {
 
   return Object.freeze({
     available: true,
-    configured: true,
+    configured: Boolean(endpoint),
     endpointConfigured: Boolean(endpoint),
     connected: false,
     provider: DESIGN_ENGINE_PROVIDER,
     version: DESIGN_ENGINE_VERSION,
     mode: endpoint ? 'http' : 'stub',
     endpoint,
-    externalExecutionEnabled: false
+    externalExecutionEnabled: Boolean(endpoint),
   });
 }
 
@@ -62,7 +59,7 @@ function createStubResult(request) {
     platform: request.platform || null,
     result: null,
     warnings: Object.freeze([
-      'La ejecución real del Design Engine todavía no está habilitada.'
+      'DESIGN_ENGINE_URL no está configurada; se conservó el fallback controlado.'
     ])
   });
 }
@@ -81,9 +78,7 @@ async function executeHttpDesignRequest(
   }
 
   if (typeof fetchImpl !== 'function') {
-    const error = new Error(
-      'No existe cliente HTTP disponible'
-    );
+    const error = new Error('No existe cliente HTTP disponible');
     error.code = 'DESIGN_HTTP_CLIENT_UNAVAILABLE';
     throw error;
   }
@@ -130,30 +125,38 @@ async function executeHttpDesignRequest(
 
   if (!response.ok || payload.success !== true) {
     const error = new Error(
-      payload.message ||
-      'Design Engine rechazó la solicitud'
+      payload.message || 'Design Engine rechazó la solicitud'
     );
     error.code =
-      payload.error ||
-      'DESIGN_ENGINE_REQUEST_REJECTED';
+      payload.error || 'DESIGN_ENGINE_REQUEST_REJECTED';
     error.status = response.status;
     throw error;
   }
 
+  const result = payload.result;
+
+  if (!result || typeof result !== 'object') {
+    const error = new Error(
+      'Design Engine no devolvió un DesignResult válido'
+    );
+    error.code = 'DESIGN_ENGINE_RESPONSE_INVALID';
+    throw error;
+  }
+
   return Object.freeze({
-    status: payload.result?.status || 'UNKNOWN',
+    status: result.status || 'UNKNOWN',
     provider: DESIGN_ENGINE_PROVIDER,
     version: DESIGN_ENGINE_VERSION,
     mode: 'http',
     connected: true,
     conversational:
-      payload.result?.elanIaResult?.conversational === true,
+      result.elanIaResult?.conversational === true,
     requestId: request.requestId || null,
-    platform: payload.result?.platform || request.platform || null,
-    result: payload.result,
+    platform: result.platform || request.platform || null,
+    result,
     warnings: Object.freeze(
-      Array.isArray(payload.result?.warnings)
-        ? [...payload.result.warnings]
+      Array.isArray(result.warnings)
+        ? [...result.warnings]
         : []
     )
   });
@@ -161,7 +164,6 @@ async function executeHttpDesignRequest(
 
 async function executeDesignRequest(request = {}, options = {}) {
   validateDesignRequest(request);
-
   return executeHttpDesignRequest(request, options);
 }
 
