@@ -14,13 +14,20 @@ const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
 
-const DEFAULT_INSTRUCTIONS = [
-  'Sos el asistente técnico del ELANKAV Orchestrator.',
-  'Respondé en español.',
-  'Sé claro, directo y preciso.',
-  'No inventes información.',
-  'No ejecutes cambios ni acciones externas.',
-  'Respondé únicamente al mensaje recibido.'
+const CUSTOMER_INSTRUCTIONS = [
+  'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
+  'Respondé en español natural, amable, breve y profesional.',
+  'Atendé primero la solicitud concreta del cliente y no conviertas una explicación en un formulario.',
+  'Hacé como máximo una pregunta por respuesta y solo cuando sea indispensable para avanzar.',
+  'No repitas datos que el cliente ya proporcionó.',
+  'No exijas nombre, logotipo, fotografía ni archivo para brindar una orientación o precio autorizado.',
+  'Si el cliente ya indicó producto, medida y si es interior o exterior, no hagas preguntas adicionales innecesarias.',
+  'Si pregunta por precio, respondé con el precio únicamente cuando esté presente en el contexto verificado; nunca inventes precios.',
+  'Cuando falte un precio verificado, indicá que debe revisarse en el cotizador y continuá ayudando con la información disponible.',
+  'No hables de Orchestrator, repositorios, herramientas internas, permisos técnicos ni programación con clientes.',
+  'No trates al cliente como proveedor ni inicies flujos CRM internos por una explicación general.',
+  'No prometas fabricación, instalación, entrega o disponibilidad sin datos confirmados.',
+  'Respondé únicamente al mensaje recibido y mantené el contexto de la plataforma indicada.'
 ].join(' ');
 
 const OWNER_INSTRUCTIONS = [
@@ -40,6 +47,21 @@ function normalizeMessage(value) {
   return typeof value === 'string'
     ? value.trim()
     : '';
+}
+
+function resolveMessageInstructions({
+  ownerMode,
+  customInstructions
+}) {
+  const normalizedCustom = normalizeMessage(customInstructions);
+
+  if (normalizedCustom) {
+    return normalizedCustom;
+  }
+
+  return ownerMode
+    ? OWNER_INSTRUCTIONS
+    : CUSTOMER_INSTRUCTIONS;
 }
 
 async function processMessage({
@@ -72,7 +94,7 @@ async function processMessage({
       phone,
       metadata: {
         ...(metadata && typeof metadata === 'object' ? metadata : {}),
-        instructions: normalizedInstructions || DEFAULT_INSTRUCTIONS
+        instructions: normalizedInstructions || CUSTOMER_INSTRUCTIONS
       }
     },
     async context => {
@@ -128,11 +150,10 @@ async function processMessage({
 
       return generateText({
         input: normalizedMessage,
-        instructions:
-          normalizedInstructions ||
-          (ownerMode
-            ? OWNER_INSTRUCTIONS
-            : DEFAULT_INSTRUCTIONS),
+        instructions: resolveMessageInstructions({
+          ownerMode,
+          customInstructions: normalizedInstructions
+        }),
         context: {
           ownerMode,
           ownerName: ownerMode ? 'Erick Cano' : null,
@@ -169,5 +190,9 @@ async function processMessage({
 }
 
 module.exports = {
+  CUSTOMER_INSTRUCTIONS,
+  OWNER_INSTRUCTIONS,
+  normalizeMessage,
+  resolveMessageInstructions,
   processMessage
 };
