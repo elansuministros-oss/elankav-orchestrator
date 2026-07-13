@@ -24,7 +24,9 @@ function buildDesignRequest({
   measurementStatus = 'MISSING',
   brandAssets = [],
   references = [],
-  instructions = []
+  instructions = [],
+  materials = [],
+  lighting = null
 } = {}) {
   const normalizedMessage = normalizeText(message);
 
@@ -44,6 +46,11 @@ function buildDesignRequest({
     throw error;
   }
 
+  const normalizedInstructions = [
+    normalizedMessage,
+    ...instructions
+  ].filter(Boolean);
+
   return Object.freeze({
     requestId: requestId || null,
     actor: Object.freeze({
@@ -60,14 +67,34 @@ function buildDesignRequest({
     environment,
     brandAssets: Object.freeze([...brandAssets]),
     references: Object.freeze([...references]),
-    instructions: Object.freeze([...instructions]),
+    materials: Object.freeze([...materials]),
+    lighting,
+    instructions: Object.freeze(normalizedInstructions),
     directClientConversation: false
   });
 }
 
-async function processDesignRequest(input = {}) {
+async function processDesignRequest(input = {}, options = {}) {
   const request = buildDesignRequest(input);
-  const adapterResult = await executeDesignRequest(request);
+  const adapterResult = await executeDesignRequest(
+    request,
+    options
+  );
+  const designResult = adapterResult.result;
+  const processed =
+    adapterResult.connected === true &&
+    designResult?.status === 'PROCESSED' &&
+    designResult?.elanIaResult?.clientReady === true &&
+    Array.isArray(designResult?.assets) &&
+    designResult.assets.length === 1;
+
+  const outputText = processed
+    ? 'Preparé una propuesta visual para tu proyecto.'
+    : adapterResult.mode === 'stub'
+      ? 'La solicitud de diseño fue recibida, pero el Design Engine no está configurado para generar la imagen.'
+      : designResult?.status === 'NEEDS_INFORMATION'
+        ? 'Necesito información adicional antes de generar la propuesta visual.'
+        : 'No fue posible completar la propuesta visual.';
 
   return Object.freeze({
     handled: true,
@@ -76,8 +103,9 @@ async function processDesignRequest(input = {}) {
     connected: adapterResult.connected,
     request,
     result: adapterResult,
-    outputText:
-      'La solicitud de diseño fue recibida por ELAN IA y está lista para ser procesada por el Design Engine.',
+    designResult: designResult || null,
+    processed,
+    outputText,
     conversational: false
   });
 }
