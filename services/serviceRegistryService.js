@@ -1,6 +1,6 @@
 'use strict';
 
-const REGISTRY_VERSION = '1.1.0';
+const REGISTRY_VERSION = '1.2.0';
 
 const services = Object.freeze([
   {
@@ -92,6 +92,16 @@ const services = Object.freeze([
     capabilities: { read: true, write: false, execute: false },
     access: 'orchestrator-only',
     notes: 'KB-001A habilita lectura interna segura y registro de impacto. La edición Markdown permanece deshabilitada.'
+  },
+  {
+    id: 'design-engine',
+    name: 'ELANKAV Design Engine',
+    state: 'REGISTERED',
+    category: 'creative',
+    permissions: ['design.read', 'design.execute'],
+    capabilities: { read: true, write: false, execute: false },
+    access: 'elan-ia-via-orchestrator',
+    notes: 'Fundación DESIGN-001A registrada. Ejecución real pendiente del Adapter y Service de DESIGN-002A.'
   },
   {
     id: 'vscode-web',

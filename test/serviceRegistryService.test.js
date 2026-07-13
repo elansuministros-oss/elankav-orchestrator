@@ -13,7 +13,7 @@ test('registro contiene servicios oficiales sin duplicados', () => {
   const services = listAuthorizedServices();
   const ids = services.map(service => service.id);
 
-  assert.equal(services.length, 10);
+  assert.equal(services.length, 11);
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(ids.includes('github'));
   assert.ok(ids.includes('docker'));
@@ -25,9 +25,9 @@ test('registro diferencia integrado de registrado', () => {
   const snapshot = getServiceRegistrySnapshot();
 
   assert.equal(snapshot.mode, 'read-only');
-  assert.equal(snapshot.count, 10);
+  assert.equal(snapshot.count, 11);
   assert.equal(snapshot.integrated, 8);
-  assert.equal(snapshot.registered, 2);
+  assert.equal(snapshot.registered, 3);
 });
 
 test('documentación integra lectura sin habilitar escritura todavía', () => {

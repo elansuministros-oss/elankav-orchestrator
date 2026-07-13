@@ -80,7 +80,7 @@ test('Owner consulta snapshot del Service Registry', () => {
     assert.equal(handled, true);
     assert.equal(capture.statusCode, 200);
     assert.equal(capture.payload.success, true);
-    assert.equal(capture.payload.registry.count, 10);
+    assert.equal(capture.payload.registry.count, 11);
     assert.equal(capture.payload.registry.mode, 'read-only');
   } finally {
     if (previousToken === undefined) {
