@@ -17,7 +17,7 @@ Establecer una fuente documental única, auditable y separada del código funcio
 | `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir auditorías | VERIFICADO/EVOLUCIÓN |
 | `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación | DOCUMENTADO/IAM INICIAL |
 | `VOICE-001.md` | Identidad oficial, arquitectura, diccionario y selección futura de voz de ELAN IA | APROBADO/CERRADO |
-| `ECS-001_ELAN_CREATIVE_STUDIO_EXECUTION.md` | Alcance, arquitectura, sistemas, costos y ejecución de ELAN Creative Studio | APROBADO PARA DESIGN-001A |
+| `ECS-001_ELAN_CREATIVE_STUDIO_EXECUTION.md` | Alcance, arquitectura, sistemas, costos y ejecución de ELAN Creative Studio | DESIGN-001A COMPLETADO |
 
 ## Documento obligatorio de inicio
 
@@ -142,7 +142,7 @@ Esta sección consolida reglas ya presentes en la Base Oficial de Conocimiento; 
 | `AUD-001A` | Auditoría y Audio Intake documentados y validados | CERRADO |
 | `VOICE-001` | Identidad oficial de voz especificada sin implementar STT/TTS | CERRADO |
 | `ECS-001` | Auditoría ejecutable de ELAN Creative Studio y fases de diseño/video | CERRADO DOCUMENTALMENTE |
-| `DESIGN-001A` | Fundación de `elankav-design-engine` | SIGUIENTE MOVIMIENTO |
+| `DESIGN-001A` | Fundación de `elankav-design-engine`, PR #1, merge `161768d`, QA 28/28 | CERRADO |
 | `STT-001A` | Reconocimiento de audio desacoplado | PENDIENTE EN SU LÍNEA |
 
 ## Criterio de cierre documental

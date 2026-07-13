@@ -636,3 +636,45 @@ STT-001A — Transcripción
 ```
 
 STT-001A deberá reutilizar el contrato de audio existente y no duplicar la detección, validación ni normalización ya incorporadas por AUD-001A.
+
+## Actualización DESIGN-001A — 13 de julio de 2026
+
+### Identificación
+
+| Campo | Valor |
+|---|---|
+| Movimiento | `DESIGN-001A` |
+| Repositorio técnico | `elansuministros-oss/elankav-design-engine` |
+| Rama técnica | `design/DESIGN-001A-foundation` |
+| Pull Request | `#1` |
+| Merge en `main` | `161768d` |
+| Resultado QA | `28/28 PASS` |
+| Estado | `COMPLETADO` |
+
+### Fundación incorporada
+
+- arquitectura `Adapter → Service → Engine`;
+- schemas y contratos técnicos;
+- registro versionado de perfiles;
+- adapters desacoplados para imagen, video, voz, almacenamiento y entrega;
+- separación de branding entre plataformas;
+- límite de tres propuestas y autorización administrativa adicional;
+- resultado estructurado para ELAN IA;
+- prohibición de conversación directa con clientes;
+- QA automatizado y controles de seguridad.
+
+### Restricciones preservadas
+
+No se habilitaron proveedores reales, generación pagada, imágenes reales, video, voz, Canva, Supabase productivo, despliegue ni cambios en producción.
+
+### Validación
+
+- pruebas automatizadas: `28/28 PASS`;
+- validación sintáctica: correcta;
+- `git diff --check`: correcto;
+- Pull Request #1 fusionado;
+- merge commit: `161768d`.
+
+### Continuidad
+
+Cualquier conexión con ELAN IA, Supabase, proveedores externos, generación real o despliegue requiere un movimiento separado y autorizado.
