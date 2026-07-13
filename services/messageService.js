@@ -117,19 +117,61 @@ async function handleDesignIntent({
       context.channel ||
       channel ||
       null,
-    message
+    message,
+    projectType: metadata?.projectType,
+    environment: metadata?.environment || null,
+    measurements: Array.isArray(metadata?.measurements)
+      ? metadata.measurements
+      : [],
+    measurementStatus: metadata?.measurementStatus || 'MISSING',
+    brandAssets: Array.isArray(metadata?.brandAssets)
+      ? metadata.brandAssets
+      : [],
+    references: Array.isArray(metadata?.references)
+      ? metadata.references
+      : [],
+    instructions: Array.isArray(metadata?.instructions)
+      ? metadata.instructions
+      : [],
+    materials: Array.isArray(metadata?.materials)
+      ? metadata.materials
+      : [],
+    lighting: metadata?.lighting || null
   });
+
+  const designResult = designResponse.designResult;
+  const processed = designResponse.processed === true;
 
   return {
     outputText: designResponse.outputText,
     model: designResponse.connected
       ? 'elankav-design-engine-http'
       : 'elankav-design-engine-stub',
-    id: designResponse.result?.requestId || null,
-    status: 'accepted',
+    id:
+      designResult?.designId ||
+      designResponse.result?.requestId ||
+      null,
+    status: processed
+      ? 'processed'
+      : designResult?.status === 'NEEDS_INFORMATION'
+        ? 'needs_information'
+        : 'accepted',
     usage: null,
     designAction: true,
-    design: designResponse,
+    design: designResult
+      ? {
+          designId: designResult.designId || null,
+          status: designResult.status,
+          clientReady:
+            designResult.elanIaResult?.clientReady === true,
+          conversational:
+            designResult.elanIaResult?.conversational === true,
+          assets: Array.isArray(designResult.assets)
+            ? designResult.assets
+            : [],
+          qa: designResult.qa || null
+        }
+      : null,
     handled: true
   };
 }
@@ -266,6 +308,7 @@ async function processMessage({
     responseId: response.id,
     status: response.status,
     usage: response.usage,
+    design: response.design || null,
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
     context: {
