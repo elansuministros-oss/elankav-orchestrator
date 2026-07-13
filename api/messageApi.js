@@ -7,6 +7,9 @@ const {
 const {
   handleServiceRegistryApi
 } = require('./serviceRegistryApi');
+const {
+  handleDesignAssetApi
+} = require('./designAssetApi');
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -66,6 +69,16 @@ async function handleMessageApi({
   res,
   sendJson
 }) {
+  const designAssetHandled = await handleDesignAssetApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (designAssetHandled) {
+    return true;
+  }
+
   const vscodeHandled = await handleVscodeApi({
     req,
     res,
@@ -162,15 +175,23 @@ async function handleMessageApi({
       return true;
     }
 
-    if (error.code === 'MESSAGE_REQUIRED') {
+    if (
+      error.code === 'MESSAGE_REQUIRED' ||
+      error.code === 'DESIGN_MESSAGE_REQUIRED' ||
+      error.code === 'DESIGN_PLATFORM_REQUIRED'
+    ) {
       sendJson(res, 400, {
         success: false,
-        error: error.message
+        error: error.message,
+        code: error.code
       });
       return true;
     }
 
-    if (error.code === 'OPENAI_NOT_CONFIGURED') {
+    if (
+      error.code === 'OPENAI_NOT_CONFIGURED' ||
+      error.code === 'OPENAI_IMAGE_NOT_CONFIGURED'
+    ) {
       sendJson(res, 503, {
         success: false,
         error: error.message,
