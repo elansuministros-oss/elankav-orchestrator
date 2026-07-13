@@ -6,7 +6,7 @@
 |---|---|
 | Movimiento | `ECS-001` |
 | Fecha | 13 de julio de 2026 |
-| Estado | APROBADO PARA INICIAR `DESIGN-001A` |
+| Estado | `DESIGN-001A` COMPLETADO Y VALIDADO |
 | Repositorio documental | `elansuministros-oss/elankav-orchestrator` |
 | Plataforma de entrada | ELAN IA |
 | Implementación objetivo | Repositorio independiente `elankav-design-engine` |
@@ -688,10 +688,21 @@ Solo se permite una inspección puntual necesaria para crear el nuevo repositori
 
 `DESIGN-001A` es independiente y no toca producción. El rollback consiste en cerrar la rama o PR sin fusionar, o archivar el repositorio nuevo si no cumple criterios. Ningún servicio actual debe depender del nuevo motor durante esta fase.
 
-## 18. Siguiente movimiento autorizado
+## 18. Cierre de DESIGN-001A
 
-```text
-DESIGN-001A — Fundación de elankav-design-engine
-```
+DESIGN-001A fue completado y validado correctamente.
 
-El operador debe iniciar directamente la ejecución, crear el repositorio y estructura base, validar pruebas y cerrar mediante PR. No debe solicitar otra auditoría conceptual.
+### Evidencia
+
+| Campo | Valor |
+|---|---|
+| Repositorio | `elansuministros-oss/elankav-design-engine` |
+| Pull Request | `#1` |
+| Merge en main | `161768d` |
+| Resultado QA | `28/28 PASS` |
+| Producción | Sin cambios |
+| Estado | `COMPLETADO` |
+
+### Continuidad
+
+Las conexiones con ELAN IA, proveedores externos, imagen, video, voz, Supabase productivo o despliegue requieren movimientos independientes y autorizados.
