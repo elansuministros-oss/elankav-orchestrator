@@ -122,7 +122,9 @@ async function handleDesignIntent({
 
   return {
     outputText: designResponse.outputText,
-    model: 'elankav-design-engine-stub',
+    model: designResponse.connected
+      ? 'elankav-design-engine-http'
+      : 'elankav-design-engine-stub',
     id: designResponse.result?.requestId || null,
     status: 'accepted',
     usage: null,
