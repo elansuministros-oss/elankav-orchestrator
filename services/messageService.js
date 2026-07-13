@@ -13,6 +13,12 @@ const {
 const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
+const {
+  detectDesignIntent
+} = require('./designIntentService');
+const {
+  processDesignRequest
+} = require('./designEngineService');
 
 const CUSTOMER_INSTRUCTIONS = [
   'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
@@ -62,6 +68,70 @@ function resolveMessageInstructions({
   return ownerMode
     ? OWNER_INSTRUCTIONS
     : CUSTOMER_INSTRUCTIONS;
+}
+
+async function handleDesignIntent({
+  message,
+  context = {},
+  platform,
+  channel,
+  externalUserId,
+  phone,
+  metadata
+} = {}) {
+  const detection = detectDesignIntent(message);
+
+  if (!detection.detected) {
+    return {
+      handled: false,
+      detection
+    };
+  }
+
+  const resolvedPlatform =
+    context.platform || platform || null;
+
+  if (!resolvedPlatform) {
+    return {
+      handled: false,
+      detection,
+      reason: 'DESIGN_PLATFORM_REQUIRED'
+    };
+  }
+
+  const designResponse = await processDesignRequest({
+    requestId:
+      context.requestId ||
+      metadata?.requestId ||
+      null,
+    identityId:
+      context.externalUserId ||
+      externalUserId ||
+      null,
+    phone:
+      context.phone ||
+      phone ||
+      null,
+    platform: resolvedPlatform,
+    channel:
+      context.channel ||
+      channel ||
+      null,
+    message
+  });
+
+  return {
+    outputText: designResponse.outputText,
+    model: designResponse.connected
+      ? 'elankav-design-engine-http'
+      : 'elankav-design-engine-stub',
+    id: designResponse.result?.requestId || null,
+    status: 'accepted',
+    usage: null,
+    designAction: true,
+    design: designResponse,
+    handled: true
+  };
 }
 
 async function processMessage({
@@ -141,6 +211,21 @@ async function processMessage({
         }
       }
 
+      const designConversation =
+        await handleDesignIntent({
+          message: normalizedMessage,
+          context,
+          platform,
+          channel,
+          externalUserId,
+          phone,
+          metadata
+        });
+
+      if (designConversation.handled) {
+        return designConversation;
+      }
+
       const [crm, ecosystem] = ownerMode
         ? await Promise.all([
             loadCrmContext(),
@@ -171,7 +256,12 @@ async function processMessage({
   return {
     message: normalizedMessage,
     reply: response.outputText.trim(),
-    provider: response.ownerCommand || response.crmAction ? 'elankav' : 'openai',
+    provider:
+      response.ownerCommand ||
+      response.crmAction ||
+      response.designAction
+        ? 'elankav'
+        : 'openai',
     model: response.model,
     responseId: response.id,
     status: response.status,
@@ -194,5 +284,6 @@ module.exports = {
   OWNER_INSTRUCTIONS,
   normalizeMessage,
   resolveMessageInstructions,
+  handleDesignIntent,
   processMessage
 };
