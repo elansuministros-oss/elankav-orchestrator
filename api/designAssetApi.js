@@ -60,7 +60,7 @@ async function handleDesignAssetApi({
     upstream = await fetchImpl(
       `${endpoint}/internal/assets/${assetId}`,
       {
-        method: req.method,
+        method: 'GET',
         signal: AbortSignal.timeout(timeoutMs),
       }
     );
