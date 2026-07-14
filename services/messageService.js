@@ -19,6 +19,9 @@ const {
 const {
   processDesignRequest
 } = require('./designEngineService');
+const {
+  processButtonCommercialConversation
+} = require('./buttonCommercialService');
 
 const CUSTOMER_INSTRUCTIONS = [
   'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
@@ -253,6 +256,33 @@ async function processMessage({
         }
       }
 
+      if (!ownerMode) {
+        const commercialConversation =
+          await processButtonCommercialConversation({
+            message: normalizedMessage,
+            history: metadata?.conversationHistory
+          });
+
+        if (commercialConversation.handled) {
+          return {
+            outputText: commercialConversation.outputText,
+            model: 'elankav-commercial-library',
+            id: null,
+            status: commercialConversation.status,
+            usage: null,
+            commercialAction: true,
+            commercial: {
+              productId: commercialConversation.productId,
+              productVersion:
+                commercialConversation.productVersion || null,
+              variantId: commercialConversation.variantId || null,
+              sizeCm: commercialConversation.sizeCm || null,
+              source: commercialConversation.source || null
+            }
+          };
+        }
+      }
+
       const designConversation =
         await handleDesignIntent({
           message: normalizedMessage,
@@ -304,6 +334,7 @@ async function processMessage({
     provider:
       response.ownerCommand ||
       response.crmAction ||
+      response.commercialAction ||
       response.designAction
         ? 'elankav'
         : 'openai',
@@ -312,6 +343,7 @@ async function processMessage({
     status: response.status,
     usage: response.usage,
     design: response.design || null,
+    commercial: response.commercial || null,
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
     context: {

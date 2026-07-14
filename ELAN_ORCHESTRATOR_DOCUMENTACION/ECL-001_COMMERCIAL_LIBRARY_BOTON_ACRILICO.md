@@ -2,7 +2,7 @@
 
 ## Estado
 
-Fundación implementada. Integración con Sales Engine, WhatsApp y OpenAI pendiente de validación.
+Fundación implementada. `ECL-BUTTON-01` conecta la consulta comercial de solo lectura con las respuestas del Orchestrator. Pendiente de merge y despliegue controlado.
 
 ## Objetivo
 
@@ -46,6 +46,13 @@ OpenAI
 | boton-con-impresion | Botón con Impresión | USD 130 |
 | boton-impresion-uv-premium | Botón Impresión UV Premium | USD 150 |
 | boton-premium-combinado | Botón Premium Combinado | USD 190 |
+
+### Separación comercial confirmada
+
+- USD 260 corresponde al rótulo jala vista doble cara.
+- USD 260 nunca debe presentarse como precio del rótulo estilo botón.
+- Los mensajes que mencionen `jala vista` no pueden entrar al cotizador del botón.
+- Jala vista conservará revisión manual hasta completar su propio movimiento comercial.
 
 ### Ejemplo de cálculo
 
