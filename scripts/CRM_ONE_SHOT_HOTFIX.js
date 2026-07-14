@@ -21,6 +21,21 @@ const replacements = [
     name: 'parseClientName',
     before: "function parseClientName(message) {\n  const raw = normalize(message);",
     after: "function parseClientName(message) {\n  const raw = normalizeCommand(message);"
+  },
+  {
+    name: 'detect client agrega',
+    before: "if (/(crear|agregar|registrar).*(cliente)/.test(value)",
+    after: "if (/(crear|agregar|agrega|registrar|registra).*(cliente)/.test(value)"
+  },
+  {
+    name: 'detect worker agrega',
+    before: "if (/(crear|agregar|registrar).*(trabajador|empleado|colaborador)/.test(value))",
+    after: "if (/(crear|agregar|agrega|registrar|registra).*(trabajador|empleado|colaborador)/.test(value))"
+  },
+  {
+    name: 'detect supplier agrega',
+    before: "if (/(crear|agregar|registrar).*(proveedor)/.test(value)",
+    after: "if (/(crear|agregar|agrega|registrar|registra).*(proveedor)/.test(value)"
   }
 ];
 
