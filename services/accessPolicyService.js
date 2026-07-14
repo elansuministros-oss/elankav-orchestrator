@@ -17,7 +17,8 @@ function normalizeScopes(values) {
 
 function resolveAccessPolicy({
   isOwner = false,
-  delegatedScopes = []
+  delegatedScopes = [],
+  delegationTrusted = false
 } = {}) {
   if (isOwner === true) {
     return Object.freeze({
@@ -28,17 +29,21 @@ function resolveAccessPolicy({
     });
   }
 
+  const trustedDelegatedScopes = delegationTrusted === true
+    ? normalizeScopes(delegatedScopes)
+    : [];
+
   const scopes = normalizeScopes([
     ...PUBLIC_SCOPES,
-    ...normalizeScopes(delegatedScopes)
+    ...trustedDelegatedScopes
   ]);
 
   return Object.freeze({
-    role: 'delegated',
+    role: trustedDelegatedScopes.length ? 'delegated' : 'customer',
     fullAccess: false,
     scopes: Object.freeze(scopes),
-    source: delegatedScopes.length
-      ? 'delegated_permissions'
+    source: trustedDelegatedScopes.length
+      ? 'trusted_delegated_permissions'
       : 'default_customer_policy'
   });
 }
