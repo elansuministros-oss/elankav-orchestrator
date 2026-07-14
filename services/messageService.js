@@ -277,6 +277,9 @@ async function processMessage({
 
       return generateText({
         input: normalizedMessage,
+        history: ownerMode
+          ? []
+          : metadata?.conversationHistory,
         instructions: resolveMessageInstructions({
           ownerMode,
           customInstructions: normalizedInstructions

@@ -3,6 +3,47 @@ const {
   getOpenAIConfigurationStatus
 } = require('../adapters/openaiAdapter');
 
+const MAX_HISTORY_MESSAGES = 12;
+const MAX_HISTORY_MESSAGE_LENGTH = 4000;
+const MAX_HISTORY_TOTAL_LENGTH = 16000;
+
+function normalizeConversationHistory(history = []) {
+  if (!Array.isArray(history)) return [];
+
+  const normalized = [];
+  let totalLength = 0;
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (normalized.length >= MAX_HISTORY_MESSAGES) break;
+
+    const message = history[index];
+    const role = String(message?.role || '').trim().toLowerCase();
+    const content = String(message?.content || '')
+      .trim()
+      .slice(0, MAX_HISTORY_MESSAGE_LENGTH);
+
+    if (!['user', 'assistant'].includes(role) || !content) continue;
+    if (totalLength + content.length > MAX_HISTORY_TOTAL_LENGTH) break;
+
+    normalized.unshift({ role, content });
+    totalLength += content.length;
+  }
+
+  return normalized;
+}
+
+function buildResponseInput({ input, history } = {}) {
+  const currentInput = String(input || '').trim();
+  const normalizedHistory = normalizeConversationHistory(history);
+
+  if (!normalizedHistory.length) return currentInput;
+
+  return [
+    ...normalizedHistory,
+    { role: 'user', content: currentInput }
+  ];
+}
+
 async function testOpenAIConnection() {
   const configuration = getOpenAIConfigurationStatus();
 
@@ -142,19 +183,22 @@ function buildContextInstructions(context) {
   return lines.join(' ');
 }
 
-async function generateText({ input, instructions, context }) {
+async function generateText({ input, instructions, context, history }) {
   const contextInstructions = buildContextInstructions(context);
   const resolvedInstructions = [instructions, contextInstructions]
     .filter(value => typeof value === 'string' && value.trim())
     .join('\n\n');
 
   return createResponse({
-    input,
+    input: buildResponseInput({ input, history }),
     instructions: resolvedInstructions
   });
 }
 
 module.exports = {
+  MAX_HISTORY_MESSAGES,
+  buildResponseInput,
+  normalizeConversationHistory,
   testOpenAIConnection,
   buildContextInstructions,
   generateText

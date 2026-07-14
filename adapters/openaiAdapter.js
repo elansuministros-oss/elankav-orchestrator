@@ -23,21 +23,39 @@ function getOpenAIClient() {
   return client;
 }
 
+function normalizeResponseInput(input) {
+  if (typeof input === 'string' && input.trim()) {
+    return input.trim();
+  }
+
+  if (Array.isArray(input)) {
+    const normalized = input
+      .map(message => ({
+        role: String(message?.role || '').trim().toLowerCase(),
+        content: String(message?.content || '').trim()
+      }))
+      .filter(message =>
+        ['user', 'assistant'].includes(message.role) &&
+        message.content
+      );
+
+    if (normalized.length) return normalized;
+  }
+
+  const error = new TypeError('input debe ser texto o historial válido');
+  error.code = 'OPENAI_INVALID_INPUT';
+  throw error;
+}
+
 async function createResponse({
   input,
   instructions,
   model = process.env.OPENAI_MODEL || openaiConfig.model,
   reasoningEffort = openaiConfig.reasoningEffort
 }) {
-  if (typeof input !== 'string' || !input.trim()) {
-    const error = new TypeError('input debe ser un texto no vacío');
-    error.code = 'OPENAI_INVALID_INPUT';
-    throw error;
-  }
-
   const request = {
     model,
-    input: input.trim()
+    input: normalizeResponseInput(input)
   };
 
   if (typeof instructions === 'string' && instructions.trim()) {
@@ -72,5 +90,6 @@ function getOpenAIConfigurationStatus() {
 
 module.exports = {
   createResponse,
-  getOpenAIConfigurationStatus
+  getOpenAIConfigurationStatus,
+  normalizeResponseInput
 };
