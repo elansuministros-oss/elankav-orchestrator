@@ -28,15 +28,108 @@ function writeStates(states) {
   fs.renameSync(temp, STATE_FILE);
 }
 
+function isAuthorizedInline(message) {
+  const value = normalizeCommand(message);
+  return /\b(hazlo|hacelo|ejecuta|ejecutalo|guardalo|registralo|actualizalo|crealo|confirmame cuando|deja guardado|procede)\b/.test(value);
+}
+
+function parseEmail(message) {
+  const match = normalize(message).match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function parseWhatsapp(message) {
+  const matches = normalize(message).match(/(?:\+?505[\s().-]*)?\d{4}[\s.-]*\d{4}/g) || [];
+  return matches.map(value => normalizeWhatsappE164(value)).find(Boolean) || '';
+}
+
+function extractField(message, labels) {
+  const escaped = labels.map(label => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const match = normalize(message).match(new RegExp(`(?:${escaped})(?:\\s+es)?\\s*[:,-]?\\s*([^.;\\n]+)`, 'i'));
+  return match ? normalize(match[1]) : '';
+}
+
+function parseCategories(message) {
+  const raw = normalize(message);
+  const match = raw.match(/(?:vende|venden|ofrece|ofrecen|materiales|productos|categorias?)\s*[:,-]?\s*(.+?)(?:\.|\n|\b(?:contacto|whatsapp|telefono|correo|email|guardalo|hazlo|ejecuta)\b|$)/i);
+  if (!match) return [];
+  return match[1].split(/,|\s+y\s+/i).map(item => normalize(item)).filter(Boolean);
+}
+
+function parsePlatform(message) {
+  const value = normalizeCommand(message);
+  const platforms = ['elanvisual', 'elanpet', 'elancenter', 'elanhome', 'elantransporte', 'elankav'];
+  return platforms.find(platform => value.includes(platform)) || '';
+}
+
+function parseSupplierName(message) {
+  const raw = normalize(message);
+  const patterns = [
+    /(?:actualizar|actualiza|modificar|modifica|cambiar|cambia)(?:\s+los datos|\s+el contacto)?(?:\s+de|\s+del|\s+al|\s+el)?\s+proveedor\s+([^.;\n]+)/i,
+    /(?:agregar|agrega|crear|registrar|registra)\s+(?:este\s+)?proveedor\s*[:,-]?\s*([^.;\n]+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match) {
+      return normalize(match[1]).replace(/\b(?:contacto|whatsapp|telefono|correo|email|vende|venden|ofrece|ofrecen)\b.*$/i, '').trim();
+    }
+  }
+  return '';
+}
+
+function parseContactSupplierName(message) {
+  const raw = normalize(message);
+  const match = raw.match(/(?:agregar|agrega|crear|registrar|registra)\s+(?:este\s+)?contacto\s+(?:a|para|en)\s+([^:;,.\n]+)/i);
+  return match ? normalize(match[1]) : '';
+}
+
+function parseClientName(message) {
+  const raw = normalize(message);
+  const match = raw.match(/(?:agregar|agrega|crear|registrar|registra)\s+(?:este\s+)?cliente\s*[:,-]?\s*([^.;\n]+)/i);
+  if (!match) return '';
+  return normalize(match[1]).replace(/\b(?:whatsapp|telefono|correo|email|plataforma)\b.*$/i, '').trim();
+}
+
+function parseContactName(message) {
+  return extractField(message, ['nombre del contacto', 'contacto', 'nombre']);
+}
+
+function parseContactRole(message) {
+  return extractField(message, ['cargo', 'area', 'área', 'rol']);
+}
+
 function detectCommand(message) {
   const raw = normalize(message);
   const value = normalizeCommand(raw);
-  let match = value.match(/^(?:agregar|agrega|agregá|anadir|añadir|crear) contacto (?:a|para) (.+)$/);
+
+  const supplierUpdateName = parseSupplierName(raw);
+  if (/\b(actualizar|actualiza|modificar|modifica|cambiar|cambia)\b/.test(value) && supplierUpdateName) {
+    return { type: 'supplierUpdate', supplierName: supplierUpdateName, inline: true };
+  }
+
+  const contactSupplierName = parseContactSupplierName(raw);
+  if (contactSupplierName) {
+    return { type: 'addContact', supplierName: contactSupplierName, inline: true };
+  }
+
+  let match = value.match(/^(?:agregar|agrega|anadir|crear) contacto (?:a|para) (.+)$/);
   if (match) return { type: 'addContact', supplierName: match[1].trim() };
-  match = value.match(/^(?:editar|edita|editá) contacto (?:de|del|en) (.+)$/);
+
+  match = value.match(/^(?:editar|edita) contacto (?:de|del|en) (.+)$/);
   if (match) return { type: 'editContact', supplierName: match[1].trim() };
-  if (/(crear|agregar|registrar).*(proveedor)/.test(value) || value.includes('quiero agregar un proveedor')) return { type: 'supplier' };
-  if (/(crear|agregar|registrar).*(cliente)/.test(value) || value.includes('quiero agregar un cliente')) return { type: 'client' };
+
+  if (/(crear|agregar|registrar).*(proveedor)/.test(value) || value.includes('quiero agregar un proveedor')) {
+    return { type: 'supplier', inline: true };
+  }
+
+  if (/(crear|agregar|registrar).*(cliente)/.test(value) || value.includes('quiero agregar un cliente')) {
+    return { type: 'client', inline: true };
+  }
+
+  if (/(crear|agregar|registrar).*(trabajador|empleado|colaborador)/.test(value)) {
+    return { type: 'unsupported', entity: 'trabajador' };
+  }
+
   return null;
 }
 
@@ -45,15 +138,32 @@ function detectStart(message) {
   return command ? command.type : null;
 }
 
-const isCancel = message => /^(cancelar|cancela|detener|no guardar)$/i.test(normalize(message));
-const isConfirm = message => /^(si|sí|confirmo|guardar|proceder|confirmar)$/i.test(normalize(message));
+const isCancel = message => {
+  const value = normalizeCommand(message).replace(/[.!?]+$/g, '').trim();
+  return new Set([
+    'cancelar', 'cancela', 'cancelalo', 'cancelala', 'detener', 'deten', 'parar',
+    'no guardar', 'cancelar esta conversacion', 'cancelar conversacion',
+    'cancelar este proceso', 'detener este proceso', 'deja eso', 'dejalo',
+    'olvida eso', 'olvidalo', 'cambiar de tema', 'cambiemos de tema'
+  ]).has(value) || /^(cancelar|cancela|deten|detener|parar|deja|olvida)\b/.test(value);
+};
+
+const isConfirm = message => {
+  const value = normalizeCommand(message).replace(/[.!?]+$/g, '').trim();
+  return new Set([
+    'si', 'confirmo', 'guardar', 'proceder', 'confirmar', 'hazlo', 'hacelo',
+    'dale', 'correcto', 'si hazlo', 'si hacelo', 'si eso quiero', 'eso quiero',
+    'si confirmo', 'procede'
+  ]).has(value);
+};
+
 const isSkip = message => /^(omitir|saltar|ninguno|no)$/i.test(normalize(message));
 
 function parseSupplierType(message) {
   const value = normalizeCommand(message);
   if (/mixt|ambas|material.*servicio/.test(value)) return 'mixed';
   if (/servicio/.test(value)) return 'services';
-  if (/material|materia prima|ferreter/.test(value)) return 'materials';
+  if (/material|materia prima|ferreter|vinil|lona|acrilico|pvc|coroplast/.test(value)) return 'materials';
   return '';
 }
 
@@ -63,6 +173,147 @@ function splitCategories(message) {
 
 function ownerKey({ externalUserId, phone }) {
   return normalize(externalUserId) || normalize(phone) || 'owner';
+}
+
+function parseSupplierPayload(message) {
+  return {
+    name: parseSupplierName(message),
+    supplierType: parseSupplierType(message),
+    categories: parseCategories(message),
+    contactName: parseContactName(message),
+    contactRole: parseContactRole(message),
+    whatsapp: parseWhatsapp(message),
+    phone: parseWhatsapp(message),
+    email: parseEmail(message),
+    country: /\bnacional\b/i.test(message) ? 'Nicaragua' : ''
+  };
+}
+
+function parseContactPayload(message) {
+  return {
+    contactName: parseContactName(message),
+    contactRole: parseContactRole(message),
+    whatsapp: parseWhatsapp(message),
+    phone: parseWhatsapp(message),
+    email: parseEmail(message),
+    country: /\bnacional\b/i.test(message) ? 'Nicaragua' : ''
+  };
+}
+
+function parseClientPayload(message) {
+  const whatsapp = parseWhatsapp(message);
+  return {
+    platform: parsePlatform(message),
+    name: parseClientName(message),
+    phone: whatsapp,
+    whatsapp,
+    email: parseEmail(message)
+  };
+}
+
+function hasSupplierPayload(payload) {
+  return Boolean(payload.name && payload.supplierType && payload.categories.length && payload.whatsapp);
+}
+
+function hasContactPayload(payload) {
+  return Boolean(payload.contactName && payload.whatsapp);
+}
+
+function hasClientPayload(payload) {
+  return Boolean(payload.platform && payload.name && payload.whatsapp);
+}
+
+async function executeSupplierInline(message) {
+  const payload = parseSupplierPayload(message);
+  if (!hasSupplierPayload(payload)) return null;
+  await registerSupplier(payload);
+  return { done: true, text: `Proveedor registrado y verificado.\n\nNombre: ${payload.name}\nWhatsApp: ${payload.whatsapp}` };
+}
+
+async function executeContactInline(supplier, message) {
+  const payload = parseContactPayload(message);
+  if (!hasContactPayload(payload)) return null;
+  const contacts = await getContacts(supplier.id);
+  const result = await registerContact({
+    identityId: supplier.id,
+    ...payload,
+    isPrimary: contacts.length === 0
+  });
+  const saved = result.contact || payload;
+  return {
+    done: true,
+    text: `Contacto registrado y verificado en ${supplier.display_name}.\n\nNombre: ${saved.contact_name || saved.contactName || payload.contactName}\nWhatsApp: ${saved.whatsapp || payload.whatsapp}\nCorreo: ${saved.email || payload.email || 'No indicado'}`
+  };
+}
+
+function contactNameOf(contact = {}) {
+  return normalize(contact.contact_name || contact.contactName);
+}
+
+function contactWhatsappOf(contact = {}) {
+  return normalizeWhatsappE164(contact.whatsapp || contact.phone);
+}
+
+function findSupplierContact(contacts, payload) {
+  const expectedPhone = normalizeWhatsappE164(payload.whatsapp);
+  const expectedName = normalizeCommand(payload.contactName);
+  if (expectedPhone) {
+    const found = contacts.find(contact => contactWhatsappOf(contact) === expectedPhone);
+    if (found) return found;
+  }
+  if (expectedName) {
+    const found = contacts.find(contact => normalizeCommand(contactNameOf(contact)) === expectedName);
+    if (found) return found;
+  }
+  if (contacts.length === 1) return contacts[0];
+  return null;
+}
+
+async function executeSupplierUpdateInline(supplier, message) {
+  const payload = parseContactPayload(message);
+  if (!payload.contactName && !payload.whatsapp && !payload.email) return null;
+  const contacts = await getContacts(supplier.id);
+  const existing = findSupplierContact(contacts, payload);
+  let operation;
+  let saved;
+
+  if (existing) {
+    const update = { identityId: supplier.id, contactId: existing.id };
+    if (payload.contactName) update.contactName = payload.contactName;
+    if (payload.contactRole) update.contactRole = payload.contactRole;
+    if (payload.whatsapp) {
+      update.whatsapp = payload.whatsapp;
+      update.phone = payload.phone;
+    }
+    if (payload.email) update.email = payload.email;
+    if (payload.country) update.country = payload.country;
+    const result = await editContact(update);
+    saved = result.contact || { ...existing, ...update };
+    operation = 'actualizado';
+  } else {
+    if (!payload.whatsapp) return null;
+    const result = await registerContact({
+      identityId: supplier.id,
+      ...payload,
+      isPrimary: contacts.length === 0
+    });
+    saved = result.contact || payload;
+    operation = 'creado';
+  }
+
+  return {
+    done: true,
+    text: `Listo. El contacto de ${supplier.display_name} fue ${operation} y verificado en el CRM.\n\nNombre: ${saved.contact_name || saved.contactName || payload.contactName || 'No indicado'}\nWhatsApp: ${saved.whatsapp || payload.whatsapp || 'No indicado'}\nCorreo: ${saved.email || payload.email || 'No indicado'}`
+  };
+}
+
+async function executeClientInline(message) {
+  const payload = parseClientPayload(message);
+  if (!hasClientPayload(payload)) return null;
+  const responsibleCommercialId = normalize(process.env.CRM_DEFAULT_ADMIN_IDENTITY_ID);
+  if (!responsibleCommercialId) throw Object.assign(new Error('CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED'), { code: 'CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED' });
+  await registerClient({ ...payload, responsibleCommercialId });
+  return { done: true, text: `Cliente registrado y verificado.\n\nNombre: ${payload.name}\nPlataforma: ${payload.platform.toUpperCase()}\nWhatsApp: ${payload.whatsapp}` };
 }
 
 async function processSupplier(state, message) {
@@ -218,6 +469,13 @@ async function initializeState(start) {
   if (start.type === 'client') return { type: 'client', step: 'platform', data: {} };
 
   const supplier = await resolveSupplier(start.supplierName);
+  if (start.type === 'supplierUpdate') {
+    return {
+      type: 'supplierUpdate',
+      step: 'details',
+      data: { identityId: supplier.id, supplierName: supplier.display_name }
+    };
+  }
   if (start.type === 'addContact') {
     const contacts = await getContacts(supplier.id);
     return {
@@ -254,6 +512,7 @@ async function initializeState(start) {
 function initialPrompt(state) {
   if (state.type === 'supplier') return 'Perfecto. Decime el nombre del proveedor.';
   if (state.type === 'client') return 'Perfecto. ¿Para qué plataforma será el cliente?';
+  if (state.type === 'supplierUpdate') return `Perfecto. Tengo identificado al proveedor ${state.data.supplierName}. Enviame el nombre del contacto, WhatsApp y correo que querés actualizar.`;
   if (state.type === 'addContact') return `Proveedor encontrado: ${state.data.supplierName}.\n¿Cuál es el nombre del nuevo contacto? Podés responder “omitir”.`;
   if (state.step === 'field') return `Proveedor encontrado: ${state.data.supplierName}.\n¿Qué querés editar: nombre, cargo/área, WhatsApp, teléfono, correo, ciudad, dirección o notas?`;
   return `Proveedor encontrado: ${state.data.supplierName}.\nElegí el contacto por número:\n${state.data.contacts.map(contactLabel).join('\n')}`;
@@ -273,6 +532,29 @@ async function processCrmConversation({ message, externalUserId, phone }) {
   if (!state) {
     const start = detectCommand(message);
     if (!start) return { handled: false };
+
+    if (start.type === 'unsupported') {
+      return {
+        handled: true,
+        completed: true,
+        outputText: `La entidad ${start.entity} todavía no tiene Service y Adapter de escritura autorizados. No ejecuté ningún cambio.`
+      };
+    }
+
+    if (start.inline && isAuthorizedInline(message)) {
+      let inlineResult = null;
+      if (start.type === 'supplier') inlineResult = await executeSupplierInline(message);
+      else if (start.type === 'client') inlineResult = await executeClientInline(message);
+      else {
+        const supplier = await resolveSupplier(start.supplierName);
+        if (start.type === 'addContact') inlineResult = await executeContactInline(supplier, message);
+        else if (start.type === 'supplierUpdate') inlineResult = await executeSupplierUpdateInline(supplier, message);
+      }
+      if (inlineResult) {
+        return { handled: true, completed: true, outputText: inlineResult.text };
+      }
+    }
+
     state = await initializeState(start);
     states[key] = state;
     writeStates(states);
@@ -296,8 +578,12 @@ module.exports = {
   detectCommand,
   isCancel,
   isConfirm,
+  isAuthorizedInline,
   parseSupplierType,
   splitCategories,
   parseEditField,
+  parseSupplierPayload,
+  parseContactPayload,
+  parseClientPayload,
   processCrmConversation
 };
