@@ -6,13 +6,13 @@ const {
 const { run } = require('./jobPipeline');
 
 async function executeJob(jobId) {
-  const job = getJob(jobId);
+  const job = await getJob(jobId);
 
   if (!job) {
     throw new Error(`Job no encontrado: ${jobId}`);
   }
 
-  updateJob(jobId, {
+  await updateJob(jobId, {
     status: JOB_STATUS.RUNNING,
     startedAt: new Date().toISOString(),
     error: null
@@ -21,13 +21,13 @@ async function executeJob(jobId) {
   try {
     const pipelineResult = await run(job);
 
-    return updateJob(jobId, {
+    return await updateJob(jobId, {
       status: JOB_STATUS.COMPLETED,
       result: pipelineResult,
       finishedAt: new Date().toISOString()
     });
   } catch (error) {
-    updateJob(jobId, {
+    await updateJob(jobId, {
       status: JOB_STATUS.FAILED,
       error: error.message,
       finishedAt: new Date().toISOString()

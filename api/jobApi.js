@@ -71,6 +71,19 @@ function sendMethodNotAllowed({
   });
 }
 
+function isPersistenceError(error) {
+  return String(error?.code || error?.message || '')
+    .startsWith('JOB_SUPABASE_') ||
+    error?.message === 'JOB_PERSISTENCE_WRITE_FAILED';
+}
+
+function sendPersistenceUnavailable(res, sendJson) {
+  sendJson(res, 503, {
+    success: false,
+    error: 'Persistencia de Jobs no disponible'
+  });
+}
+
 async function handleJobApi({
   req,
   res,
@@ -85,13 +98,21 @@ async function handleJobApi({
 
   if (pathname === '/api/jobs') {
     if (req.method === 'GET') {
-      const jobs = listJobsRequest();
+      try {
+        const jobs = await listJobsRequest();
 
-      sendJson(res, 200, {
-        success: true,
-        count: jobs.length,
-        jobs
-      });
+        sendJson(res, 200, {
+          success: true,
+          count: jobs.length,
+          jobs
+        });
+      } catch (error) {
+        if (isPersistenceError(error)) {
+          sendPersistenceUnavailable(res, sendJson);
+        } else {
+          throw error;
+        }
+      }
 
       return true;
     }
@@ -121,10 +142,15 @@ async function handleJobApi({
 
     try {
       const payload = await readJsonBody(req);
-      const result = createJobRequest(payload);
+      const result = await createJobRequest(payload);
 
       sendJson(res, 201, result);
     } catch (error) {
+      if (isPersistenceError(error)) {
+        sendPersistenceUnavailable(res, sendJson);
+        return true;
+      }
+
       if (error.message === 'PAYLOAD_TOO_LARGE') {
         sendJson(res, 413, {
           success: false,
@@ -180,7 +206,18 @@ async function handleJobApi({
   }
 
   const jobId = decodeURIComponent(jobMatch[1]);
-  const job = getJobRequest(jobId);
+  let job;
+
+  try {
+    job = await getJobRequest(jobId);
+  } catch (error) {
+    if (isPersistenceError(error)) {
+      sendPersistenceUnavailable(res, sendJson);
+      return true;
+    }
+
+    throw error;
+  }
 
   if (!job) {
     sendJson(res, 404, {
@@ -201,5 +238,6 @@ async function handleJobApi({
 }
 
 module.exports = {
-  handleJobApi
+  handleJobApi,
+  isPersistenceError
 };

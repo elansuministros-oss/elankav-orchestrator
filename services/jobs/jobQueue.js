@@ -1,16 +1,41 @@
-const jobs = new Map();
+'use strict';
 
-function addJob(job) {
-  jobs.set(job.id, job);
-  return job;
+const {
+  createJobSupabaseAdapter
+} = require('../../adapters/jobSupabaseAdapter');
+
+let jobStoreAdapter;
+let persistenceState = {
+  healthy: null,
+  recoveredJobs: 0,
+  checkedAt: null,
+  error: null
+};
+
+function getJobStoreAdapter() {
+  if (!jobStoreAdapter) {
+    jobStoreAdapter = createJobSupabaseAdapter();
+  }
+
+  return jobStoreAdapter;
 }
 
-function getJob(id) {
-  return jobs.get(id) || null;
+async function addJob(job) {
+  const savedJob = await getJobStoreAdapter().saveJob(job);
+
+  if (!savedJob) {
+    throw new Error('JOB_PERSISTENCE_WRITE_FAILED');
+  }
+
+  return savedJob;
 }
 
-function updateJob(id, changes) {
-  const currentJob = getJob(id);
+async function getJob(id) {
+  return getJobStoreAdapter().getJob(id);
+}
+
+async function updateJob(id, changes) {
+  const currentJob = await getJob(id);
 
   if (!currentJob) {
     throw new Error(`Job no encontrado: ${id}`);
@@ -22,18 +47,67 @@ function updateJob(id, changes) {
     updatedAt: new Date().toISOString()
   };
 
-  jobs.set(id, updatedJob);
+  const savedJob = await getJobStoreAdapter().saveJob(updatedJob);
 
-  return updatedJob;
+  if (!savedJob) {
+    throw new Error('JOB_PERSISTENCE_WRITE_FAILED');
+  }
+
+  return savedJob;
 }
 
-function listJobs() {
-  return Array.from(jobs.values());
+async function listJobs() {
+  return getJobStoreAdapter().listJobs();
+}
+
+async function initializeJobQueue() {
+  const checkedAt = new Date().toISOString();
+
+  try {
+    const recovered = await getJobStoreAdapter().markInterruptedJobs({
+      interruptedAt: checkedAt
+    });
+
+    persistenceState = {
+      healthy: true,
+      recoveredJobs: recovered.length,
+      checkedAt,
+      error: null
+    };
+  } catch (error) {
+    persistenceState = {
+      healthy: false,
+      recoveredJobs: 0,
+      checkedAt,
+      error: error.code || error.message
+    };
+
+    throw error;
+  }
+
+  return { ...persistenceState };
+}
+
+function getJobPersistenceState() {
+  return { ...persistenceState };
+}
+
+function setJobStoreAdapterForTests(adapter) {
+  jobStoreAdapter = adapter || undefined;
+  persistenceState = {
+    healthy: null,
+    recoveredJobs: 0,
+    checkedAt: null,
+    error: null
+  };
 }
 
 module.exports = {
   addJob,
   getJob,
-  updateJob,
-  listJobs
+  getJobPersistenceState,
+  initializeJobQueue,
+  listJobs,
+  setJobStoreAdapterForTests,
+  updateJob
 };

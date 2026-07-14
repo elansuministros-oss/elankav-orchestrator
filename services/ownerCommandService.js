@@ -182,7 +182,7 @@ async function executeOwnerCommand({ command, platform }) {
   }
 
   if (command?.type === OWNER_COMMANDS.JOB_STATUS) {
-    const job = getJob(command.jobId);
+    const job = await getJob(command.jobId);
 
     return {
       command: OWNER_COMMANDS.JOB_STATUS,
@@ -192,7 +192,7 @@ async function executeOwnerCommand({ command, platform }) {
   }
 
   if (command?.type === OWNER_COMMANDS.CODE_JOB) {
-    const job = createJob({
+    const job = await createJob({
       platform: command.platform,
       type: JOB_TYPES.CODE,
       task: command.task
@@ -213,7 +213,7 @@ async function executeOwnerCommand({ command, platform }) {
     throw new Error(`Comando owner no soportado: ${JSON.stringify(command)}`);
   }
 
-  const job = createJob({
+  const job = await createJob({
     platform: platform || 'elankav',
     type: JOB_TYPES.CONTEXT_SYNC,
     task: 'Cargar contexto oficial del ecosistema ELANKAV'

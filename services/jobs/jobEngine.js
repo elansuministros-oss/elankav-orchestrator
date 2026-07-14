@@ -6,7 +6,7 @@ const {
 } = require('./jobTypes');
 const { addJob, getJob, listJobs } = require('./jobQueue');
 
-function createJob({ platform, task, type = JOB_TYPES.CODE }) {
+async function createJob({ platform, task, type = JOB_TYPES.CODE }) {
   if (!platform || !task) {
     throw new Error('platform y task son obligatorios');
   }

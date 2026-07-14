@@ -39,7 +39,7 @@ function serializeJob(job) {
   };
 }
 
-function createJobRequest({ platform, task, type }) {
+async function createJobRequest({ platform, task, type }) {
   const normalizedPlatform =
     normalizeRequiredString(platform, 'platform');
 
@@ -51,7 +51,7 @@ function createJobRequest({ platform, task, type }) {
       ? type.trim()
       : undefined;
 
-  const job = createJob({
+  const job = await createJob({
     platform: normalizedPlatform,
     task: normalizedTask,
     ...(normalizedType ? { type: normalizedType } : {})
@@ -75,11 +75,11 @@ function createJobRequest({ platform, task, type }) {
   };
 }
 
-function getJobRequest(jobId) {
+async function getJobRequest(jobId) {
   const normalizedJobId =
     normalizeRequiredString(jobId, 'jobId');
 
-  const job = getJob(normalizedJobId);
+  const job = await getJob(normalizedJobId);
 
   if (!job) {
     return null;
@@ -88,8 +88,8 @@ function getJobRequest(jobId) {
   return serializeJob(job);
 }
 
-function listJobsRequest() {
-  return listJobs()
+async function listJobsRequest() {
+  return (await listJobs())
     .map(serializeJob)
     .sort((left, right) => {
       return String(right.createdAt).localeCompare(
