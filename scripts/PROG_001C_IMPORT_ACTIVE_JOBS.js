@@ -6,8 +6,8 @@ require('dotenv').config({
 });
 
 const {
-  createJobPostgresAdapter
-} = require('../adapters/jobPostgresAdapter');
+  createJobSupabaseAdapter
+} = require('../adapters/jobSupabaseAdapter');
 
 const DEFAULT_SOURCE_URL =
   'http://172.19.0.1:4100/api/jobs';
@@ -54,7 +54,7 @@ async function fetchActiveJobs({
 }
 
 async function importActiveJobs({
-  adapter = createJobPostgresAdapter(),
+  adapter = createJobSupabaseAdapter(),
   fetchImpl = globalThis.fetch,
   sourceUrl
 } = {}) {

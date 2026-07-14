@@ -1,8 +1,8 @@
 'use strict';
 
 const {
-  createJobPostgresAdapter
-} = require('../../adapters/jobPostgresAdapter');
+  createJobSupabaseAdapter
+} = require('../../adapters/jobSupabaseAdapter');
 
 let jobStoreAdapter;
 let persistenceState = {
@@ -14,7 +14,7 @@ let persistenceState = {
 
 function getJobStoreAdapter() {
   if (!jobStoreAdapter) {
-    jobStoreAdapter = createJobPostgresAdapter();
+    jobStoreAdapter = createJobSupabaseAdapter();
   }
 
   return jobStoreAdapter;
