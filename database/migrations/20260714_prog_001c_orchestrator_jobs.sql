@@ -1,5 +1,5 @@
 -- PROG-001C — Persistencia durable del Job Engine
--- Fuente oficial: Supabase. Acceso exclusivo mediante service_role.
+-- Fuente oficial: PostgreSQL administrado en Neon.
 
 create table if not exists public.orchestrator_jobs (
   id text primary key,

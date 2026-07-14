@@ -1,4 +1,4 @@
-# PROG-001C — Persistencia de Jobs en Supabase
+# PROG-001C — Persistencia de Jobs en Neon
 
 ## Estado
 
@@ -10,9 +10,9 @@ Conservar el historial y estado de los Jobs cuando se reinicie ELANKAV Orchestra
 
 ## Diseño aprobado
 
-- Supabase es la fuente oficial.
+- PostgreSQL administrado en Neon es la fuente oficial de Jobs, por decisión Owner del 14 de julio de 2026.
 - `public.orchestrator_jobs` conserva el Job completo.
-- El acceso utiliza únicamente `service_role` desde el servidor.
+- El Orchestrator accede directamente mediante `DATABASE_URL` cifrada y el adapter PostgreSQL.
 - El navegador no tiene permisos sobre la tabla.
 - El Job se guarda antes de responder que fue aceptado.
 - Un Job `pending` o `running` durante un reinicio se marca `failed` con `ORCHESTRATOR_RESTARTED`; nunca se reanuda automáticamente.
@@ -20,8 +20,8 @@ Conservar el historial y estado de los Jobs cuando se reinicie ELANKAV Orchestra
 
 ## Orden obligatorio del primer despliegue
 
-1. Verificar que el VPS tenga `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` o `SUPABASE_SERVICE_KEY`, sin imprimir sus valores.
-2. Aplicar la migración `20260714_prog_001c_orchestrator_jobs.sql`.
+1. Verificar que el VPS tenga `DATABASE_URL` con `sslmode=require`, sin imprimir su valor.
+2. Confirmar la migración `20260714_prog_001c_orchestrator_jobs.sql`, ya aplicada en Neon.
 3. Validar lectura y escritura de una fila de prueba y eliminar únicamente esa fila de prueba.
 4. Evitar nuevas órdenes técnicas Owner durante la ventana controlada.
 5. Ejecutar `scripts/PROG_001C_IMPORT_ACTIVE_JOBS.js` contra el proceso todavía activo.
@@ -45,12 +45,12 @@ Conservar el historial y estado de los Jobs cuando se reinicie ELANKAV Orchestra
 - Conservar la tabla y los datos; no ejecutar `drop table`.
 - Restaurar únicamente los archivos del Orchestrator incluidos en este movimiento.
 - Reiniciar una sola vez y verificar salud general.
-- La versión anterior no leerá los Jobs guardados en Supabase, pero la información permanecerá preservada para reactivar PROG-001C.
+- La versión anterior no leerá los Jobs guardados en Neon, pero la información permanecerá preservada para reactivar PROG-001C.
 
 ## Archivos del movimiento
 
-- `supabase/migrations/20260714_prog_001c_orchestrator_jobs.sql`
-- `adapters/jobSupabaseAdapter.js`
+- `database/migrations/20260714_prog_001c_orchestrator_jobs.sql`
+- `adapters/jobPostgresAdapter.js`
 - `services/jobs/jobQueue.js`
 - `services/jobs/jobEngine.js`
 - `services/jobs/jobExecutor.js`

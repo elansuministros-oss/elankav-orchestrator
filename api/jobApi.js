@@ -73,7 +73,7 @@ function sendMethodNotAllowed({
 
 function isPersistenceError(error) {
   return String(error?.code || error?.message || '')
-    .startsWith('JOB_SUPABASE_') ||
+    .startsWith('JOB_DATABASE_') ||
     error?.message === 'JOB_PERSISTENCE_WRITE_FAILED';
 }
 
