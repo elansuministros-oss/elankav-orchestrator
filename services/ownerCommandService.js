@@ -1,13 +1,14 @@
 'use strict';
 
-const { createJob } = require('./jobs/jobEngine');
+const { createJob, getJob } = require('./jobs/jobEngine');
 const { executeJob } = require('./jobs/jobExecutor');
 const { JOB_TYPES } = require('./jobs/jobTypes');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
   CANCEL_FLOW: 'cancel_flow',
-  CODE_JOB: 'code_job'
+  CODE_JOB: 'code_job',
+  JOB_STATUS: 'job_status'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -20,6 +21,8 @@ const PLATFORM_ALIASES = Object.freeze([
 
 const CODE_ACTION_PATTERN = /\b(audita|auditar|revisa|revisar|corrige|corregir|programa|programar|implementa|implementar|crea|crear|modifica|modificar|repara|reparar|actualiza|actualizar)\b/;
 const CANCEL_PATTERN = /^(cancelar|cancela|detener|deten|parar|para|olvida eso|olvidalo|deja eso|dejalo|cambiar de tema|cambiemos de tema|cancelar esta conversacion|da por cancelar esta conversacion|elimina esa orden|cancelar esta orden)$/;
+const JOB_ID_PATTERN = /\bJOB-(\d+)-([a-z0-9]+)\b/i;
+const JOB_STATUS_PATTERN = /\b(estado|estatus|avance|seguimiento|resultado|resultados|como va|que paso|error|errores|pull request|pr)\b/;
 
 function normalizeCommand(value) {
   return String(value || '')
@@ -41,8 +44,26 @@ function resolvePlatformFromMessage(normalizedMessage) {
   return null;
 }
 
+function detectJobStatusCommand(message, normalizedMessage) {
+  const match = String(message || '').match(JOB_ID_PATTERN);
+
+  if (!match || !JOB_STATUS_PATTERN.test(normalizedMessage)) {
+    return null;
+  }
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.JOB_STATUS,
+    jobId: `JOB-${match[1]}-${match[2].toLowerCase()}`
+  });
+}
+
 function detectOwnerCommand(message) {
   const normalized = normalizeCommand(message);
+  const jobStatusCommand = detectJobStatusCommand(message, normalized);
+
+  if (jobStatusCommand) {
+    return jobStatusCommand;
+  }
 
   if (
     normalized === 'context sync' ||
@@ -124,12 +145,49 @@ function formatCodeJobAccepted(job) {
   ].join('\n');
 }
 
+function formatJobStatusResult(job) {
+  if (!job) {
+    return 'No encontré ese Job en el registro activo del Orchestrator. Es posible que el servicio se haya reiniciado.';
+  }
+
+  const completedSteps = Array.isArray(job.result?.steps)
+    ? job.result.steps.map(step => step.step).filter(Boolean)
+    : [];
+  const pullRequest = Array.isArray(job.result?.steps)
+    ? job.result.steps.find(step => step.step === 'pr')
+    : null;
+
+  return [
+    'Estado verificado del Job.',
+    '',
+    `Job: ${job.id}`,
+    `Plataforma: ${job.platform}`,
+    `Estado: ${job.status}`,
+    `Rama: ${job.branch || 'No aplica'}`,
+    `Pasos completados: ${completedSteps.length ? completedSteps.join(', ') : 'Aún no disponibles'}`,
+    `Error: ${job.error || 'Ninguno'}`,
+    `Pull Request: ${pullRequest?.url || 'Todavía no disponible'}`,
+    `Creado: ${job.createdAt || 'No disponible'}`,
+    `Finalizado: ${job.finishedAt || 'Todavía no finalizado'}`
+  ].join('\n');
+}
+
 async function executeOwnerCommand({ command, platform }) {
   if (command === OWNER_COMMANDS.CANCEL_FLOW) {
     return {
       command,
       job: null,
       outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.'
+    };
+  }
+
+  if (command?.type === OWNER_COMMANDS.JOB_STATUS) {
+    const job = getJob(command.jobId);
+
+    return {
+      command: OWNER_COMMANDS.JOB_STATUS,
+      job,
+      outputText: formatJobStatusResult(job)
     };
   }
 
@@ -172,9 +230,11 @@ async function executeOwnerCommand({ command, platform }) {
 
 module.exports = {
   OWNER_COMMANDS,
+  detectJobStatusCommand,
   detectOwnerCommand,
   executeOwnerCommand,
   formatContextSyncResult,
   formatCodeJobAccepted,
+  formatJobStatusResult,
   resolvePlatformFromMessage
 };
