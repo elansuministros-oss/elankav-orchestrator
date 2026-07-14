@@ -10,6 +10,10 @@ const { getDashboardStatus } = require('./adapters/dashboardAdapter');
 const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
 const { handleMessageApi } = require('./api/messageApi');
+const {
+  getJobPersistenceState,
+  initializeJobQueue
+} = require('./services/jobs/jobQueue');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -580,12 +584,15 @@ if (req.url === '/api/github') {
   }
 
   if (req.url === '/health' || req.url === '/api/health') {
+    const jobPersistence = getJobPersistenceState();
+
     sendJson(res, 200, {
       service: 'ELANKAV Orchestrator',
       status: 'OK',
       version: VERSION,
       uptime_seconds: Math.floor(process.uptime()),
       node: process.version,
+      job_persistence: jobPersistence,
       timestamp: new Date().toISOString()
     });
     return;
@@ -619,6 +626,21 @@ if (req.url === '/api/github') {
   });
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
-});
+async function startServer() {
+  try {
+    const recovery = await initializeJobQueue();
+    console.log(
+      `[JOB_PERSISTENCE_READY] recovered=${recovery.recoveredJobs}`
+    );
+  } catch (error) {
+    console.error(
+      `[JOB_PERSISTENCE_UNAVAILABLE] ${error.code || error.message}`
+    );
+  }
+
+  server.listen(PORT, HOST, () => {
+    console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
+  });
+}
+
+startServer();
