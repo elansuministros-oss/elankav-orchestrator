@@ -75,6 +75,26 @@ function createDesignPortalSupabaseAdapter({
     return rows[0] || null;
   }
 
+  async function claimRequestIdentity({
+    id,
+    previousExternalUserId,
+    externalUserId,
+    now = new Date().toISOString()
+  }) {
+    const identityFilter = previousExternalUserId
+      ? `external_user_id=eq.${encodeURIComponent(previousExternalUserId)}`
+      : 'external_user_id=is.null';
+    const rows = await request({
+      method: 'PATCH',
+      query: `id=eq.${encodeURIComponent(id)}&${identityFilter}`,
+      body: {
+        external_user_id: externalUserId,
+        updated_at: now
+      }
+    });
+    return rows[0] || null;
+  }
+
   async function claimRequest(id, attempts = 0, now = new Date().toISOString()) {
     const rows = await request({
       method: 'PATCH',
@@ -210,6 +230,7 @@ function createDesignPortalSupabaseAdapter({
 
   return Object.freeze({
     claimRequest,
+    claimRequestIdentity,
     completeRequest,
     downloadAsset,
     failRequest,

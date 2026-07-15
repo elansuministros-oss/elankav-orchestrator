@@ -94,7 +94,9 @@ test('DESIGN-FOLLOWUP-01 no permite modificar solicitudes de otro WhatsApp', asy
     message: 'CAMBIOS DESIGN-MRMB3IOK-9210: cambiar el color',
     phone: '50500000000',
     adapter: {
-      async findRequestByCode() { return readyRow(); },
+      async findRequestByCode() {
+        return readyRow({ external_user_id: '168999999999999' });
+      },
       async queueFollowup() { throw new Error('no esperado'); }
     }
   });
@@ -102,4 +104,27 @@ test('DESIGN-FOLLOWUP-01 no permite modificar solicitudes de otro WhatsApp', asy
   assert.equal(result.handled, true);
   assert.equal(result.completed, false);
   assert.match(result.outputText, /No pude identificar/);
+});
+
+test('DESIGN-FOLLOWUP-01 vincula una solicitud creada con teléfono al LID de WAHA', async () => {
+  let claim;
+  const result = await processDesignFollowup({
+    message: 'DESIGN-MRMB3IOK-9210',
+    phone: '168534952960065',
+    externalUserId: '168534952960065',
+    adapter: {
+      async findRequestByCode() {
+        return readyRow({ external_user_id: '50578828089' });
+      },
+      async claimRequestIdentity(input) {
+        claim = input;
+        return readyRow({ external_user_id: input.externalUserId });
+      }
+    }
+  });
+
+  assert.equal(claim.previousExternalUserId, '50578828089');
+  assert.equal(claim.externalUserId, '168534952960065');
+  assert.equal(result.handled, true);
+  assert.match(result.outputText, /CAMBIOS DESIGN-MRMB3IOK-9210/);
 });
