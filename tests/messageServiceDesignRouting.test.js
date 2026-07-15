@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  buildDesignPortalLink,
   handleDesignIntent
 } = require('../services/messageService');
 
@@ -67,6 +68,7 @@ test('messageService devuelve asset real del Design Engine', async () => {
         phone: '+50578828089'
       },
       metadata: {
+        designPortalBypass: true,
         references: [{
           url: 'https://elankav-core.vercel.app/api/whatsapp-media?token=test'
         }]
@@ -115,6 +117,7 @@ test('resultado de diseño nunca conversa directamente con cliente', async () =>
         externalUserId: '+50578828089'
       },
       metadata: {
+        designPortalBypass: true,
         references: [{
           url: 'https://elankav-core.vercel.app/api/whatsapp-media?token=test'
         }]
@@ -126,10 +129,15 @@ test('resultado de diseño nunca conversa directamente con cliente', async () =>
   });
 });
 
-test('solicitud de propuesta pide el logo una sola vez', async () => {
+test('solicitud por WhatsApp envía el enlace directo al formulario', async () => {
   const result = await handleDesignIntent({
     message: 'Podrías mandarme',
-    context: { platform: 'ELANVISUAL' },
+    context: {
+      platform: 'ELANVISUAL',
+      channel: 'whatsapp',
+      phone: '50588415436',
+      externalUserId: '50588415436'
+    },
     metadata: {
       conversationHistory: [
         { role: 'user', content: 'Rótulo luminoso exterior de 1 m x 80 cm' }
@@ -139,9 +147,11 @@ test('solicitud de propuesta pide el logo una sola vez', async () => {
 
   assert.equal(result.handled, true);
   assert.equal(result.status, 'needs_information');
-  assert.equal(result.model, 'elankav-design-intake');
-  assert.match(result.outputText, /enviame el logo/i);
-  assert.match(result.outputText, /sin logo/i);
+  assert.equal(result.model, 'elankav-design-portal');
+  assert.match(result.outputText, /visual\.elankav\.com\/diseno/);
+  assert.match(result.designPortalUrl, /wa=50588415436/);
+  assert.match(result.designPortalUrl, /type=rotulo/);
+  assert.doesNotMatch(result.outputText, /enviame el logo/i);
 });
 
 test('sin logo genera la propuesta con los datos de la conversación', async () => {
@@ -150,6 +160,7 @@ test('sin logo genera la propuesta con los datos de la conversación', async () 
       message: 'Sin logo',
       context: { platform: 'ELANVISUAL' },
       metadata: {
+        designPortalBypass: true,
         conversationHistory: [
           {
             role: 'user',
@@ -184,6 +195,7 @@ test('el logo enviado después de pedirlo genera la propuesta', async () => {
       message: 'Aquí está',
       context: { platform: 'ELANVISUAL' },
       metadata: {
+        designPortalBypass: true,
         references: [{
           url: 'https://elankav-core.vercel.app/api/whatsapp-media?token=test'
         }],
@@ -198,4 +210,23 @@ test('el logo enviado después de pedirlo genera la propuesta', async () => {
     assert.equal(result.status, 'processed');
     assert.equal(result.design.assets.length, 1);
   });
+});
+
+test('construye enlace de WhatsApp sin perder identidad ni conversación', () => {
+  const link = buildDesignPortalLink({
+    message: 'Quiero una propuesta',
+    history: [{ role: 'user', content: 'Fachada exterior en ACM' }],
+    phone: '+505 5861 5132',
+    externalUserId: 'client-5861',
+    conversationRef: 'crm-conversation-22'
+  });
+  const url = new URL(link);
+
+  assert.equal(url.origin, 'https://visual.elankav.com');
+  assert.equal(url.pathname, '/diseno');
+  assert.equal(url.searchParams.get('source'), 'whatsapp');
+  assert.equal(url.searchParams.get('wa'), '50558615132');
+  assert.equal(url.searchParams.get('uid'), 'client-5861');
+  assert.equal(url.searchParams.get('conversation'), 'crm-conversation-22');
+  assert.equal(url.searchParams.get('type'), 'fachada');
 });
