@@ -26,6 +26,7 @@ function requestRow(overrides = {}) {
     request_code: 'DESIGN-TEST-ABCD',
     external_user_id: '50588888888',
     whatsapp: '50588888888',
+    customer_name: 'Cliente Prueba',
     business_name: 'Gimnasio Reyna',
     request_type: 'rotulo',
     installation_environment: 'exterior',
@@ -72,20 +73,39 @@ test('DESIGN-PIPELINE-02 crea primero logo y después render', async () => {
   assert.doesNotMatch(calls[0].message, /USD\s*130/);
 });
 
-test('DESIGN-PIPELINE-02 completa la fila reclamada', async () => {
+test('DESIGN-PIPELINE-02 completa la fila reclamada y entrega el código por WhatsApp', async () => {
   const completed = [];
+  const deliveries = [];
+  const deliveryUpdates = [];
+  const claimedRow = requestRow({ needs_logo_design: false });
   const adapter = {
-    async getNextPending() { return requestRow({ needs_logo_design: false }); },
-    async claimRequest() { return requestRow({ needs_logo_design: false }); },
+    async getNextPending() { return claimedRow; },
+    async claimRequest() { return claimedRow; },
     async downloadAsset() { throw new Error('no esperado'); },
     async uploadResult(input) {
       return { kind: input.kind, bucket: 'bucket', path: 'render.png' };
     },
-    async completeRequest(id, result) { completed.push({ id, result }); },
+    async completeRequest(id, result) {
+      completed.push({ id, result });
+      return {
+        ...claimedRow,
+        status: 'review',
+        result_files: result.resultFiles,
+        design_result: result.designResult
+      };
+    },
+    async markDeliverySuccess(id) { deliveryUpdates.push({ id, status: 'delivered' }); },
+    async markDeliveryFailure() { throw new Error('no esperado'); },
     async failRequest() { throw new Error('no esperado'); }
   };
   const result = await runDesignPortalWorkerOnce({
     adapter,
+    delivery: {
+      async sendText(input) {
+        deliveries.push(input);
+        return { chatId: '50588888888@c.us', messageId: 'message-1' };
+      }
+    },
     async processDesign() { return processedResponse('render-asset'); },
     async fetchAsset() {
       return { buffer: Buffer.from('png'), mimeType: 'image/png', fileName: 'render.png' };
@@ -93,7 +113,13 @@ test('DESIGN-PIPELINE-02 completa la fila reclamada', async () => {
   });
 
   assert.equal(result.processed, true);
+  assert.equal(result.delivery.delivered, true);
   assert.equal(completed.length, 1);
   assert.equal(completed[0].result.resultFiles[0].kind, 'generated-render');
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].phone, '50588888888');
+  assert.match(deliveries[0].text, /DESIGN-TEST-ABCD/);
+  assert.match(deliveries[0].text, /CAMBIOS DESIGN-TEST-ABCD/);
+  assert.deepEqual(deliveryUpdates, [{ id: 'request-1', status: 'delivered' }]);
   assert.equal(sanitizeNotes('Total $150 y USD 20'), 'Total  y');
 });
