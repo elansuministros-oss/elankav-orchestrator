@@ -41,6 +41,15 @@ test('detecta propuesta visual', () => {
   assert.equal(result.detected, true);
 });
 
+test('detecta solicitud de una propuesta similar a una referencia', () => {
+  const result = detectDesignIntent(
+    'Me gustaría algo así o si pueden darme algo más elegante mejor'
+  );
+
+  assert.equal(result.detected, true);
+  assert.equal(result.intent, 'design');
+});
+
 test('no activa diseño por pregunta educativa', () => {
   const result = detectDesignIntent(
     'Qué es diseño gráfico'

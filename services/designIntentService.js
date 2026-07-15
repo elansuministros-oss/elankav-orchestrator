@@ -12,6 +12,7 @@ const DESIGN_ACTION_PATTERNS = Object.freeze([
   /\b(hace|hacer|haceme|haz|hazme|disena|disename|disenar|crea|creame|crear)\b.*\b(diseno|render|fachada|rotulo|logo|interior|espacio|propuesta)\b/,
   /\b(quiero|necesito|quisiera|ocupo)\b.*\b(diseno|render|propuesta visual|fachada|rotulo|logo)\b/,
   /\b(mostra|mostrame|muestrame|visualiza|visualizame)\b.*\b(como quedaria|resultado|fachada|rotulo|espacio)\b/,
+  /\b(me gustaria|quiero|quisiera|necesito)\b.*\b(algo asi|algo similar|parecido|una opcion similar|mas elegante)\b/,
   /\b(render|renderiza|renderizame)\b/,
   /\b(propuesta de diseno|propuesta visual)\b/
 ]);

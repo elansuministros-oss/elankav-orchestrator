@@ -3,7 +3,9 @@
     "id": "elanvisual",
     "name": "ELANVISUAL",
     "url": "https://visual.elankav.com",
-    "category": "Producción"
+    "category": "Producción",
+    "customerFacing": true,
+    "businessLocation": "Managua, Nicaragua"
   },
   {
     "id": "elanpet",
