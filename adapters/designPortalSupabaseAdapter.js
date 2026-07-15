@@ -194,6 +194,39 @@ function createDesignPortalSupabaseAdapter({
         design_result: designResult,
         completed_at: now,
         last_error_code: null,
+        delivery_status: 'pending',
+        delivery_error_code: null,
+        updated_at: now
+      }
+    });
+    return rows[0] || null;
+  }
+
+  async function markDeliverySuccess(id, now = new Date().toISOString()) {
+    const rows = await request({
+      method: 'PATCH',
+      query: `id=eq.${encodeURIComponent(id)}&status=eq.review&delivery_status=neq.delivered`,
+      body: {
+        delivery_status: 'delivered',
+        delivery_attempts: 1,
+        delivery_last_attempt_at: now,
+        delivery_error_code: null,
+        delivered_at: now,
+        updated_at: now
+      }
+    });
+    return rows[0] || null;
+  }
+
+  async function markDeliveryFailure(id, errorCode, attempts = 1, now = new Date().toISOString()) {
+    const rows = await request({
+      method: 'PATCH',
+      query: `id=eq.${encodeURIComponent(id)}&status=eq.review&delivery_status=neq.delivered`,
+      body: {
+        delivery_status: 'failed',
+        delivery_attempts: Number(attempts || 0),
+        delivery_last_attempt_at: now,
+        delivery_error_code: String(errorCode || 'DESIGN_DELIVERY_FAILED').slice(0, 120),
         updated_at: now
       }
     });
@@ -213,7 +246,6 @@ function createDesignPortalSupabaseAdapter({
     });
     return rows[0] || null;
   }
-
 
   async function retryRequest(id, errorCode, now = new Date().toISOString()) {
     const rows = await request({
@@ -237,8 +269,10 @@ function createDesignPortalSupabaseAdapter({
     failRequest,
     findRequestByCode,
     getNextPending,
-    recoverStaleRequests,
+    markDeliveryFailure,
+    markDeliverySuccess,
     queueFollowup,
+    recoverStaleRequests,
     retryRequest,
     uploadResult
   });
