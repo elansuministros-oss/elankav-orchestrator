@@ -17,7 +17,9 @@ const {
   loadCommercialContext
 } = require('./commercialContextService');
 const {
-  detectDesignIntent
+  buildDesignConversationPrompt,
+  detectConversationDesignIntent,
+  shouldRequestLogo
 } = require('./designIntentService');
 const {
   processDesignRequest
@@ -88,7 +90,21 @@ async function handleDesignIntent({
   phone,
   metadata
 } = {}) {
-  const detection = detectDesignIntent(message);
+  const history = Array.isArray(metadata?.conversationHistory)
+    ? metadata.conversationHistory
+    : [];
+  const references = Array.isArray(metadata?.references)
+    ? metadata.references
+    : [];
+  const brandAssets = Array.isArray(metadata?.brandAssets)
+    ? metadata.brandAssets
+    : [];
+  const detection = detectConversationDesignIntent({
+    message,
+    history,
+    references,
+    brandAssets
+  });
 
   if (!detection.detected) {
     return {
@@ -108,6 +124,26 @@ async function handleDesignIntent({
     };
   }
 
+  if (shouldRequestLogo({ detection })) {
+    return {
+      outputText: 'Para preparar la propuesta visual, enviame el logo como imagen. Si no lo tenés, respondé “sin logo” y la genero con el nombre y los datos que ya me diste.',
+      model: 'elankav-design-intake',
+      id: null,
+      status: 'needs_information',
+      usage: null,
+      designAction: true,
+      design: null,
+      handled: true,
+      detection
+    };
+  }
+
+  const designMessage = buildDesignConversationPrompt({
+    message,
+    history,
+    noLogoReply: detection.noLogoReply
+  });
+
   const designResponse = await processDesignRequest({
     requestId:
       context.requestId ||
@@ -126,19 +162,15 @@ async function handleDesignIntent({
       context.channel ||
       channel ||
       null,
-    message,
+    message: designMessage,
     projectType: metadata?.projectType,
     environment: metadata?.environment || null,
     measurements: Array.isArray(metadata?.measurements)
       ? metadata.measurements
       : [],
     measurementStatus: metadata?.measurementStatus || 'MISSING',
-    brandAssets: Array.isArray(metadata?.brandAssets)
-      ? metadata.brandAssets
-      : [],
-    references: Array.isArray(metadata?.references)
-      ? metadata.references
-      : [],
+    brandAssets,
+    references,
     instructions: Array.isArray(metadata?.instructions)
       ? metadata.instructions
       : [],
@@ -194,7 +226,12 @@ async function processMessage({
   phone,
   metadata
 }) {
-  const normalizedMessage = normalizeMessage(message);
+  const hasDesignMedia =
+    (Array.isArray(metadata?.references) && metadata.references.length > 0) ||
+    (Array.isArray(metadata?.brandAssets) && metadata.brandAssets.length > 0);
+  const normalizedMessage =
+    normalizeMessage(message) ||
+    (hasDesignMedia ? 'Imagen enviada por el cliente' : '');
 
   if (!normalizedMessage) {
     const error = new Error('message es obligatorio');
