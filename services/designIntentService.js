@@ -206,11 +206,26 @@ function buildDesignConversationPrompt({
   return lines.join('\n').slice(0, 10000);
 }
 
+function resolveDesignRequestType({ message, history = [] } = {}) {
+  const content = [
+    ...normalizeDesignHistory(history).map(item => item.content),
+    String(message || '')
+  ]
+    .map(normalizeDesignIntentText)
+    .join(' ');
+
+  if (/\b(fachada|fascia|acm)\b/.test(content)) return 'fachada';
+  if (/\b(disena|crear|crea|necesito)\b.*\blogo\b/.test(content)) return 'logo';
+  if (/\b(rotulo|cajuela|jala vista|letras|luminos|acrilico)\b/.test(content)) return 'rotulo';
+  return 'otro';
+}
+
 module.exports = {
   buildDesignConversationPrompt,
   detectConversationDesignIntent,
   detectDesignIntent,
   normalizeDesignHistory,
+  resolveDesignRequestType,
   shouldRequestLogo,
   normalizeDesignIntentText
 };
