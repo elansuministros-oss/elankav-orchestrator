@@ -149,8 +149,7 @@ test('solicitud por WhatsApp envía el enlace directo al formulario', async () =
   assert.equal(result.status, 'needs_information');
   assert.equal(result.model, 'elankav-design-portal');
   assert.match(result.outputText, /visual\.elankav\.com\/diseno/);
-  assert.match(result.designPortalUrl, /wa=50588415436/);
-  assert.match(result.designPortalUrl, /type=rotulo/);
+  assert.equal(result.designPortalUrl, 'https://visual.elankav.com/diseno/whatsapp');
   assert.doesNotMatch(result.outputText, /enviame el logo/i);
 });
 
@@ -212,7 +211,7 @@ test('el logo enviado después de pedirlo genera la propuesta', async () => {
   });
 });
 
-test('construye enlace de WhatsApp sin perder identidad ni conversación', () => {
+test('construye enlace corto oficial sin parámetros internos', () => {
   const link = buildDesignPortalLink({
     message: 'Quiero una propuesta',
     history: [{ role: 'user', content: 'Fachada exterior en ACM' }],
@@ -223,10 +222,6 @@ test('construye enlace de WhatsApp sin perder identidad ni conversación', () =>
   const url = new URL(link);
 
   assert.equal(url.origin, 'https://visual.elankav.com');
-  assert.equal(url.pathname, '/diseno');
-  assert.equal(url.searchParams.get('source'), 'whatsapp');
-  assert.equal(url.searchParams.get('wa'), '50558615132');
-  assert.equal(url.searchParams.get('uid'), 'client-5861');
-  assert.equal(url.searchParams.get('conversation'), 'crm-conversation-22');
-  assert.equal(url.searchParams.get('type'), 'fachada');
+  assert.equal(url.pathname, '/diseno/whatsapp');
+  assert.equal(url.search, '');
 });

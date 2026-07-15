@@ -19,14 +19,13 @@ const {
 const {
   buildDesignConversationPrompt,
   detectConversationDesignIntent,
-  resolveDesignRequestType,
   shouldRequestLogo
 } = require('./designIntentService');
 const {
   processDesignRequest
 } = require('./designEngineService');
 
-const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno';
+const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno/whatsapp';
 
 const CUSTOMER_INSTRUCTIONS = [
   'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
@@ -84,29 +83,8 @@ function resolveMessageInstructions({
     : CUSTOMER_INSTRUCTIONS;
 }
 
-function buildDesignPortalLink({
-  message,
-  history,
-  phone,
-  externalUserId,
-  conversationRef
-} = {}) {
-  const url = new URL(DESIGN_PORTAL_URL);
-  url.searchParams.set('source', 'whatsapp');
-
-  const normalizedPhone = String(phone || externalUserId || '').replace(/\D/g, '');
-  if (normalizedPhone) url.searchParams.set('wa', normalizedPhone);
-
-  if (externalUserId) {
-    url.searchParams.set('uid', String(externalUserId).slice(0, 160));
-  }
-
-  if (conversationRef) {
-    url.searchParams.set('conversation', String(conversationRef).slice(0, 300));
-  }
-
-  url.searchParams.set('type', resolveDesignRequestType({ message, history }));
-  return url.toString();
+function buildDesignPortalLink() {
+  return DESIGN_PORTAL_URL;
 }
 
 async function handleDesignIntent({
@@ -167,7 +145,7 @@ async function handleDesignIntent({
     });
 
     return {
-      outputText: `Para preparar tu propuesta visual, completá los datos y adjuntá el logo o las referencias aquí: ${link}\n\nAl enviarla recibirás un código de solicitud y continuaremos por este WhatsApp.`,
+      outputText: `Completá tu solicitud de diseño en el sitio oficial de ELANVISUAL:\n${link}\n\nAl enviarla recibirás un código de seguimiento.`,
       model: 'elankav-design-portal',
       id: null,
       status: 'needs_information',
