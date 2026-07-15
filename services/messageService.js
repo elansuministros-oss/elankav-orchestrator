@@ -17,11 +17,16 @@ const {
   loadCommercialContext
 } = require('./commercialContextService');
 const {
-  detectDesignIntent
+  buildDesignConversationPrompt,
+  detectConversationDesignIntent,
+  resolveDesignRequestType,
+  shouldRequestLogo
 } = require('./designIntentService');
 const {
   processDesignRequest
 } = require('./designEngineService');
+
+const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno';
 
 const CUSTOMER_INSTRUCTIONS = [
   'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
@@ -79,6 +84,31 @@ function resolveMessageInstructions({
     : CUSTOMER_INSTRUCTIONS;
 }
 
+function buildDesignPortalLink({
+  message,
+  history,
+  phone,
+  externalUserId,
+  conversationRef
+} = {}) {
+  const url = new URL(DESIGN_PORTAL_URL);
+  url.searchParams.set('source', 'whatsapp');
+
+  const normalizedPhone = String(phone || externalUserId || '').replace(/\D/g, '');
+  if (normalizedPhone) url.searchParams.set('wa', normalizedPhone);
+
+  if (externalUserId) {
+    url.searchParams.set('uid', String(externalUserId).slice(0, 160));
+  }
+
+  if (conversationRef) {
+    url.searchParams.set('conversation', String(conversationRef).slice(0, 300));
+  }
+
+  url.searchParams.set('type', resolveDesignRequestType({ message, history }));
+  return url.toString();
+}
+
 async function handleDesignIntent({
   message,
   context = {},
@@ -88,7 +118,21 @@ async function handleDesignIntent({
   phone,
   metadata
 } = {}) {
-  const detection = detectDesignIntent(message);
+  const history = Array.isArray(metadata?.conversationHistory)
+    ? metadata.conversationHistory
+    : [];
+  const references = Array.isArray(metadata?.references)
+    ? metadata.references
+    : [];
+  const brandAssets = Array.isArray(metadata?.brandAssets)
+    ? metadata.brandAssets
+    : [];
+  const detection = detectConversationDesignIntent({
+    message,
+    history,
+    references,
+    brandAssets
+  });
 
   if (!detection.detected) {
     return {
@@ -108,6 +152,54 @@ async function handleDesignIntent({
     };
   }
 
+  const resolvedChannel = context.channel || channel || null;
+  const usePortal =
+    String(resolvedChannel || '').toLowerCase() === 'whatsapp' &&
+    metadata?.designPortalBypass !== true;
+
+  if (usePortal) {
+    const link = buildDesignPortalLink({
+      message,
+      history,
+      phone: context.phone || phone || null,
+      externalUserId: context.externalUserId || externalUserId || null,
+      conversationRef: metadata?.conversationRef || metadata?.requestId || null
+    });
+
+    return {
+      outputText: `Para preparar tu propuesta visual, completá los datos y adjuntá el logo o las referencias aquí: ${link}\n\nAl enviarla recibirás un código de solicitud y continuaremos por este WhatsApp.`,
+      model: 'elankav-design-portal',
+      id: null,
+      status: 'needs_information',
+      usage: null,
+      designAction: true,
+      design: null,
+      handled: true,
+      detection,
+      designPortalUrl: link
+    };
+  }
+
+  if (shouldRequestLogo({ detection })) {
+    return {
+      outputText: 'Para preparar la propuesta visual, enviame el logo como imagen. Si no lo tenés, respondé “sin logo” y la genero con el nombre y los datos que ya me diste.',
+      model: 'elankav-design-intake',
+      id: null,
+      status: 'needs_information',
+      usage: null,
+      designAction: true,
+      design: null,
+      handled: true,
+      detection
+    };
+  }
+
+  const designMessage = buildDesignConversationPrompt({
+    message,
+    history,
+    noLogoReply: detection.noLogoReply
+  });
+
   const designResponse = await processDesignRequest({
     requestId:
       context.requestId ||
@@ -126,19 +218,15 @@ async function handleDesignIntent({
       context.channel ||
       channel ||
       null,
-    message,
+    message: designMessage,
     projectType: metadata?.projectType,
     environment: metadata?.environment || null,
     measurements: Array.isArray(metadata?.measurements)
       ? metadata.measurements
       : [],
     measurementStatus: metadata?.measurementStatus || 'MISSING',
-    brandAssets: Array.isArray(metadata?.brandAssets)
-      ? metadata.brandAssets
-      : [],
-    references: Array.isArray(metadata?.references)
-      ? metadata.references
-      : [],
+    brandAssets,
+    references,
     instructions: Array.isArray(metadata?.instructions)
       ? metadata.instructions
       : [],
@@ -194,7 +282,12 @@ async function processMessage({
   phone,
   metadata
 }) {
-  const normalizedMessage = normalizeMessage(message);
+  const hasDesignMedia =
+    (Array.isArray(metadata?.references) && metadata.references.length > 0) ||
+    (Array.isArray(metadata?.brandAssets) && metadata.brandAssets.length > 0);
+  const normalizedMessage =
+    normalizeMessage(message) ||
+    (hasDesignMedia ? 'Imagen enviada por el cliente' : '');
 
   if (!normalizedMessage) {
     const error = new Error('message es obligatorio');
@@ -347,6 +440,7 @@ async function processMessage({
 module.exports = {
   CUSTOMER_INSTRUCTIONS,
   OWNER_INSTRUCTIONS,
+  buildDesignPortalLink,
   normalizeMessage,
   resolveMessageInstructions,
   handleDesignIntent,
