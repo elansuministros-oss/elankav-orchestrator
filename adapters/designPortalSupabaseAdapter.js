@@ -89,6 +89,7 @@ function createDesignPortalSupabaseAdapter({
       query: `id=eq.${encodeURIComponent(id)}&${identityFilter}`,
       body: {
         external_user_id: externalUserId,
+        conversation_ref: `wa-lid:${externalUserId}`,
         updated_at: now
       }
     });

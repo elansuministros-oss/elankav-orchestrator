@@ -13,6 +13,7 @@ function readyRow(overrides = {}) {
     status: 'ready',
     whatsapp: '50578828089',
     external_user_id: null,
+    conversation_ref: null,
     request_type: 'logo',
     installation_environment: null,
     revision_number: 1,
@@ -118,7 +119,10 @@ test('DESIGN-FOLLOWUP-01 vincula una solicitud creada con teléfono al LID de WA
       },
       async claimRequestIdentity(input) {
         claim = input;
-        return readyRow({ external_user_id: input.externalUserId });
+        return readyRow({
+          external_user_id: input.externalUserId,
+          conversation_ref: `wa-lid:${input.externalUserId}`
+        });
       }
     }
   });
@@ -127,4 +131,53 @@ test('DESIGN-FOLLOWUP-01 vincula una solicitud creada con teléfono al LID de WA
   assert.equal(claim.externalUserId, '168534952960065');
   assert.equal(result.handled, true);
   assert.match(result.outputText, /CAMBIOS DESIGN-MRMB3IOK-9210/);
+});
+
+test('DESIGN-FOLLOWUP-LID-02 reemplaza una identidad antigua una sola vez', async () => {
+  let claims = 0;
+  const result = await processDesignFollowup({
+    message: 'DESIGN-MRMB3IOK-9210',
+    externalUserId: '168534952960065',
+    adapter: {
+      async findRequestByCode() {
+        return readyRow({
+          external_user_id: '179999999999999',
+          whatsapp: '50588888888',
+          conversation_ref: null
+        });
+      },
+      async claimRequestIdentity(input) {
+        claims += 1;
+        return readyRow({
+          external_user_id: input.externalUserId,
+          conversation_ref: `wa-lid:${input.externalUserId}`
+        });
+      }
+    }
+  });
+
+  assert.equal(claims, 1);
+  assert.equal(result.handled, true);
+  assert.match(result.outputText, /RENDER DESIGN-MRMB3IOK-9210/);
+});
+
+test('DESIGN-FOLLOWUP-LID-02 no traslada una solicitud ya vinculada', async () => {
+  const result = await processDesignFollowup({
+    message: 'DESIGN-MRMB3IOK-9210',
+    externalUserId: '168000000000000',
+    adapter: {
+      async findRequestByCode() {
+        return readyRow({
+          external_user_id: '168534952960065',
+          conversation_ref: 'wa-lid:168534952960065'
+        });
+      },
+      async claimRequestIdentity() {
+        throw new Error('no debe reclamar dos veces');
+      }
+    }
+  });
+
+  assert.equal(result.completed, false);
+  assert.match(result.outputText, /No pude identificar/);
 });
