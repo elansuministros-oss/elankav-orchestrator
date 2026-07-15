@@ -227,6 +227,9 @@ function buildContextInstructions(context) {
     lines.push('Una oferta mode=starting-at se comunica con la palabra “desde”. Una oferta mode=reference se comunica como precio aproximado de referencia.');
     lines.push('No presentes el precio aproximado como cotización final: las medidas, el diseño, el material y las condiciones de instalación pueden cambiarlo.');
     lines.push('Respondé primero la pregunta del cliente y luego hacé como máximo la qualificationQuestion indicada, solo si ese dato aún falta en la conversación.');
+    lines.push('Si el cliente pide cotizar, pregunta cuánto cuesta o llega desde un anuncio de este producto, comunicá en la primera respuesta al menos una oferta verificada aplicable; no ocultes todos los precios detrás del cotizador.');
+    lines.push('Si la medida solicitada difiere de la medida estándar verificada, informá primero el precio y la medida estándar disponibles, y aclará que la medida personalizada debe confirmarse.');
+    lines.push('No vuelvas a preguntar medida, ambiente, iluminación, forma o acabado cuando el cliente ya los indicó. No encadenes una entrevista de especificaciones: después del precio hacé solamente la pregunta comercial más útil que aún falte.');
     lines.push('Cuando el cliente muestre aceptación, avanzá al siguiente paso de cotización y explicá 60% de anticipo y 40% de saldo sin inventar cuentas bancarias.');
   }
 
