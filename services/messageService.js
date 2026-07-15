@@ -19,11 +19,14 @@ const {
 const {
   buildDesignConversationPrompt,
   detectConversationDesignIntent,
+  resolveDesignRequestType,
   shouldRequestLogo
 } = require('./designIntentService');
 const {
   processDesignRequest
 } = require('./designEngineService');
+
+const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno';
 
 const CUSTOMER_INSTRUCTIONS = [
   'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
@@ -81,6 +84,31 @@ function resolveMessageInstructions({
     : CUSTOMER_INSTRUCTIONS;
 }
 
+function buildDesignPortalLink({
+  message,
+  history,
+  phone,
+  externalUserId,
+  conversationRef
+} = {}) {
+  const url = new URL(DESIGN_PORTAL_URL);
+  url.searchParams.set('source', 'whatsapp');
+
+  const normalizedPhone = String(phone || externalUserId || '').replace(/\D/g, '');
+  if (normalizedPhone) url.searchParams.set('wa', normalizedPhone);
+
+  if (externalUserId) {
+    url.searchParams.set('uid', String(externalUserId).slice(0, 160));
+  }
+
+  if (conversationRef) {
+    url.searchParams.set('conversation', String(conversationRef).slice(0, 300));
+  }
+
+  url.searchParams.set('type', resolveDesignRequestType({ message, history }));
+  return url.toString();
+}
+
 async function handleDesignIntent({
   message,
   context = {},
@@ -121,6 +149,34 @@ async function handleDesignIntent({
       handled: false,
       detection,
       reason: 'DESIGN_PLATFORM_REQUIRED'
+    };
+  }
+
+  const resolvedChannel = context.channel || channel || null;
+  const usePortal =
+    String(resolvedChannel || '').toLowerCase() === 'whatsapp' &&
+    metadata?.designPortalBypass !== true;
+
+  if (usePortal) {
+    const link = buildDesignPortalLink({
+      message,
+      history,
+      phone: context.phone || phone || null,
+      externalUserId: context.externalUserId || externalUserId || null,
+      conversationRef: metadata?.conversationRef || metadata?.requestId || null
+    });
+
+    return {
+      outputText: `Para preparar tu propuesta visual, completá los datos y adjuntá el logo o las referencias aquí: ${link}\n\nAl enviarla recibirás un código de solicitud y continuaremos por este WhatsApp.`,
+      model: 'elankav-design-portal',
+      id: null,
+      status: 'needs_information',
+      usage: null,
+      designAction: true,
+      design: null,
+      handled: true,
+      detection,
+      designPortalUrl: link
     };
   }
 
@@ -384,6 +440,7 @@ async function processMessage({
 module.exports = {
   CUSTOMER_INSTRUCTIONS,
   OWNER_INSTRUCTIONS,
+  buildDesignPortalLink,
   normalizeMessage,
   resolveMessageInstructions,
   handleDesignIntent,
