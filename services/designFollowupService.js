@@ -69,9 +69,7 @@ function isAuthorized(row, { phone, externalUserId }) {
 }
 
 function canClaimIdentity(row) {
-  const storedExternalId = normalizeIdentity(row.external_user_id);
-  const storedWhatsapp = normalizeIdentity(row.whatsapp);
-  return !storedExternalId || storedExternalId === storedWhatsapp;
+  return !String(row.conversation_ref || '').startsWith('wa-lid:');
 }
 
 function resolveClaimIdentity({ phone, externalUserId }) {
