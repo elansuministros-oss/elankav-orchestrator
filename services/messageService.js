@@ -17,6 +17,9 @@ const {
   loadCommercialContext
 } = require('./commercialContextService');
 const {
+  applyVerifiedCommercialReply
+} = require('./commercialReplyService');
+const {
   buildDesignConversationPrompt,
   detectConversationDesignIntent,
   shouldRequestLogo
@@ -386,7 +389,7 @@ async function processMessage({
         });
       }
 
-      return generateText({
+      const generatedResponse = await generateText({
         input: normalizedMessage,
         history: ownerMode
           ? []
@@ -407,6 +410,13 @@ async function processMessage({
           commercial
         }
       });
+
+      return applyVerifiedCommercialReply({
+        message: normalizedMessage,
+        history: metadata?.conversationHistory,
+        commercial,
+        response: generatedResponse
+      });
     }
   );
 
@@ -416,7 +426,8 @@ async function processMessage({
     provider:
       response.ownerCommand ||
       response.crmAction ||
-      response.designAction
+      response.designAction ||
+      response.commercialAction
         ? 'elankav'
         : 'openai',
     model: response.model,

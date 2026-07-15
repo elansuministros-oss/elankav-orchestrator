@@ -123,6 +123,9 @@ test('SALES-01 entrega precios verificados a OpenAI', async () => {
   assert.match(instructions, /starting-at/);
   assert.match(instructions, /60% de anticipo/);
   assert.match(instructions, /como máximo la qualificationQuestion/);
+  assert.match(instructions, /primera respuesta.*oferta verificada/i);
+  assert.match(instructions, /No vuelvas a preguntar medida/i);
+  assert.match(instructions, /No encadenes una entrevista/i);
 });
 
 test('SALES-01 política comercial conduce a cotización sin inventar', () => {
