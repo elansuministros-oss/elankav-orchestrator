@@ -167,11 +167,59 @@ async function executeDesignRequest(request = {}, options = {}) {
   return executeHttpDesignRequest(request, options);
 }
 
+async function fetchDesignAsset(
+  assetId,
+  {
+    fetchImpl = globalThis.fetch,
+    timeoutMs = 20000,
+    maxBytes = 12 * 1024 * 1024
+  } = {}
+) {
+  const endpoint = resolveDesignEngineUrl();
+
+  if (!endpoint) {
+    const error = new Error('Design Engine no está configurado');
+    error.code = 'DESIGN_ENGINE_NOT_CONFIGURED';
+    throw error;
+  }
+
+  let response;
+  try {
+    response = await fetchImpl(
+      `${endpoint}/internal/assets/${encodeURIComponent(assetId)}`,
+      {
+        headers: { Accept: 'image/png' },
+        signal: AbortSignal.timeout(timeoutMs)
+      }
+    );
+  } catch (cause) {
+    const error = new Error('No fue posible recuperar el resultado visual');
+    error.code = 'DESIGN_ASSET_UNAVAILABLE';
+    error.cause = cause;
+    throw error;
+  }
+
+  const mimeType = String(response.headers.get('content-type') || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  const buffer = Buffer.from(await response.arrayBuffer());
+
+  if (!response.ok || mimeType !== 'image/png' || !buffer.length || buffer.length > maxBytes) {
+    const error = new Error('Design Engine devolvió un asset inválido');
+    error.code = 'DESIGN_ASSET_INVALID';
+    throw error;
+  }
+
+  return Object.freeze({ buffer, mimeType, fileName: `${assetId}.png` });
+}
+
 module.exports = {
   DEFAULT_TIMEOUT_MS,
   DESIGN_ENGINE_PROVIDER,
   DESIGN_ENGINE_VERSION,
   executeDesignRequest,
+  fetchDesignAsset,
   getDesignEngineConfigurationStatus,
   resolveDesignEngineUrl
 };

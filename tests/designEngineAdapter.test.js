@@ -5,8 +5,30 @@ const assert = require('node:assert/strict');
 
 const {
   executeDesignRequest,
+  fetchDesignAsset,
   getDesignEngineConfigurationStatus
 } = require('../adapters/designEngineAdapter');
+
+test('recupera PNG generado desde el endpoint interno', async () => {
+  const previous = process.env.DESIGN_ENGINE_URL;
+  process.env.DESIGN_ENGINE_URL = 'http://127.0.0.1:4300';
+  try {
+    const result = await fetchDesignAsset('asset-1', {
+      fetchImpl: async url => {
+        assert.equal(url, 'http://127.0.0.1:4300/internal/assets/asset-1');
+        return new Response(Buffer.from('png-result'), {
+          status: 200,
+          headers: { 'content-type': 'image/png' }
+        });
+      }
+    });
+    assert.equal(result.mimeType, 'image/png');
+    assert.equal(result.buffer.toString(), 'png-result');
+  } finally {
+    if (previous === undefined) delete process.env.DESIGN_ENGINE_URL;
+    else process.env.DESIGN_ENGINE_URL = previous;
+  }
+});
 
 function validRequest() {
   return {

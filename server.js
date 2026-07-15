@@ -14,6 +14,10 @@ const {
   getJobPersistenceState,
   initializeJobQueue
 } = require('./services/jobs/jobQueue');
+const {
+  getDesignPortalWorkerState,
+  startDesignPortalWorker
+} = require('./services/designPortalWorkerService');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -593,6 +597,7 @@ if (req.url === '/api/github') {
       uptime_seconds: Math.floor(process.uptime()),
       node: process.version,
       job_persistence: jobPersistence,
+      design_pipeline: getDesignPortalWorkerState(),
       timestamp: new Date().toISOString()
     });
     return;
@@ -637,6 +642,8 @@ async function startServer() {
       `[JOB_PERSISTENCE_UNAVAILABLE] ${error.code || error.message}`
     );
   }
+
+  startDesignPortalWorker();
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
