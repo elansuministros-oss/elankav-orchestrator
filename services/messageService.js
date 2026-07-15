@@ -24,6 +24,9 @@ const {
 const {
   processDesignRequest
 } = require('./designEngineService');
+const {
+  processDesignFollowup
+} = require('./designFollowupService');
 
 const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno/whatsapp';
 
@@ -329,6 +332,25 @@ async function processMessage({
             status: crmConversation.completed ? 'completed' : 'in_progress',
             usage: null,
             crmAction: true
+          };
+        }
+      }
+
+      if (!ownerMode) {
+        const designFollowup = await processDesignFollowup({
+          message: normalizedMessage,
+          phone: context.phone || phone || null,
+          externalUserId: context.externalUserId || externalUserId || null
+        });
+
+        if (designFollowup.handled) {
+          return {
+            outputText: designFollowup.outputText,
+            model: 'elankav-design-followup',
+            id: null,
+            status: designFollowup.completed ? 'completed' : 'in_progress',
+            usage: null,
+            designAction: true
           };
         }
       }
