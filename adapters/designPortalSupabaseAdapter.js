@@ -46,6 +46,35 @@ function createDesignPortalSupabaseAdapter({
     return rows[0] || null;
   }
 
+  async function findRequestByCode(requestCode) {
+    const rows = await request({
+      query: `select=*&request_code=eq.${encodeURIComponent(requestCode)}&limit=1`
+    });
+    return rows[0] || null;
+  }
+
+  async function queueFollowup(id, values, now = new Date().toISOString()) {
+    const rows = await request({
+      method: 'PATCH',
+      query: `id=eq.${encodeURIComponent(id)}&status=in.(review,ready)`,
+      body: {
+        ...values,
+        status: 'ai_pending',
+        processing_started_at: null,
+        processing_attempts: 0,
+        completed_at: null,
+        last_error_code: null,
+        delivery_status: 'pending',
+        delivery_attempts: 0,
+        delivery_last_attempt_at: null,
+        delivery_error_code: null,
+        delivered_at: null,
+        updated_at: now
+      }
+    });
+    return rows[0] || null;
+  }
+
   async function claimRequest(id, attempts = 0, now = new Date().toISOString()) {
     const rows = await request({
       method: 'PATCH',
@@ -184,8 +213,10 @@ function createDesignPortalSupabaseAdapter({
     completeRequest,
     downloadAsset,
     failRequest,
+    findRequestByCode,
     getNextPending,
     recoverStaleRequests,
+    queueFollowup,
     retryRequest,
     uploadResult
   });
