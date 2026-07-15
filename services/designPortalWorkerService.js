@@ -2,6 +2,10 @@
 
 const { createDesignPortalSupabaseAdapter } = require('../adapters/designPortalSupabaseAdapter');
 const { fetchDesignAsset } = require('../adapters/designEngineAdapter');
+const {
+  buildDesignReadyMessage,
+  createWahaDeliveryAdapter
+} = require('../adapters/wahaDeliveryAdapter');
 const { processDesignRequest } = require('./designEngineService');
 
 const SUPPORTED_REFERENCE_MIME_TYPES = new Set([
@@ -14,9 +18,12 @@ const state = {
   running: false,
   processed: 0,
   failed: 0,
+  delivered: 0,
+  deliveryFailed: 0,
   lastRunAt: null,
   lastRequestCode: null,
-  lastErrorCode: null
+  lastErrorCode: null,
+  lastDeliveryErrorCode: null
 };
 
 function sanitizeNotes(value) {
@@ -156,6 +163,28 @@ async function processClaimedRequest(row, dependencies = {}) {
   };
 }
 
+async function deliverCompletedRequest(row, dependencies = {}) {
+  const adapter = dependencies.adapter;
+  const delivery = dependencies.delivery || createWahaDeliveryAdapter();
+
+  try {
+    const sent = await delivery.sendText({
+      phone: row.whatsapp,
+      text: buildDesignReadyMessage(row)
+    });
+    await adapter.markDeliverySuccess(row.id);
+    state.delivered += 1;
+    state.lastDeliveryErrorCode = null;
+    return { delivered: true, chatId: sent.chatId, messageId: sent.messageId };
+  } catch (error) {
+    const errorCode = String(error?.code || 'DESIGN_DELIVERY_FAILED');
+    await adapter.markDeliveryFailure(row.id, errorCode, 1);
+    state.deliveryFailed += 1;
+    state.lastDeliveryErrorCode = errorCode;
+    return { delivered: false, errorCode };
+  }
+}
+
 async function runDesignPortalWorkerOnce(dependencies = {}) {
   const adapter = dependencies.adapter || createDesignPortalSupabaseAdapter();
   const pending = await adapter.getNextPending();
@@ -174,10 +203,26 @@ async function runDesignPortalWorkerOnce(dependencies = {}) {
       ...dependencies,
       adapter
     });
-    await adapter.completeRequest(claimed.id, result);
+    const completed = await adapter.completeRequest(claimed.id, result);
+    if (!completed) {
+      const error = new Error('DESIGN_COMPLETE_REQUEST_FAILED');
+      error.code = 'DESIGN_COMPLETE_REQUEST_FAILED';
+      throw error;
+    }
+
+    const delivery = await deliverCompletedRequest(completed, {
+      ...dependencies,
+      adapter
+    });
+
     state.processed += 1;
     state.lastErrorCode = null;
-    return { processed: true, requestCode: claimed.request_code, result };
+    return {
+      processed: true,
+      requestCode: claimed.request_code,
+      result,
+      delivery
+    };
   } catch (error) {
     const errorCode = String(error?.code || 'DESIGN_PROCESSING_FAILED');
     if (Number(claimed.processing_attempts || 0) < 3 && adapter.retryRequest) {
@@ -223,14 +268,18 @@ function getDesignPortalWorkerState() {
     running: state.running,
     processed: state.processed,
     failed: state.failed,
+    delivered: state.delivered,
+    deliveryFailed: state.deliveryFailed,
     lastRunAt: state.lastRunAt,
-    lastErrorCode: state.lastErrorCode
+    lastErrorCode: state.lastErrorCode,
+    lastDeliveryErrorCode: state.lastDeliveryErrorCode
   });
 }
 
 module.exports = {
   buildCommonRequest,
   buildMeasurements,
+  deliverCompletedRequest,
   ensureProcessed,
   getDesignPortalWorkerState,
   processClaimedRequest,
