@@ -7,6 +7,7 @@ const {
   buildDesignConversationPrompt,
   detectConversationDesignIntent,
   detectDesignIntent,
+  resolveDesignRequestType,
   shouldRequestLogo,
   normalizeDesignIntentText
 } = require('../services/designIntentService');
@@ -170,4 +171,19 @@ test('el prompt conserva los datos confirmados de la conversación', () => {
   assert.match(prompt, /1 m x 80 cm/);
   assert.match(prompt, /Barra con discos centrada/);
   assert.match(prompt, /no enviará un archivo de logo/);
+});
+
+test('clasifica el tipo para precargar el formulario', () => {
+  assert.equal(resolveDesignRequestType({
+    message: 'Podrías mandarme',
+    history: [{ role: 'user', content: 'Quiero una fachada en ACM' }]
+  }), 'fachada');
+
+  assert.equal(resolveDesignRequestType({
+    message: 'Necesito crear un logo para mi negocio'
+  }), 'logo');
+
+  assert.equal(resolveDesignRequestType({
+    message: 'Quiero un rótulo luminoso'
+  }), 'rotulo');
 });
