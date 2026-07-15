@@ -2,10 +2,28 @@ const {
   createResponse,
   getOpenAIConfigurationStatus
 } = require('../adapters/openaiAdapter');
+const ecosystemServices = require('../config/ecosystem.json');
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_MESSAGE_LENGTH = 4000;
 const MAX_HISTORY_TOTAL_LENGTH = 16000;
+
+function resolveOfficialPlatformFacts(platform) {
+  const normalizedPlatform = String(platform || '').trim().toLowerCase();
+  const service = ecosystemServices.find(item =>
+    item?.customerFacing === true &&
+    String(item.id || '').toLowerCase() === normalizedPlatform
+  );
+
+  if (!service) return null;
+
+  return Object.freeze({
+    id: service.id,
+    name: service.name,
+    website: service.url,
+    businessLocation: service.businessLocation || null
+  });
+}
 
 function normalizeConversationHistory(history = []) {
   if (!Array.isArray(history)) return [];
@@ -116,6 +134,18 @@ function buildContextInstructions(context) {
 
   if (context.platform) {
     lines.push(`platform=${context.platform}.`);
+
+    const officialPlatform = resolveOfficialPlatformFacts(context.platform);
+
+    if (officialPlatform) {
+      lines.push(`Datos públicos oficiales verificados de la plataforma: ${JSON.stringify(officialPlatform)}.`);
+      lines.push(`Para ${officialPlatform.name}, usá exclusivamente el sitio ${officialPlatform.website}; nunca sustituyas, completes ni inventes otro dominio.`);
+      lines.push('La página principal no equivale a un catálogo. No afirmes que existe un catálogo ni envíes un enlace de catálogo si no fue proporcionado explícitamente en el contexto verificado.');
+
+      if (officialPlatform.businessLocation) {
+        lines.push(`Ubicación operativa verificada: ${officialPlatform.businessLocation}. No afirmes presencia física en otro país.`);
+      }
+    }
   }
 
   if (context.channel) {
@@ -178,6 +208,28 @@ function buildContextInstructions(context) {
     }
   }
 
+  if (context.commercial?.available) {
+    const commercial = context.commercial;
+    const verifiedOffer = {
+      productName: commercial.productName,
+      description: commercial.description,
+      specifications: commercial.specifications,
+      priceOffers: commercial.priceOffers,
+      variants: commercial.variants,
+      salesGuidance: commercial.salesGuidance,
+      commercialRules: commercial.commercialRules
+    };
+
+    lines.push(
+      `Oferta comercial verificada: ${JSON.stringify(verifiedOffer)}.`
+    );
+    lines.push('Usá exclusivamente estos precios para el producto detectado; no calcules ni inventes otro valor.');
+    lines.push('Una oferta mode=starting-at se comunica con la palabra “desde”. Una oferta mode=reference se comunica como precio aproximado de referencia.');
+    lines.push('No presentes el precio aproximado como cotización final: las medidas, el diseño, el material y las condiciones de instalación pueden cambiarlo.');
+    lines.push('Respondé primero la pregunta del cliente y luego hacé como máximo la qualificationQuestion indicada, solo si ese dato aún falta en la conversación.');
+    lines.push('Cuando el cliente muestre aceptación, avanzá al siguiente paso de cotización y explicá 60% de anticipo y 40% de saldo sin inventar cuentas bancarias.');
+  }
+
   lines.push('No contradigas ni ignores este contexto. No muestres identificadores técnicos salvo que el remitente los solicite.');
 
   return lines.join(' ');
@@ -201,5 +253,6 @@ module.exports = {
   normalizeConversationHistory,
   testOpenAIConnection,
   buildContextInstructions,
+  resolveOfficialPlatformFacts,
   generateText
 };

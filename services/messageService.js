@@ -14,6 +14,9 @@ const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
 const {
+  loadCommercialContext
+} = require('./commercialContextService');
+const {
   detectDesignIntent
 } = require('./designIntentService');
 const {
@@ -30,6 +33,12 @@ const CUSTOMER_INSTRUCTIONS = [
   'Si el cliente ya indicó producto, medida y si es interior o exterior, no hagas preguntas adicionales innecesarias.',
   'Si pregunta por precio, respondé con el precio únicamente cuando esté presente en el contexto verificado; nunca inventes precios.',
   'Cuando falte un precio verificado, indicá que debe revisarse en el cotizador y continuá ayudando con la información disponible.',
+  'Cuando exista contexto comercial verificado, usá el nombre, las medidas, el precio y la modalidad exactos de ese contexto.',
+  'Usá únicamente sitios web y ubicaciones presentes en el contexto oficial verificado; nunca inventes, completes ni adivines dominios o ubicaciones.',
+  'No presentes la página principal como catálogo. Solo afirmes que existe un catálogo cuando el contexto incluya un enlace exacto y verificado al catálogo solicitado.',
+  'Si no existe un enlace exacto al catálogo, indicá que podés orientar con muestras verificadas sin inventar enlaces.',
+  'Decí “desde” únicamente cuando la oferta verificada sea starting-at y aclará que el precio es aproximado cuando así se indique.',
+  'Después de orientar el precio, hacé una sola pregunta útil para acercar al cliente a la cotización o al cierre.',
   'No hables de Orchestrator, repositorios, herramientas internas, permisos técnicos ni programación con clientes.',
   'No trates al cliente como proveedor ni inicies flujos CRM internos por una explicación general.',
   'No prometas fabricación, instalación, entrega o disponibilidad sin datos confirmados.',
@@ -268,12 +277,21 @@ async function processMessage({
         return designConversation;
       }
 
-      const [crm, ecosystem] = ownerMode
-        ? await Promise.all([
-            loadCrmContext(),
-            loadEcosystemContext()
-          ])
-        : [null, null];
+      let crm = null;
+      let ecosystem = null;
+      let commercial = null;
+
+      if (ownerMode) {
+        [crm, ecosystem] = await Promise.all([
+          loadCrmContext(),
+          loadEcosystemContext()
+        ]);
+      } else {
+        commercial = await loadCommercialContext({
+          message: normalizedMessage,
+          history: metadata?.conversationHistory
+        });
+      }
 
       return generateText({
         input: normalizedMessage,
@@ -292,7 +310,8 @@ async function processMessage({
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
           crm,
-          ecosystem
+          ecosystem,
+          commercial
         }
       });
     }
