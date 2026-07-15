@@ -68,6 +68,16 @@ function isAuthorized(row, { phone, externalUserId }) {
   return candidates.some(value => stored.includes(value));
 }
 
+function canClaimIdentity(row) {
+  const storedExternalId = normalizeIdentity(row.external_user_id);
+  const storedWhatsapp = normalizeIdentity(row.whatsapp);
+  return !storedExternalId || storedExternalId === storedWhatsapp;
+}
+
+function resolveClaimIdentity({ phone, externalUserId }) {
+  return normalizeIdentity(externalUserId) || normalizeIdentity(phone);
+}
+
 function primaryResult(row) {
   const files = Array.isArray(row.result_files) ? row.result_files : [];
   return files.find(file => file?.path) || null;
@@ -99,7 +109,19 @@ async function processDesignFollowup({
   const requestCode = extractDesignCode(message);
   if (!requestCode) return { handled: false };
 
-  const row = await adapter.findRequestByCode(requestCode);
+  let row = await adapter.findRequestByCode(requestCode);
+  if (row && !isAuthorized(row, { phone, externalUserId }) && canClaimIdentity(row)) {
+    const claimIdentity = resolveClaimIdentity({ phone, externalUserId });
+    if (claimIdentity && typeof adapter.claimRequestIdentity === 'function') {
+      const claimed = await adapter.claimRequestIdentity({
+        id: row.id,
+        previousExternalUserId: row.external_user_id || null,
+        externalUserId: claimIdentity
+      });
+      if (claimed) row = claimed;
+    }
+  }
+
   if (!row || !isAuthorized(row, { phone, externalUserId })) {
     return {
       handled: true,
@@ -203,6 +225,7 @@ async function processDesignFollowup({
 }
 
 module.exports = {
+  canClaimIdentity,
   detectAction,
   extractDesignCode,
   extractInstructions,
