@@ -59,12 +59,12 @@ test('VQS ignora rutas diferentes', async () => {
   assert.equal(response.state.statusCode, null);
 });
 
-test('VQS rechaza métodos distintos de POST', async () => {
+test('VQS rechaza métodos distintos de GET y POST en colección', async () => {
   const response = makeResponse();
-  const handled = await handleVqsProjectApi({ req: makeReq({ method: 'GET' }), res: response.res, sendJson: response.sendJson });
+  const handled = await handleVqsProjectApi({ req: makeReq({ method: 'PUT' }), res: response.res, sendJson: response.sendJson });
   assert.equal(handled, true);
   assert.equal(response.state.statusCode, 405);
-  assert.equal(response.state.headers.Allow, 'POST');
+  assert.equal(response.state.headers.Allow, 'GET, POST');
 });
 
 test('VQS rechaza JSON inválido', async () => {
@@ -110,7 +110,8 @@ test('VQS crea proyecto, responde 201 y no expone internalData', async () => {
       project_id: 'project-id',
       project_number: 'PRJ-000001',
       status: 'pending_activation',
-      stage: 'quotation'
+      stage: 'quotation',
+      quotation_document: undefined
     }
   });
   assert.equal(receivedInput.items[0].internalData.cost, 40);
