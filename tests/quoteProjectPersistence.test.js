@@ -88,6 +88,30 @@ test('crea cotización, proyecto, seguimiento y evento inicial', async () => {
   assert.equal(adapter.state.events[0].event_type, 'quotation.created');
 });
 
+test('VQS-QUOTATION-NUMBER-01 omite quotation_number para permitir default de Supabase', async () => {
+  const adapter = createMemoryAdapter();
+  const service = new QuoteProjectService({ adapter });
+
+  await service.create(validInput, { userId: 'user-1' });
+
+  assert.equal(Object.hasOwn(adapter.state.quotations[0], 'quotation_number'), false);
+});
+
+test('VQS-QUOTATION-NUMBER-01 conserva quotation_number cuando el contrato lo trae', async () => {
+  const adapter = createMemoryAdapter();
+  const service = new QuoteProjectService({ adapter });
+
+  await service.create({
+    ...validInput,
+    quotation: {
+      ...validInput.quotation,
+      quotationNumber: 'VQS-000123'
+    }
+  }, { userId: 'user-1' });
+
+  assert.equal(adapter.state.quotations[0].quotation_number, 'VQS-000123');
+});
+
 test('rechaza cuotas que no suman cien por ciento', async () => {
   const adapter = createMemoryAdapter();
   const service = new QuoteProjectService({ adapter });

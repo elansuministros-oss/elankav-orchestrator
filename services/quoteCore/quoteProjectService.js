@@ -4,9 +4,8 @@ const PROJECT_STAGES = new Set(['quotation', 'design', 'work_order_ready', 'prod
 const PROJECT_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 
 function mapQuotationRow(document) {
-  return {
+  const row = {
     id: document.quotation.quotationId || undefined,
-    quotation_number: document.quotation.quotationNumber || null,
     platform_id: document.quotation.platformId,
     status: document.quotation.status,
     source_type: document.quotation.source.type,
@@ -34,6 +33,10 @@ function mapQuotationRow(document) {
     created_by: document.audit.createdBy || null,
     updated_by: document.audit.updatedBy || document.audit.createdBy || null
   };
+  if (document.quotation.quotationNumber) {
+    row.quotation_number = document.quotation.quotationNumber;
+  }
+  return row;
 }
 
 function mapProjectRow(document, quotationId) {
