@@ -47,8 +47,13 @@ function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
       if (settled) return;
       const raw = Buffer.concat(chunks).toString('utf8').trim();
       if (!raw) return fail(new HttpBodyError('El cuerpo JSON es obligatorio', 400, 'EMPTY_BODY'));
-      try { settled = true; resolve(JSON.parse(raw)); }
-      catch { fail(new HttpBodyError('JSON inválido', 400, 'INVALID_JSON')); }
+      try {
+        const parsed = JSON.parse(raw);
+        settled = true;
+        resolve(parsed);
+      } catch {
+        fail(new HttpBodyError('JSON inválido', 400, 'INVALID_JSON'));
+      }
     });
   });
 }
