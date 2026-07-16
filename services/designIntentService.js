@@ -8,6 +8,12 @@ function normalizeDesignIntentText(value) {
     .toLowerCase();
 }
 
+const COMMERCIAL_INTENT_PATTERN =
+  /\b(cotiz(?:ar|acion|ame)?|precio|cuanto|cuesta|costaria|valor|presupuesto|informacion|comprar|adquirir)\b/;
+
+const EXPLICIT_VISUAL_ACTION_PATTERN =
+  /\b(disena|disename|disenar|render|renderiza|renderizame|crea(?:me)?|haz(?:me)?|haceme|propuesta visual|propuesta de diseno|como quedaria|visualiza(?:me)?)\b/;
+
 const DESIGN_ACTION_PATTERNS = Object.freeze([
   /\b(hace|hacer|haceme|haz|hazme|disena|disename|disenar|crea|creame|crear)\b.*\b(diseno|render|fachada|rotulo|logo|interior|espacio|propuesta)\b/,
   /\b(quiero|necesito|quisiera|ocupo)\b.*\b(diseno|render|propuesta visual|fachada|rotulo|logo)\b/,
@@ -43,6 +49,11 @@ const DESIGN_EXCLUSION_PATTERNS = Object.freeze([
   /\b(problema|error|bug)\b.*\bdiseno\b.*\b(sistema|pagina|app|codigo)\b/
 ]);
 
+function isCommercialRequest(normalized) {
+  return COMMERCIAL_INTENT_PATTERN.test(normalized) &&
+    !EXPLICIT_VISUAL_ACTION_PATTERN.test(normalized);
+}
+
 function detectDesignIntent(message) {
   const normalized = normalizeDesignIntentText(message);
 
@@ -51,20 +62,21 @@ function detectDesignIntent(message) {
       detected: false,
       intent: null,
       confidence: 'NONE',
-      normalized
+      normalized,
+      commercialIntent: false
     });
   }
 
   if (
-    DESIGN_EXCLUSION_PATTERNS.some(pattern =>
-      pattern.test(normalized)
-    )
+    DESIGN_EXCLUSION_PATTERNS.some(pattern => pattern.test(normalized)) ||
+    isCommercialRequest(normalized)
   ) {
     return Object.freeze({
       detected: false,
       intent: null,
-      confidence: 'EXCLUDED',
-      normalized
+      confidence: isCommercialRequest(normalized) ? 'COMMERCIAL' : 'EXCLUDED',
+      normalized,
+      commercialIntent: isCommercialRequest(normalized)
     });
   }
 
@@ -76,7 +88,8 @@ function detectDesignIntent(message) {
     detected,
     intent: detected ? 'design' : null,
     confidence: detected ? 'RULE' : 'NONE',
-    normalized
+    normalized,
+    commercialIntent: false
   });
 }
 
@@ -122,6 +135,7 @@ function detectConversationDesignIntent({
   const noLogoReply =
     logoRequested && NO_LOGO_REPLY_PATTERN.test(normalized);
   const contextualRequest =
+    !direct.commercialIntent &&
     hasProjectContext &&
     CONTEXTUAL_DESIGN_REQUEST_PATTERNS.some(pattern =>
       pattern.test(normalized)
@@ -132,11 +146,13 @@ function detectConversationDesignIntent({
       VISUAL_OFFER_PATTERN.test(value)
     );
   const detected =
-    direct.detected ||
-    contextualRequest ||
-    affirmativeVisualRequest ||
-    noLogoReply ||
-    assetContinuation;
+    !direct.commercialIntent && (
+      direct.detected ||
+      contextualRequest ||
+      affirmativeVisualRequest ||
+      noLogoReply ||
+      assetContinuation
+    );
 
   return Object.freeze({
     detected,
@@ -151,22 +167,26 @@ function detectConversationDesignIntent({
     hasProjectContext,
     logoRequested,
     noLogoReply,
-    reason: direct.detected
-      ? 'DIRECT_REQUEST'
-      : contextualRequest
-        ? 'CONTEXTUAL_REQUEST'
-        : affirmativeVisualRequest
-          ? 'AFFIRMATIVE_VISUAL_REQUEST'
-          : noLogoReply
-            ? 'NO_LOGO_CONTINUATION'
-            : assetContinuation
-              ? 'LOGO_ASSET_CONTINUATION'
-            : null
+    commercialIntent: direct.commercialIntent,
+    reason: direct.commercialIntent
+      ? 'COMMERCIAL_REQUEST'
+      : direct.detected
+        ? 'DIRECT_REQUEST'
+        : contextualRequest
+          ? 'CONTEXTUAL_REQUEST'
+          : affirmativeVisualRequest
+            ? 'AFFIRMATIVE_VISUAL_REQUEST'
+            : noLogoReply
+              ? 'NO_LOGO_CONTINUATION'
+              : assetContinuation
+                ? 'LOGO_ASSET_CONTINUATION'
+                : null
   });
 }
 
 function shouldRequestLogo({ detection } = {}) {
   if (!detection?.detected) return false;
+  if (detection.commercialIntent) return false;
   if (detection.hasAssets) return false;
   if (detection.logoRequested || detection.noLogoReply) return false;
   if (/\b(disena|crea|haz|haceme)\b.*\blogo\b/.test(detection.normalized)) {
@@ -224,6 +244,7 @@ module.exports = {
   buildDesignConversationPrompt,
   detectConversationDesignIntent,
   detectDesignIntent,
+  isCommercialRequest,
   normalizeDesignHistory,
   resolveDesignRequestType,
   shouldRequestLogo,
