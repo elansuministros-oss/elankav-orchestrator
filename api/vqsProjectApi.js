@@ -1,8 +1,8 @@
 const { getSupabaseClient, SupabaseConfigurationError } = require('../services/supabase/supabaseClient');
 
-const ROUTE = '/api/vqs/projects';
+const COLLECTION_ROUTE = '/api/vqs/projects';
 const MAX_BODY_BYTES = 1024 * 1024;
-let servicePromise = null;
+let servicesPromise = null;
 
 class HttpBodyError extends Error {
   constructor(message, statusCode, code) {
@@ -20,18 +20,23 @@ function pathnameOf(url = '') {
   }
 }
 
+function matchProjectRoute(pathname) {
+  if (pathname === COLLECTION_ROUTE) return { type: 'collection' };
+  const match = pathname.match(/^\/api\/vqs\/projects\/([^/]+)(?:\/(status))?$/);
+  if (!match) return null;
+  return { type: match[2] === 'status' ? 'status' : 'detail', projectId: decodeURIComponent(match[1]) };
+}
+
 function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     let settled = false;
-
     const fail = (error) => {
       if (settled) return;
       settled = true;
       reject(error);
     };
-
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > maxBytes) {
@@ -41,7 +46,6 @@ function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
       }
       chunks.push(chunk);
     });
-
     req.on('error', () => fail(new HttpBodyError('No fue posible leer la solicitud', 400, 'BODY_READ_ERROR')));
     req.on('end', () => {
       if (settled) return;
@@ -115,73 +119,117 @@ function mapExternalContract(body) {
   };
 }
 
-function resolveTemporaryActor(body) {
+function resolveTemporaryActor(body = {}) {
   return {
     type: 'user',
     userId: '',
     role: '',
-    executiveId: body.executive.executiveId,
-    platformId: String(body.platform).trim().toUpperCase()
+    executiveId: body.executive?.executiveId || body.executiveId || '',
+    platformId: String(body.platform || '').trim().toUpperCase()
   };
 }
 
-async function getDefaultProjectService() {
-  if (!servicePromise) {
-    servicePromise = Promise.all([
+async function getDefaultServices() {
+  if (!servicesPromise) {
+    servicesPromise = Promise.all([
       import('../adapters/quoteCore/supabaseQuoteProjectAdapter.js'),
-      import('../services/quoteCore/quoteProjectService.js')
-    ]).then(([adapterModule, serviceModule]) => {
+      import('../services/quoteCore/quoteProjectService.js'),
+      import('../services/quoteCore/projectQueryService.js')
+    ]).then(([adapterModule, commandModule, queryModule]) => {
       const adapter = new adapterModule.SupabaseQuoteProjectAdapter({ supabase: getSupabaseClient() });
-      return new serviceModule.QuoteProjectService({ adapter });
+      return {
+        projectService: new commandModule.QuoteProjectService({ adapter }),
+        projectQueryService: new queryModule.ProjectQueryService({ adapter })
+      };
     });
   }
-  return servicePromise;
+  return servicesPromise;
 }
 
 function resetVqsProjectApiForTests() {
-  servicePromise = null;
+  servicesPromise = null;
 }
 
-async function handleVqsProjectApi({ req, res, sendJson, projectService } = {}) {
-  if (pathnameOf(req?.url) !== ROUTE) return false;
+function sendNotFound(res, sendJson) {
+  sendJson(res, 404, { success: false, error: 'Proyecto no encontrado', code: 'PROJECT_NOT_FOUND' });
+}
 
-  if (req.method !== 'POST') {
-    res.setHeader?.('Allow', 'POST');
-    sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
-    return true;
-  }
+async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService } = {}) {
+  const route = matchProjectRoute(pathnameOf(req?.url));
+  if (!route) return false;
 
   try {
-    const body = await readJsonBody(req);
-    const errors = validateExternalContract(body);
-    if (errors.length) {
-      sendJson(res, 422, { success: false, error: 'Contrato inválido', code: 'VQS_CONTRACT_INVALID', details: errors });
+    const defaults = (!projectService || !projectQueryService) ? await getDefaultServices() : null;
+    const commands = projectService || defaults.projectService;
+    const queries = projectQueryService || defaults.projectQueryService;
+
+    if (route.type === 'collection') {
+      if (req.method !== 'POST') {
+        res.setHeader?.('Allow', 'POST');
+        sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const errors = validateExternalContract(body);
+      if (errors.length) {
+        sendJson(res, 422, { success: false, error: 'Contrato inválido', code: 'VQS_CONTRACT_INVALID', details: errors });
+        return true;
+      }
+      const result = await commands.create(mapExternalContract(body), resolveTemporaryActor(body));
+      sendJson(res, 201, {
+        success: true,
+        data: {
+          quotation_id: result.quotation.id,
+          quotation_number: result.quotation.quotation_number,
+          project_id: result.project.id,
+          project_number: result.project.project_number,
+          status: result.project.status,
+          stage: result.project.current_stage
+        }
+      });
       return true;
     }
 
-    const service = projectService || await getDefaultProjectService();
-    const result = await service.create(mapExternalContract(body), resolveTemporaryActor(body));
-    sendJson(res, 201, {
-      success: true,
-      data: {
-        quotation_id: result.quotation.id,
-        quotation_number: result.quotation.quotation_number,
-        project_id: result.project.id,
-        project_number: result.project.project_number,
-        status: result.project.status,
-        stage: result.project.current_stage
+    if (route.type === 'status') {
+      if (req.method !== 'GET') {
+        res.setHeader?.('Allow', 'GET');
+        sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
+        return true;
       }
-    });
+      const project = await queries.getProjectStatus(route.projectId);
+      if (!project) return sendNotFound(res, sendJson), true;
+      sendJson(res, 200, { success: true, data: project });
+      return true;
+    }
+
+    if (req.method === 'GET') {
+      const project = await queries.getProjectById(route.projectId);
+      if (!project) return sendNotFound(res, sendJson), true;
+      sendJson(res, 200, { success: true, data: project });
+      return true;
+    }
+
+    if (req.method === 'PATCH') {
+      const body = await readJsonBody(req);
+      const project = await commands.updateProject(route.projectId, body, resolveTemporaryActor(body));
+      if (!project) return sendNotFound(res, sendJson), true;
+      const publicProject = await queries.getProjectById(route.projectId);
+      sendJson(res, 200, { success: true, data: publicProject });
+      return true;
+    }
+
+    res.setHeader?.('Allow', 'GET, PATCH');
+    sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
   } catch (error) {
     if (error instanceof HttpBodyError) {
       sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
-    } else if (error?.code === 'QUOTE_VALIDATION_ERROR') {
+    } else if (error?.code === 'QUOTE_VALIDATION_ERROR' || error?.code === 'PROJECT_UPDATE_VALIDATION_ERROR') {
       sendJson(res, 422, { success: false, error: 'Contrato inválido', code: error.code, details: error.details || [] });
     } else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
       sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });
     } else {
-      console.error('[VQS_PROJECT_CREATE_ERROR]', error?.code || error?.message || 'UNKNOWN_ERROR');
-      sendJson(res, 500, { success: false, error: 'No fue posible crear el proyecto', code: 'PROJECT_CREATE_ERROR' });
+      console.error('[VQS_PROJECT_API_ERROR]', error?.code || error?.message || 'UNKNOWN_ERROR');
+      sendJson(res, 500, { success: false, error: 'No fue posible procesar el proyecto', code: 'PROJECT_API_ERROR' });
     }
   }
   return true;
@@ -189,6 +237,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService } = {}) 
 
 module.exports = {
   handleVqsProjectApi,
+  matchProjectRoute,
   mapExternalContract,
   resolveTemporaryActor,
   validateExternalContract,
