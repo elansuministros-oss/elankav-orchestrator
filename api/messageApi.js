@@ -1,4 +1,5 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
+const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
 
 const VQS_ROUTE_PREFIX = '/api/vqs/';
@@ -31,7 +32,10 @@ function applyVqsCors(req, res) {
 
   res.setHeader?.('Vary', 'Origin');
   res.setHeader?.('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-  res.setHeader?.('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
+  res.setHeader?.(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Request-Id, X-Elankav-Actor-Type, X-Elankav-Role, X-Elankav-Platform'
+  );
   res.setHeader?.('Access-Control-Max-Age', '600');
 
   if (allowed && origin) {
@@ -64,6 +68,9 @@ async function handleMessageApi({ req, res, sendJson }) {
     });
     return true;
   }
+
+  const vqsContextHandled = await handleVqsContextApi({ req, res, sendJson });
+  if (vqsContextHandled) return true;
 
   const vqsProjectHandled = await handleVqsProjectApi({ req, res, sendJson });
   if (vqsProjectHandled) return true;
