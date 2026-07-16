@@ -154,15 +154,21 @@ function sendNotFound(res, sendJson) {
   sendJson(res, 404, { success: false, error: 'Proyecto no encontrado', code: 'PROJECT_NOT_FOUND' });
 }
 
+async function resolveCommands(projectService) {
+  if (projectService) return projectService;
+  return (await getDefaultServices()).projectService;
+}
+
+async function resolveQueries(projectQueryService) {
+  if (projectQueryService) return projectQueryService;
+  return (await getDefaultServices()).projectQueryService;
+}
+
 async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService } = {}) {
   const route = matchProjectRoute(pathnameOf(req?.url));
   if (!route) return false;
 
   try {
-    const defaults = (!projectService || !projectQueryService) ? await getDefaultServices() : null;
-    const commands = projectService || defaults.projectService;
-    const queries = projectQueryService || defaults.projectQueryService;
-
     if (route.type === 'collection') {
       if (req.method !== 'POST') {
         res.setHeader?.('Allow', 'POST');
@@ -175,6 +181,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         sendJson(res, 422, { success: false, error: 'Contrato inválido', code: 'VQS_CONTRACT_INVALID', details: errors });
         return true;
       }
+      const commands = await resolveCommands(projectService);
       const result = await commands.create(mapExternalContract(body), resolveTemporaryActor(body));
       sendJson(res, 201, {
         success: true,
@@ -196,6 +203,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
         return true;
       }
+      const queries = await resolveQueries(projectQueryService);
       const project = await queries.getProjectStatus(route.projectId);
       if (!project) return sendNotFound(res, sendJson), true;
       sendJson(res, 200, { success: true, data: project });
@@ -203,6 +211,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
     }
 
     if (req.method === 'GET') {
+      const queries = await resolveQueries(projectQueryService);
       const project = await queries.getProjectById(route.projectId);
       if (!project) return sendNotFound(res, sendJson), true;
       sendJson(res, 200, { success: true, data: project });
@@ -211,8 +220,10 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
 
     if (req.method === 'PATCH') {
       const body = await readJsonBody(req);
+      const commands = await resolveCommands(projectService);
       const project = await commands.updateProject(route.projectId, body, resolveTemporaryActor(body));
       if (!project) return sendNotFound(res, sendJson), true;
+      const queries = await resolveQueries(projectQueryService);
       const publicProject = await queries.getProjectById(route.projectId);
       sendJson(res, 200, { success: true, data: publicProject });
       return true;
