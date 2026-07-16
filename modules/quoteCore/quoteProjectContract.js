@@ -3,7 +3,8 @@ export const QUOTE_CORE_VERSION = '1.0.0';
 export const QUOTE_SOURCES = Object.freeze([
   'design',
   'store',
-  'manual'
+  'manual',
+  'api'
 ]);
 
 export const DESIGN_MODES = Object.freeze([
@@ -96,12 +97,14 @@ export function createQuoteProject(input = {}) {
     project: {
       projectId: input.project?.projectId || '',
       projectNumber: input.project?.projectNumber || '',
+      title: input.project?.title || '',
       status: PROJECT_STATUSES.includes(input.project?.status) ? input.project.status : 'pending_activation',
       currentStage: input.project?.currentStage || 'quotation',
       priority: input.project?.priority || 'normal',
       expectedDeliveryAt: input.project?.expectedDeliveryAt || '',
       activatedAt: input.project?.activatedAt || '',
-      completedAt: input.project?.completedAt || ''
+      completedAt: input.project?.completedAt || '',
+      images: Array.isArray(input.project?.images) ? [...input.project.images] : []
     },
     relations: {
       customerId: input.relations?.customerId || '',
@@ -136,6 +139,7 @@ export function createQuoteProject(input = {}) {
       unitPriceUsd: asNumber(item.unitPriceUsd),
       subtotalUsd: asNumber(item.subtotalUsd, asNumber(item.quantity, 1) * asNumber(item.unitPriceUsd)),
       imageUrl: item.imageUrl || '',
+      images: Array.isArray(item.images) ? [...item.images] : [],
       features: Array.isArray(item.features) ? item.features : [],
       internalData: item.internalData || null
     })),
