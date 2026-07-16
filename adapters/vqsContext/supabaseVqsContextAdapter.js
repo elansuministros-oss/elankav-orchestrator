@@ -4,6 +4,12 @@ const DEFAULT_TABLES = Object.freeze({
   projects: 'elankav_projects',
   quotations: 'elankav_quotations'
 });
+const SIGNED_URL_TTL_SECONDS = 3600;
+const VISUAL_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp'
+]);
 
 function normalizeText(value) {
   return String(value ?? '')
@@ -45,14 +51,74 @@ function first(row, keys, fallback = '') {
   return fallback;
 }
 
+function normalizeMimeType(value) {
+  return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function normalizeAsset(asset = {}) {
+  return {
+    kind: String(asset.kind || ''),
+    name: String(asset.name || ''),
+    bucket: String(asset.bucket || ''),
+    path: String(asset.path || ''),
+    mimeType: normalizeMimeType(asset.mimeType || asset.type),
+    sizeBytes: Number(asset.sizeBytes || asset.size_bytes || 0) || 0
+  };
+}
+
+function assetKey(asset = {}) {
+  if (asset.bucket && asset.path) return `${asset.bucket}\u0000${asset.path}`;
+  return [
+    'asset',
+    asset.kind,
+    asset.name,
+    asset.mimeType,
+    asset.sizeBytes
+  ].join('\u0000');
+}
+
+function collectVisualAssets(row = {}) {
+  const seen = new Set();
+  const entries = [
+    ...Array.isArray(row.result_files) ? row.result_files : [],
+    ...Array.isArray(row.files) ? row.files : []
+  ];
+
+  return entries
+    .map((entry, index) => ({ asset: normalizeAsset(entry), index }))
+    .filter(({ asset }) => VISUAL_MIME_TYPES.has(asset.mimeType))
+    .filter(({ asset }) => {
+      const key = assetKey(asset);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => {
+      const leftPriority = left.asset.kind === 'generated-render' ? 0 : 1;
+      const rightPriority = right.asset.kind === 'generated-render' ? 0 : 1;
+      return leftPriority - rightPriority || left.index - right.index;
+    })
+    .map(({ asset }) => asset);
+}
+
+function signedUrlOf(result = {}) {
+  return String(
+    result?.data?.signedUrl ||
+    result?.data?.signedURL ||
+    result?.data?.signed_url ||
+    ''
+  ).trim();
+}
+
 class SupabaseVqsContextAdapter {
-  constructor({ supabase, tables = {}, maxRows = 250 } = {}) {
+  constructor({ supabase, tables = {}, maxRows = 250, logger = console } = {}) {
     if (!supabase || typeof supabase.from !== 'function') {
       throw new Error('SupabaseVqsContextAdapter requiere un cliente Supabase válido');
     }
     this.supabase = supabase;
     this.tables = { ...DEFAULT_TABLES, ...tables };
     this.maxRows = maxRows;
+    this.logger = logger;
   }
 
   async listRows(table, orderColumn = 'created_at') {
@@ -67,12 +133,19 @@ class SupabaseVqsContextAdapter {
 
   async searchDesigns(query) {
     const rows = await this.listRows(this.tables.designs);
-    return rows.filter((row) =>
+    const matches = rows.filter((row) =>
       phoneMatches(first(row, ['whatsapp', 'phone', 'telefono']), query) ||
       ['request_code', 'customer_name', 'business_name', 'request_type', 'design_notes'].some((key) => textMatches(row?.[key], query))
-    ).map((row) => {
+    );
+
+    return Promise.all(matches.map(async (row) => {
       const id = String(first(row, ['id', 'design_request_id', 'request_code']));
       const code = String(first(row, ['request_code', 'code'], id));
+      const images = await this.resolveDesignAssets(row);
+      const primaryImage = images.find((asset) => asset.kind === 'generated-render' && asset.signedUrl)
+        || images.find((asset) => asset.signedUrl)
+        || null;
+
       return {
         type: 'design',
         sourceId: id,
@@ -101,13 +174,50 @@ class SupabaseVqsContextAdapter {
           quantity: 1,
           unit: 'unidad',
           unitPriceUsd: 0,
-          imageUrl: '',
-          images: Array.isArray(row.files) ? row.files : [],
+          imageUrl: primaryImage?.signedUrl || '',
+          images,
           features: [first(row, ['installation_environment']), first(row, ['width_cm']) && `${row.width_cm} cm ancho`, first(row, ['height_cm']) && `${row.height_cm} cm alto`].filter(Boolean)
         }],
         source: { type: 'design', sourceId: id, designRequestId: id, requestCode: code },
         raw: row
       };
+    }));
+  }
+
+  async resolveDesignAssets(row) {
+    const assets = collectVisualAssets(row);
+    return Promise.all(assets.map((asset) => this.resolveDesignAsset(asset)));
+  }
+
+  async resolveDesignAsset(asset) {
+    if (!asset.bucket || !asset.path) return asset;
+
+    try {
+      const bucket = this.supabase.storage?.from?.(asset.bucket);
+      if (!bucket || typeof bucket.createSignedUrl !== 'function') {
+        throw new Error('SUPABASE_STORAGE_SIGNER_UNAVAILABLE');
+      }
+
+      const result = await bucket.createSignedUrl(asset.path, SIGNED_URL_TTL_SECONDS);
+      const signedUrl = signedUrlOf(result);
+      if (result?.error || !signedUrl) {
+        this.logAssetSigningFailure(asset, result?.error);
+        return asset;
+      }
+
+      return { ...asset, signedUrl };
+    } catch (error) {
+      this.logAssetSigningFailure(asset, error);
+      return asset;
+    }
+  }
+
+  logAssetSigningFailure(asset, error) {
+    this.logger?.warn?.('[VQS_CONTEXT_ASSET_SIGN_ERROR]', {
+      code: String(error?.code || 'ASSET_SIGN_FAILED').slice(0, 80),
+      kind: asset.kind,
+      bucket: asset.bucket,
+      path: asset.path
     });
   }
 
@@ -158,5 +268,6 @@ module.exports = {
   normalizeText,
   normalizePhone,
   phoneMatches,
+  collectVisualAssets,
   DEFAULT_TABLES
 };

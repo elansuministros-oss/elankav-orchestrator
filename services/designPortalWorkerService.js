@@ -1,9 +1,13 @@
 'use strict';
 
-const { createDesignPortalSupabaseAdapter } = require('../adapters/designPortalSupabaseAdapter');
+const {
+  createDesignPortalSupabaseAdapter,
+  SUPPORTED_DELIVERY_MIME_TYPES
+} = require('../adapters/designPortalSupabaseAdapter');
 const { fetchDesignAsset } = require('../adapters/designEngineAdapter');
 const {
-  buildDesignReadyMessage,
+  buildDesignFollowupInstructions,
+  buildDesignReadyCaption,
   createWahaDeliveryAdapter
 } = require('../adapters/wahaDeliveryAdapter');
 const { processDesignRequest } = require('./designEngineService');
@@ -12,6 +16,14 @@ const SUPPORTED_REFERENCE_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
   'image/webp'
+]);
+const DELIVERY_URL_FIELDS = Object.freeze([
+  'signedUrl',
+  'publicUrl',
+  'url',
+  'downloadUrl',
+  'imageUrl',
+  'src'
 ]);
 
 const state = {
@@ -49,6 +61,57 @@ function buildMeasurements(row) {
 
 function resultAssetId(response) {
   return response?.designResult?.assets?.[0]?.id || null;
+}
+
+function normalizeDeliveryMimeType(value = '') {
+  return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function isDeliverableDesignAsset(file = {}) {
+  return SUPPORTED_DELIVERY_MIME_TYPES.has(normalizeDeliveryMimeType(file.mimeType));
+}
+
+function findDeliverableDesignAsset(row = {}) {
+  const files = Array.isArray(row.result_files) ? row.result_files : [];
+  return files.find(file => file?.kind === 'generated-render' && isDeliverableDesignAsset(file))
+    || files.find(file => String(file?.kind || '').startsWith('generated-') && isDeliverableDesignAsset(file))
+    || null;
+}
+
+function getAssetDeliveryUrl(asset = {}) {
+  for (const field of DELIVERY_URL_FIELDS) {
+    const value = asset[field];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function getAssetFileName(asset = {}, row = {}) {
+  const name = String(asset.name || '').trim();
+  if (name) return name;
+  const pathName = String(asset.path || '').split('/').filter(Boolean).pop();
+  if (pathName) return pathName;
+  const requestCode = String(row.request_code || 'design-render').trim() || 'design-render';
+  return `${requestCode}.png`;
+}
+
+function getStoredImageDelivery(row = {}, asset = {}) {
+  const delivery = row?.design_result?.delivery;
+  if (!delivery || typeof delivery !== 'object') return null;
+  if (delivery.status !== 'image_sent') return null;
+  if (!delivery.chatId || !delivery.imageMessageId) return null;
+  if (delivery.assetPath && asset.path && delivery.assetPath !== asset.path) return null;
+  return delivery;
+}
+
+function deliveryAttempt(row = {}) {
+  return Number(row.delivery_attempts || 0) + 1;
+}
+
+function createCodedError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
 }
 
 function ensureProcessed(response) {
@@ -164,21 +227,76 @@ async function processClaimedRequest(row, dependencies = {}) {
 }
 
 async function deliverCompletedRequest(row, dependencies = {}) {
-  const adapter = dependencies.adapter;
+  const adapter = dependencies.adapter || createDesignPortalSupabaseAdapter();
   const delivery = dependencies.delivery || createWahaDeliveryAdapter();
+  const attempts = deliveryAttempt(row);
+  let asset = null;
+  let resolvedAsset = null;
+  let imageSent = null;
 
   try {
-    const sent = await delivery.sendText({
-      phone: row.whatsapp,
-      text: buildDesignReadyMessage(row)
+    if (typeof adapter.resolveDesignAsset !== 'function') {
+      throw createCodedError('DESIGN_ASSET_RESOLVER_REQUIRED');
+    }
+
+    asset = findDeliverableDesignAsset(row);
+    if (!asset) throw createCodedError('DESIGN_RENDER_ASSET_REQUIRED');
+
+    const storedImageDelivery = getStoredImageDelivery(row, asset);
+    if (storedImageDelivery) {
+      imageSent = {
+        chatId: storedImageDelivery.chatId,
+        messageId: storedImageDelivery.imageMessageId,
+        reused: true
+      };
+    } else {
+      resolvedAsset = await adapter.resolveDesignAsset(asset);
+      const imageUrl = getAssetDeliveryUrl(resolvedAsset);
+      if (!imageUrl) throw createCodedError('DESIGN_ASSET_URL_REQUIRED');
+
+      imageSent = await delivery.sendImage({
+        phone: row.whatsapp,
+        imageUrl,
+        caption: buildDesignReadyCaption(row),
+        fileName: getAssetFileName(resolvedAsset, row),
+        mimeType: resolvedAsset.mimeType
+      });
+    }
+
+    const followupText = buildDesignFollowupInstructions(row);
+    const textSent = followupText.trim()
+      ? await delivery.sendText({
+          phone: row.whatsapp,
+          chatId: imageSent.chatId,
+          text: followupText
+        })
+      : null;
+
+    await adapter.markDeliverySuccess(row.id, {
+      attempts,
+      chatId: imageSent.chatId,
+      imageMessageId: imageSent.messageId,
+      textMessageId: textSent?.messageId || '',
+      assetPath: asset.path || resolvedAsset?.path || '',
+      designResult: row.design_result
     });
-    await adapter.markDeliverySuccess(row.id);
     state.delivered += 1;
     state.lastDeliveryErrorCode = null;
-    return { delivered: true, chatId: sent.chatId, messageId: sent.messageId };
+    return {
+      delivered: true,
+      chatId: imageSent.chatId,
+      imageMessageId: imageSent.messageId,
+      textMessageId: textSent?.messageId || null,
+      reusedImage: imageSent.reused === true
+    };
   } catch (error) {
     const errorCode = String(error?.code || 'DESIGN_DELIVERY_FAILED');
-    await adapter.markDeliveryFailure(row.id, errorCode, 1);
+    await adapter.markDeliveryFailure(row.id, errorCode, attempts, {
+      chatId: imageSent?.chatId || '',
+      imageMessageId: imageSent?.messageId || '',
+      assetPath: asset?.path || resolvedAsset?.path || '',
+      designResult: row.design_result
+    });
     state.deliveryFailed += 1;
     state.lastDeliveryErrorCode = errorCode;
     return { delivered: false, errorCode };
