@@ -43,15 +43,34 @@ function publicProject(row) {
     projectId: row.id,
     projectNumber: row.project_number,
     quotationId: row.quotation_id,
+    platformId: row.platform_id,
     customerId: row.customer_id,
     executiveId: row.executive_id,
+    title: row.title || row.project_title || '',
     status: row.status,
     currentStage: row.current_stage,
     priority: row.priority,
     expectedDeliveryAt: row.expected_delivery_at,
+    activatedAt: row.activated_at,
+    completedAt: row.completed_at,
     customerName: row.customer_name || row.customer_snapshot?.name || '',
     customerCompanyName: row.customer_company_name || row.customer_snapshot?.companyName || '',
-    title: row.title || row.project_title || ''
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function publicProjectStatus(row) {
+  return {
+    projectId: row.id,
+    projectNumber: row.project_number,
+    status: row.status,
+    stage: row.current_stage,
+    priority: row.priority,
+    expectedDeliveryAt: row.expected_delivery_at,
+    activatedAt: row.activated_at,
+    completedAt: row.completed_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -78,6 +97,26 @@ export class ProjectQueryService {
     this.now = now;
   }
 
+  async getProjectById(projectId) {
+    if (!String(projectId || '').trim()) {
+      const error = new Error('projectId es obligatorio');
+      error.code = 'PROJECT_ID_REQUIRED';
+      throw error;
+    }
+    const project = await this.adapter.getProjectById(projectId);
+    return project ? publicProject(project) : null;
+  }
+
+  async getProjectStatus(projectId) {
+    if (!String(projectId || '').trim()) {
+      const error = new Error('projectId es obligatorio');
+      error.code = 'PROJECT_ID_REQUIRED';
+      throw error;
+    }
+    const project = await this.adapter.getProjectById(projectId);
+    return project ? publicProjectStatus(project) : null;
+  }
+
   async getProjectsByCustomer({ customerQuery, status, executiveId, limit = 100 } = {}) {
     const projects = await this.adapter.listProjects({ executiveId, status, limit });
     return projects.filter((row) => matchesCustomer(row, customerQuery)).map(publicProject);
@@ -99,7 +138,6 @@ export class ProjectQueryService {
       const followUp = typeof this.adapter.getFollowUpByQuotationId === 'function'
         ? await this.adapter.getFollowUpByQuotationId(row.id)
         : null;
-
       const lastActivity = asDate(
         followUp?.last_follow_up_at || row.viewed_at || row.sent_at || row.updated_at || row.created_at
       );
@@ -133,11 +171,7 @@ export class ProjectQueryService {
     const results = [];
 
     for (const quotation of quotations) {
-      const projects = await this.adapter.listProjects({
-        executiveId,
-        customerId: quotation.customer_id,
-        limit
-      });
+      const projects = await this.adapter.listProjects({ executiveId, customerId: quotation.customer_id, limit });
       const project = projects.find((row) => row.quotation_id === quotation.id);
       if (!project) continue;
 
@@ -166,7 +200,6 @@ export class ProjectQueryService {
       const purchaseOrders = typeof this.adapter.listPurchaseOrders === 'function'
         ? await this.adapter.listPurchaseOrders({ projectId: project.id, limit: 100 })
         : [];
-
       const blocking = purchaseOrders.filter((order) =>
         ['draft', 'pending_approval', 'approved', 'ordered', 'partially_received'].includes(order.status)
         && order.blocks_production !== false
@@ -192,10 +225,7 @@ export class ProjectQueryService {
 }
 
 export function summarizeOperationalQuery(type, rows = []) {
-  return {
-    type,
-    count: rows.length,
-    hasResults: rows.length > 0,
-    rows
-  };
+  return { type, count: rows.length, hasResults: rows.length > 0, rows };
 }
+
+export const projectQueryMappers = Object.freeze({ publicProject, publicProjectStatus, publicQuotation });
