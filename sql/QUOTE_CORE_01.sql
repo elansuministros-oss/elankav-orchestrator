@@ -22,6 +22,8 @@ create table if not exists public.elankav_quotations (
   payment_terms jsonb not null default '{}'::jsonb,
   brand_snapshot jsonb not null default '{}'::jsonb,
   template_snapshot jsonb not null default '{}'::jsonb,
+  sent_at timestamptz,
+  viewed_at timestamptz,
   issued_at timestamptz,
   valid_until timestamptz,
   created_by uuid,
@@ -37,6 +39,8 @@ create table if not exists public.elankav_projects (
   platform_id text not null,
   customer_id uuid not null,
   executive_id uuid not null,
+  title text,
+  customer_snapshot jsonb not null default '{}'::jsonb,
   status text not null default 'pending_activation' check (status in ('pending_activation','active','design','work_order_ready','production','installation','completed','cancelled')),
   current_stage text not null default 'quotation',
   priority text not null default 'normal',
@@ -52,6 +56,7 @@ create table if not exists public.elankav_quotation_follow_ups (
   quotation_id uuid not null references public.elankav_quotations(id) on delete cascade,
   owner_executive_id uuid not null,
   action_type text not null default 'note',
+  next_action text,
   notes text,
   last_follow_up_at timestamptz,
   next_follow_up_at timestamptz,
@@ -94,6 +99,8 @@ create table if not exists public.elankav_purchase_orders (
   supplier_id uuid,
   generated_by uuid not null,
   status text not null default 'draft',
+  blocks_production boolean not null default true,
+  expected_at timestamptz,
   payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -121,6 +128,7 @@ create index if not exists idx_elankav_projects_status on public.elankav_project
 create index if not exists idx_elankav_projects_customer on public.elankav_projects(customer_id);
 create index if not exists idx_elankav_followups_next on public.elankav_quotation_follow_ups(next_follow_up_at) where completed_at is null;
 create index if not exists idx_elankav_project_events_project on public.elankav_project_events(project_id, occurred_at desc);
+create index if not exists idx_elankav_purchase_orders_project_status on public.elankav_purchase_orders(project_id, status);
 
 -- RLS se activará cuando se conecten los identificadores oficiales de usuarios,
 -- ejecutivos y administradores. No aplicar políticas genéricas antes de esa auditoría.
