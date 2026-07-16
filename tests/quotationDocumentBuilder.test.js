@@ -93,3 +93,118 @@ test('03B persiste primero y construye el documento después', async () => {
   assert.deepEqual(sequence, ['persist', 'document']);
   assert.equal(result.quotationDocument.publicDocument.quotationNumber, 'COT-1');
 });
+
+test('03B conserva validUntil informado en el contrato', async () => {
+  const { createQuoteProject } = await import('../modules/quoteCore/quoteProjectContract.js');
+  const document = createQuoteProject({
+    quotation: {
+      platformId: 'ELANVISUAL',
+      issuedAt: '2026-08-01T10:00:00.000Z',
+      validUntil: '2026-08-20T18:30:00.000Z',
+      source: { type: 'manual' }
+    },
+    relations: { customerId: 'customer-1', executiveId: 'EXEC-ERICK-CANO-001' },
+    customerSnapshot: { name: 'Cliente demo' },
+    executiveSnapshot: { executiveId: 'EXEC-ERICK-CANO-001' },
+    items: [{ title: 'Producto', quantity: 1, unitPriceUsd: 100 }],
+    pricing: { exchangeRate: 36.5, totalUsd: 100 },
+    paymentTerms: { type: '60_40', installments: [] }
+  });
+
+  const result = buildQuotationDocument({
+    document,
+    quotation: { id: 'q1', quotation_number: 'COT-1', created_at: '2026-08-01T00:00:00.000Z' },
+    project: { id: 'p1', project_number: 'PRJ-1', status: 'pending_activation', current_stage: 'quotation' }
+  });
+
+  assert.equal(result.publicDocument.issuedAt, '2026-08-01T10:00:00.000Z');
+  assert.equal(result.publicDocument.validUntil, '2026-08-20T18:30:00.000Z');
+});
+
+test('03B calcula validUntil quince dias despues de issuedAt cuando falta', async () => {
+  const { createQuoteProject } = await import('../modules/quoteCore/quoteProjectContract.js');
+  const document = createQuoteProject({
+    quotation: {
+      platformId: 'ELANVISUAL',
+      issuedAt: '2026-08-01T10:00:00.000Z',
+      source: { type: 'manual' }
+    },
+    relations: { customerId: 'customer-1', executiveId: 'EXEC-ERICK-CANO-001' },
+    customerSnapshot: { name: 'Cliente demo' },
+    executiveSnapshot: { executiveId: 'EXEC-ERICK-CANO-001' },
+    items: [{ title: 'Producto', quantity: 1, unitPriceUsd: 100 }],
+    pricing: { exchangeRate: 36.5, totalUsd: 100 },
+    paymentTerms: { type: '60_40', installments: [] }
+  });
+
+  const result = buildQuotationDocument({
+    document,
+    quotation: { id: 'q1', quotation_number: 'COT-1', created_at: '2026-08-01T00:00:00.000Z' },
+    project: { id: 'p1', project_number: 'PRJ-1', status: 'pending_activation', current_stage: 'quotation' }
+  });
+
+  assert.equal(result.publicDocument.validUntil, '2026-08-16T10:00:00.000Z');
+});
+
+test('03B no produce fechas invalidas cuando falta issuedAt', async () => {
+  const { createQuoteProject } = await import('../modules/quoteCore/quoteProjectContract.js');
+  const document = createQuoteProject({
+    quotation: {
+      platformId: 'ELANVISUAL',
+      issuedAt: 'fecha-invalida',
+      source: { type: 'manual' }
+    },
+    relations: { customerId: 'customer-1', executiveId: 'EXEC-ERICK-CANO-001' },
+    customerSnapshot: { name: 'Cliente demo' },
+    executiveSnapshot: { executiveId: 'EXEC-ERICK-CANO-001' },
+    items: [{ title: 'Producto', quantity: 1, unitPriceUsd: 100 }],
+    pricing: { exchangeRate: 36.5, totalUsd: 100 },
+    paymentTerms: { type: '60_40', installments: [] }
+  });
+
+  const result = buildQuotationDocument({
+    document,
+    quotation: { id: 'q1', quotation_number: 'COT-1' },
+    project: { id: 'p1', project_number: 'PRJ-1', status: 'pending_activation', current_stage: 'quotation' }
+  });
+
+  assert.equal(Number.isNaN(Date.parse(result.publicDocument.issuedAt)), false);
+  assert.equal(Number.isNaN(Date.parse(result.publicDocument.validUntil)), false);
+});
+
+test('03B publica una sola imagen principal y prioriza generated-render', async () => {
+  const { createQuoteProject } = await import('../modules/quoteCore/quoteProjectContract.js');
+  const document = createQuoteProject({
+    quotation: { platformId: 'ELANVISUAL', source: { type: 'manual' } },
+    relations: { customerId: 'customer-1', executiveId: 'EXEC-ERICK-CANO-001' },
+    customerSnapshot: { name: 'Cliente demo' },
+    executiveSnapshot: { executiveId: 'EXEC-ERICK-CANO-001' },
+    items: [{
+      title: 'Producto',
+      quantity: 1,
+      unitPriceUsd: 100,
+      images: [
+        { kind: 'place', signedUrl: 'https://cdn.example/place.jpg', mimeType: 'image/jpeg' },
+        { kind: 'reference', signedUrl: 'https://cdn.example/reference.jpg', mimeType: 'image/jpeg' },
+        { kind: 'product-photo', signedUrl: 'https://cdn.example/product.jpg', mimeType: 'image/jpeg' },
+        { kind: 'generated-render', signedUrl: 'https://cdn.example/render.png', mimeType: 'image/png' }
+      ]
+    }],
+    pricing: { exchangeRate: 36.5, totalUsd: 100 },
+    paymentTerms: { type: '60_40', installments: [] }
+  });
+
+  const result = buildQuotationDocument({
+    document,
+    quotation: { id: 'q1', quotation_number: 'COT-1' },
+    project: { id: 'p1', project_number: 'PRJ-1', status: 'pending_activation', current_stage: 'quotation' }
+  });
+
+  const [item] = result.publicDocument.items;
+  assert.equal(item.imageUrl, 'https://cdn.example/render.png');
+  assert.deepEqual(item.images, ['https://cdn.example/render.png']);
+  assert.equal(item.images.length, 1);
+  assert.equal(item.images[0], item.imageUrl);
+  assert.equal(JSON.stringify(result.publicDocument.items).includes('place.jpg'), false);
+  assert.equal(JSON.stringify(result.publicDocument.items).includes('reference.jpg'), false);
+});

@@ -75,6 +75,7 @@ function resolveQuotationTemplate(document) {
     },
     publicDocument: {
       ...document,
+      brandSnapshot: brand,
       executive: executiveSnapshot,
       internalData: undefined,
       paymentAccountsSnapshot: document.paymentAccountsSnapshot?.length

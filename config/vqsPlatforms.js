@@ -6,6 +6,8 @@ const platforms = {
     displayName: 'ELANVISUAL',
     website: 'https://visual.elankav.com',
     ecosystemUrl: 'https://www.elankav.com/',
+    logoForLightBackground: '/assets/branding/elanvisual.svg',
+    logoLightUrl: '/assets/branding/elanvisual.svg',
     taxId: '4012805831001E',
     whatsapp: '+505 7882 8089',
     email: '',

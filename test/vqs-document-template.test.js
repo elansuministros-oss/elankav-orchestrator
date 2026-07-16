@@ -68,6 +68,21 @@ test('resuelve branding y elimina información interna del documento público', 
 
   assert.equal(result.platformId, 'ELANVISUAL');
   assert.equal(result.brandSnapshot.website, 'https://visual.elankav.com');
+  assert.equal(result.publicDocument.brandSnapshot.website, 'https://visual.elankav.com');
+  assert.equal(result.publicDocument.brandSnapshot.logoForLightBackground, '/assets/branding/elanvisual.svg');
   assert.equal(result.publicDocument.internalData, undefined);
   assert.equal(result.publicDocument.paymentAccountsSnapshot.length, 4);
+});
+
+test('mantiene las cuatro cuentas oficiales de ELANVISUAL en el documento publico', () => {
+  const result = resolveQuotationTemplate(createDocument());
+  const accountIds = result.publicDocument.paymentAccountsSnapshot.map((account) => account.id);
+
+  assert.deepEqual(accountIds, [
+    'bac-nio-01',
+    'lafise-nio-01',
+    'lafise-usd-01',
+    'banpro-usd-01'
+  ]);
+  assert.equal(result.publicDocument.paymentAccountsSnapshot[0].bankName, 'BAC Credomatic');
 });
