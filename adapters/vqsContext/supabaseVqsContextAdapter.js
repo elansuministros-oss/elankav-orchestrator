@@ -7,7 +7,11 @@ const DEFAULT_TABLES = Object.freeze({
 });
 
 function normalizeText(value) {
-  return String(value ?? '').trim().toLowerCase();
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
 }
 
 function digits(value) {
@@ -174,6 +178,7 @@ class SupabaseVqsContextAdapter {
 
 module.exports = {
   SupabaseVqsContextAdapter,
+  normalizeText,
   normalizePhone,
   phoneMatches,
   DEFAULT_TABLES
