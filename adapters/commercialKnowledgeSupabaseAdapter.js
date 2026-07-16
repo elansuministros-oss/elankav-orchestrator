@@ -34,8 +34,7 @@ async function listActiveProducts({ platformId } = {}) {
   const { url, key } = getConfig();
   const query = new URLSearchParams({
     select: '*',
-    active: 'eq.true',
-    order: 'product_name.asc'
+    order: 'name.asc'
   });
 
   if (normalize(platformId)) {
@@ -56,7 +55,10 @@ async function listActiveProducts({ platformId } = {}) {
     throw error;
   }
 
-  return data;
+  return data.filter(row => {
+    const status = normalize(row?.status).toLowerCase();
+    return !status || !['archived', 'inactive', 'disabled'].includes(status);
+  });
 }
 
 module.exports = {
