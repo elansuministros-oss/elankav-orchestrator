@@ -123,10 +123,12 @@ function toQuoteProjectInput(contract) {
       source: { ...contract.source }
     },
     project: {
+      title: contract.project.title,
       status: 'pending_activation',
       currentStage: 'quotation',
       priority: contract.project.priority,
-      expectedDeliveryAt: contract.project.expectedDeliveryAt
+      expectedDeliveryAt: contract.project.expectedDeliveryAt,
+      images: [...contract.project.images]
     },
     relations: {
       customerId: contract.customer.customerId,
