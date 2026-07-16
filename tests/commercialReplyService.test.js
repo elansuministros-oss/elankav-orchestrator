@@ -208,7 +208,7 @@ test('SALES-MEASURE-01 responde directamente la medida preguntada por el cliente
   assert.equal(guarded.commercialSource, 'product-knowledge');
   assert.match(guarded.outputText, /60 × 60 cm/i);
   assert.match(guarded.outputText, /USD 260/i);
-  assert.match(guarded.outputText, /cada bloque adicional de 10 cm/i);
+  assert.doesNotMatch(guarded.outputText, /bloque|incremento|regla|precio base/i);
   assert.doesNotMatch(guarded.outputText, /qué medida aproximada necesitás/i);
 });
 
@@ -237,8 +237,10 @@ test('SALES-MEASURE-01 responde el cálculo de la medida solicitada', () => {
   assert.equal(guarded.model, 'elankav-commercial-knowledge');
   assert.match(guarded.outputText, /80 × 40 cm/i);
   assert.match(guarded.outputText, /USD 290/i);
-  assert.match(guarded.outputText, /dos|2 incremento/i);
-  assert.match(guarded.outputText, /no disminuyen el precio base/i);
+  assert.doesNotMatch(
+    guarded.outputText,
+    /incremento|bloque|precio base|no disminuyen|10 cm|15/i
+  );
   assert.doesNotMatch(guarded.outputText, /debe revisarse en el cotizador/i);
 });
 
