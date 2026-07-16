@@ -4,6 +4,8 @@ const {
   validateProjectIntake,
   toQuoteProjectInput
 } = require('../modules/vqs/projectIntakeContract');
+const { QuotationDocumentBuilder } = require('../services/vqs/quotationDocumentBuilder');
+const { ProjectDocumentOrchestrationService } = require('../services/vqs/projectDocumentOrchestrationService');
 
 const COLLECTION_ROUTE = '/api/vqs/projects';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -93,8 +95,13 @@ async function getDefaultServices() {
       import('../services/quoteCore/projectQueryService.js')
     ]).then(([adapterModule, commandModule, queryModule]) => {
       const adapter = new adapterModule.SupabaseQuoteProjectAdapter({ supabase: getSupabaseClient() });
+      const coreProjectService = new commandModule.QuoteProjectService({ adapter });
+      const projectService = new ProjectDocumentOrchestrationService({
+        projectService: coreProjectService,
+        documentBuilder: new QuotationDocumentBuilder()
+      });
       return {
-        projectService: new commandModule.QuoteProjectService({ adapter }),
+        projectService,
         projectQueryService: new queryModule.ProjectQueryService({ adapter })
       };
     });
@@ -155,7 +162,8 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
           project_id: result.project.id,
           project_number: result.project.project_number,
           status: result.project.status,
-          stage: result.project.current_stage
+          stage: result.project.current_stage,
+          document_ready: Boolean(result.quotationDocument)
         }
       });
       return true;
@@ -198,7 +206,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
   } catch (error) {
     if (error instanceof HttpBodyError) {
       sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
-    } else if (error?.code === 'QUOTE_VALIDATION_ERROR' || error?.code === 'PROJECT_UPDATE_VALIDATION_ERROR') {
+    } else if (error?.code === 'QUOTE_VALIDATION_ERROR' || error?.code === 'PROJECT_UPDATE_VALIDATION_ERROR' || error?.code === 'VQS_INVALID_DOCUMENT') {
       sendJson(res, 422, { success: false, error: 'Contrato inválido', code: error.code, details: error.details || [] });
     } else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
       sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });
