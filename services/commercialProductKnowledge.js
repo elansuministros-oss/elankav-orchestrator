@@ -3,8 +3,11 @@
 const {
   calculateCommercialPrice,
   findProduct,
-  getProducts
+  getProducts,
+  refreshCommercialKnowledge
 } = require('./commercialKnowledgeService');
+
+void refreshCommercialKnowledge({ platformId: 'ELANVISUAL' });
 
 function normalize(value) {
   return String(value || '')
