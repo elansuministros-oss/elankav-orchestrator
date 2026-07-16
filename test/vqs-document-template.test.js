@@ -13,6 +13,11 @@ function createDocument(overrides = {}) {
     platformId: 'ELANVISUAL',
     quotationNumber: 'COT-EV-2026-0001',
     customer: { name: 'Cliente demo' },
+    executive: {
+      executiveId: 'EXEC-ERICK-CANO-001',
+      name: 'Erick Cano',
+      role: 'Director Comercial'
+    },
     items: [
       {
         id: 'item-1',
