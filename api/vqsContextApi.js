@@ -13,7 +13,12 @@ function pathnameOf(url = '') {
 function actorFromRequest(req) {
   return {
     type: String(req?.headers?.['x-elankav-actor-type'] || 'user'),
-    role: String(req?.headers?.['x-elankav-role'] || ''),
+    actorId: String(req?.headers?.['x-elankav-actor-id'] || ''),
+    role: String(
+      req?.headers?.['x-elankav-actor-role'] ||
+      req?.headers?.['x-elankav-role'] ||
+      ''
+    ),
     platformId: String(req?.headers?.['x-elankav-platform'] || 'ELANVISUAL')
   };
 }
