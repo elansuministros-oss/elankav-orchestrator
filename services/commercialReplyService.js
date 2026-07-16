@@ -148,7 +148,7 @@ function buildVerifiedCommercialReply({
     standardCm &&
     requestedCm !== standardCm
   ) {
-    reply += `\n\nLa medida estándar publicada es de ${formatAmount(standardCm)} cm. Para ${formatAmount(requestedCm)} cm confirmamos el precio exacto antes de cerrar la cotización.`;
+    reply += `\n\nLa medida estándar publicada es de ${formatAmount(standardCm)} cm; la medida de ${formatAmount(requestedCm)} cm debe confirmarse antes de cerrar la cotización.`;
   }
 
   const valueStatement = buildValueStatement(commercial);
