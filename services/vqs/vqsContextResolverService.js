@@ -14,7 +14,7 @@ class VqsContextResolverService {
       throw error;
     }
 
-    const allowedTypes = ['customer', 'design', 'store'];
+    const allowedTypes = ['design', 'store'];
     const types = type === 'all' ? allowedTypes : [String(type || '').toLowerCase()];
     if (types.some((entry) => !allowedTypes.includes(entry))) {
       const error = new Error('Tipo de búsqueda no soportado');

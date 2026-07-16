@@ -1,5 +1,4 @@
 const DEFAULT_TABLES = Object.freeze({
-  customers: 'clientes',
   designs: 'design_requests',
   storeProducts: 'productos_registrados',
   projects: 'elankav_projects',
@@ -65,27 +64,6 @@ class SupabaseVqsContextAdapter {
     return Array.isArray(result?.data) ? result.data : [];
   }
 
-  async searchCustomers(query) {
-    const rows = await this.listRows(this.tables.customers);
-    return rows.filter((row) =>
-      phoneMatches(first(row, ['whatsapp', 'telefono', 'phone', 'celular']), query) ||
-      ['cliente', 'nombre', 'contacto', 'empresa', 'correo', 'email', 'ruc', 'codigo'].some((key) => textMatches(row?.[key], query))
-    ).map((row) => ({
-      type: 'customer',
-      sourceId: String(first(row, ['id', 'customer_id', 'codigo'])),
-      label: String(first(row, ['empresa', 'cliente', 'nombre', 'contacto'], 'Cliente')),
-      customer: {
-        customerId: String(first(row, ['id', 'customer_id', 'codigo'])),
-        name: String(first(row, ['nombre', 'cliente', 'contacto'])),
-        companyName: String(first(row, ['empresa', 'business_name'])),
-        phone: normalizePhone(first(row, ['whatsapp', 'telefono', 'phone', 'celular'])),
-        email: String(first(row, ['correo', 'email'])),
-        address: String(first(row, ['direccion', 'address', 'ciudad']))
-      },
-      source: { type: 'customer', sourceId: String(first(row, ['id', 'customer_id', 'codigo'])) },
-      raw: row
-    }));
-  }
 
   async searchDesigns(query) {
     const rows = await this.listRows(this.tables.designs);
@@ -166,9 +144,8 @@ class SupabaseVqsContextAdapter {
     });
   }
 
-  async search(query, { types = ['customer', 'design', 'store'], limit = 30 } = {}) {
+  async search(query, { types = ['design', 'store'], limit = 30 } = {}) {
     const tasks = [];
-    if (types.includes('customer')) tasks.push(this.searchCustomers(query));
     if (types.includes('design')) tasks.push(this.searchDesigns(query));
     if (types.includes('store')) tasks.push(this.searchStoreProducts(query));
     const groups = await Promise.all(tasks);
