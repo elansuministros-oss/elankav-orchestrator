@@ -19,6 +19,7 @@ const DESIGN_ACTION_PATTERNS = Object.freeze([
   /\b(quiero|necesito|quisiera|ocupo)\b.*\b(diseno|render|propuesta visual|fachada|rotulo|logo)\b/,
   /\b(mostra|mostrame|muestrame|visualiza|visualizame)\b.*\b(como quedaria|resultado|fachada|rotulo|espacio)\b/,
   /\b(me gustaria|quiero|quisiera|necesito)\b.*\b(algo asi|algo similar|parecido|una opcion similar|mas elegante)\b/,
+  /\b(asi me gustaria|me gustaria asi|quiero algo asi|lo quiero asi|igual a esta referencia)\b/,
   /\b(render|renderiza|renderizame)\b/,
   /\b(propuesta de diseno|propuesta visual)\b/
 ]);
@@ -33,6 +34,12 @@ const PROJECT_CONTEXT_PATTERN =
 
 const VISUAL_OFFER_PATTERN =
   /\b(propuesta visual|propuesta de diseno|render|diseno|como quedaria|imagen del proyecto|preparar la propuesta)\b/;
+
+const VISUAL_REFERENCE_HISTORY_PATTERN =
+  /\b(recibi|recibimos|imagen de referencia|referencia visual|foto de referencia|archivo de referencia|asi te gustaria|asi me gustaria)\b/;
+
+const VISUAL_REFERENCE_CONTINUATION_PATTERN =
+  /\b(asi me gustaria|me gustaria asi|igual|parecido|similar|un solo color|dos colores|dorad[oa]s?|dorado espejo|dorado mate|satinado|mate|acrilico|letras|con luz|sin luz)\b/;
 
 const LOGO_REQUEST_PATTERN =
   /(?:\b(tenes|tienes|envia|enviame|manda|mandame|comparti|compartime)\b.*\blogo\b|\blogo\b.*\b(enviar|mandar|compartir|imagen|archivo)\b)/;
@@ -131,6 +138,9 @@ function detectConversationDesignIntent({
   const hasAssets =
     (Array.isArray(references) && references.length > 0) ||
     (Array.isArray(brandAssets) && brandAssets.length > 0);
+  const hasRecentVisualReference = hasAssets || recentHistory.some(value =>
+    VISUAL_REFERENCE_HISTORY_PATTERN.test(value)
+  );
   const assetContinuation = logoRequested && hasAssets;
   const noLogoReply =
     logoRequested && NO_LOGO_REPLY_PATTERN.test(normalized);
@@ -145,13 +155,24 @@ function detectConversationDesignIntent({
     recentAssistantHistory.some(value =>
       VISUAL_OFFER_PATTERN.test(value)
     );
+  const visualReferenceContinuation =
+    !direct.commercialIntent &&
+    hasProjectContext &&
+    hasRecentVisualReference &&
+    VISUAL_REFERENCE_CONTINUATION_PATTERN.test(normalized);
+  const assetWithProjectContext =
+    !direct.commercialIntent &&
+    hasAssets &&
+    hasProjectContext;
   const detected =
     !direct.commercialIntent && (
       direct.detected ||
       contextualRequest ||
       affirmativeVisualRequest ||
       noLogoReply ||
-      assetContinuation
+      assetContinuation ||
+      visualReferenceContinuation ||
+      assetWithProjectContext
     );
 
   return Object.freeze({
@@ -165,6 +186,7 @@ function detectConversationDesignIntent({
     normalized,
     hasAssets,
     hasProjectContext,
+    hasRecentVisualReference,
     logoRequested,
     noLogoReply,
     commercialIntent: direct.commercialIntent,
@@ -180,14 +202,18 @@ function detectConversationDesignIntent({
               ? 'NO_LOGO_CONTINUATION'
               : assetContinuation
                 ? 'LOGO_ASSET_CONTINUATION'
-                : null
+                : visualReferenceContinuation
+                  ? 'VISUAL_REFERENCE_CONTINUATION'
+                  : assetWithProjectContext
+                    ? 'VISUAL_ASSET_WITH_PROJECT_CONTEXT'
+                    : null
   });
 }
 
 function shouldRequestLogo({ detection } = {}) {
   if (!detection?.detected) return false;
   if (detection.commercialIntent) return false;
-  if (detection.hasAssets) return false;
+  if (detection.hasAssets || detection.hasRecentVisualReference) return false;
   if (detection.logoRequested || detection.noLogoReply) return false;
   if (/\b(disena|crea|haz|haceme)\b.*\blogo\b/.test(detection.normalized)) {
     return false;
