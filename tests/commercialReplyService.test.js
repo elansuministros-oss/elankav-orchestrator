@@ -6,7 +6,8 @@ const test = require('node:test');
 const {
   applyVerifiedCommercialReply,
   buildVerifiedCommercialReply,
-  hasCommercialPriceIntent
+  hasCommercialPriceIntent,
+  resolveAdvertisedOffer
 } = require('../services/commercialReplyService');
 
 const BUTTON_OFFER = Object.freeze({
@@ -43,6 +44,17 @@ const BUTTON_OFFER = Object.freeze({
     qualificationQuestion: '¿Qué acabado te interesa para tu rótulo botón?'
   }
 });
+
+const AD_HISTORY = Object.freeze([
+  {
+    role: 'assistant',
+    content: [
+      'Gracias por escribir a ELAN VISUAL.',
+      'Vimos que te interesó nuestro rótulo acrílico estilo botón del anuncio.',
+      'Este modelo tiene un valor de USD 260.'
+    ].join('\n')
+  }
+]);
 
 test('SALES-UX-01 detecta una solicitud de cotización', () => {
   assert.equal(
@@ -120,4 +132,48 @@ test('SALES-UX-01 no repite una pregunta ya respondida', () => {
 
   assert.match(reply, /desde USD 360/);
   assert.doesNotMatch(reply, /¿Lo necesitás para interior o para exterior\?/);
+});
+
+test('SALES-AD-CONTEXT-01 reconoce el precio publicado en el anuncio', () => {
+  const offer = resolveAdvertisedOffer({
+    message: 'Vi el rótulo acrílico de USD 260 y quiero cotizar uno',
+    history: AD_HISTORY
+  });
+
+  assert.equal(offer.amount, 260);
+  assert.equal(offer.currency, 'USD');
+});
+
+test('SALES-AD-CONTEXT-01 prioriza el precio anunciado aunque la biblioteca no resuelva producto', () => {
+  const guarded = applyVerifiedCommercialReply({
+    message: 'Hola, vi el rótulo acrílico de USD 260 y quiero cotizar uno para mi negocio.',
+    history: AD_HISTORY,
+    commercial: { available: false },
+    response: {
+      outputText: 'El valor debe revisarse en el cotizador según las medidas.',
+      model: 'gpt-test'
+    }
+  });
+
+  assert.equal(guarded.model, 'elankav-commercial-ad-verified');
+  assert.equal(guarded.commercialSource, 'advertisement');
+  assert.match(guarded.outputText, /mantiene el precio publicado de USD 260/i);
+  assert.match(guarded.outputText, /igual al anuncio/i);
+  assert.equal((guarded.outputText.match(/\?/g) || []).length, 1);
+  assert.doesNotMatch(guarded.outputText, /debe revisarse en el cotizador/i);
+});
+
+test('SALES-AD-CONTEXT-01 no acepta un precio inventado por el cliente', () => {
+  const guarded = applyVerifiedCommercialReply({
+    message: 'Vi uno de USD 999 y quiero cotizarlo',
+    history: AD_HISTORY,
+    commercial: { available: false },
+    response: {
+      outputText: 'Necesito confirmar el producto.',
+      model: 'gpt-test'
+    }
+  });
+
+  assert.equal(guarded.model, 'gpt-test');
+  assert.equal(guarded.outputText, 'Necesito confirmar el producto.');
 });
