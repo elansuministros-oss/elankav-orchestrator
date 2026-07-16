@@ -35,6 +35,79 @@ function formatOffer(offer) {
   return `${label}: ${prefix}${offer?.currency || 'USD'} ${formatAmount(amount)}`;
 }
 
+function extractUsdAmounts(value) {
+  const text = String(value || '');
+  const matches = text.matchAll(/\bUSD\s*([0-9]+(?:[.,][0-9]{1,2})?)/gi);
+
+  return [...matches]
+    .map(match => Number(String(match[1]).replace(',', '.')))
+    .filter(Number.isFinite);
+}
+
+function isAdvertisedOfferMessage(value) {
+  const text = normalize(value);
+  if (!text || !extractUsdAmounts(value).length) return false;
+
+  return (
+    /anuncio|modelo|publicad|promocion/.test(text) &&
+    /rotulo|acrilico|boton|letra|fachada|producto/.test(text)
+  );
+}
+
+function buildHistoryEntries(history) {
+  return Array.isArray(history)
+    ? history
+        .slice(-12)
+        .map(item => ({
+          role: String(item?.role || '').toLowerCase(),
+          content: String(item?.content || '').trim()
+        }))
+        .filter(item => item.content)
+    : [];
+}
+
+function resolveAdvertisedOffer({ message, history } = {}) {
+  const entries = buildHistoryEntries(history);
+  const advertisedEntry = [...entries]
+    .reverse()
+    .find(item =>
+      ['assistant', 'system'].includes(item.role) &&
+      isAdvertisedOfferMessage(item.content)
+    );
+
+  if (!advertisedEntry) return null;
+
+  const advertisedAmounts = extractUsdAmounts(advertisedEntry.content);
+  if (!advertisedAmounts.length) return null;
+
+  const currentAndUserHistory = [
+    ...entries
+      .filter(item => item.role === 'user')
+      .map(item => item.content),
+    String(message || '')
+  ].join('\n');
+  const referencedAmounts = extractUsdAmounts(currentAndUserHistory);
+  const amount = advertisedAmounts.find(value => referencedAmounts.includes(value));
+
+  if (!Number.isFinite(amount)) return null;
+
+  return Object.freeze({
+    amount,
+    currency: 'USD',
+    sourceText: advertisedEntry.content
+  });
+}
+
+function buildAdvertisedOfferReply(offer) {
+  return [
+    `¡Claro! El modelo anunciado mantiene el precio publicado de USD ${formatAmount(offer.amount)} en la configuración mostrada en el anuncio.`,
+    '',
+    'Si lo querés igual al anuncio, cotizamos sobre ese valor. Cualquier cambio de medida, acabado, iluminación o instalación se confirma aparte.',
+    '',
+    '¿Lo querés igual al modelo anunciado o necesitás algún cambio?'
+  ].join('\n');
+}
+
 function extractCentimeterMeasurement(message) {
   const match = normalize(message).match(
     /\b(\d+(?:[.,]\d+)?)\s*(?:cm|centimetros?)\b/
@@ -177,10 +250,22 @@ function applyVerifiedCommercialReply({
   commercial,
   response
 } = {}) {
-  if (
-    !hasCommercialPriceIntent(message) ||
-    !commercial?.available
-  ) {
+  if (!hasCommercialPriceIntent(message)) {
+    return response;
+  }
+
+  const advertisedOffer = resolveAdvertisedOffer({ message, history });
+  if (advertisedOffer) {
+    return {
+      ...response,
+      outputText: buildAdvertisedOfferReply(advertisedOffer),
+      model: 'elankav-commercial-ad-verified',
+      commercialAction: true,
+      commercialSource: 'advertisement'
+    };
+  }
+
+  if (!commercial?.available) {
     return response;
   }
 
@@ -202,11 +287,14 @@ function applyVerifiedCommercialReply({
 
 module.exports = {
   applyVerifiedCommercialReply,
+  buildAdvertisedOfferReply,
   buildSalesOpening,
   buildValueStatement,
   buildVerifiedCommercialReply,
   extractCentimeterMeasurement,
+  extractUsdAmounts,
   formatOffer,
   hasCommercialPriceIntent,
-  qualificationWasAnswered
+  qualificationWasAnswered,
+  resolveAdvertisedOffer
 };
