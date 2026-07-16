@@ -3,12 +3,17 @@
 const { createJob, getJob } = require('./jobs/jobEngine');
 const { executeJob } = require('./jobs/jobExecutor');
 const { JOB_TYPES } = require('./jobs/jobTypes');
+const {
+  processQuoteRuntimeCommand,
+  resolveIntent: resolveQuoteRuntimeIntent
+} = require('./quoteCore/quoteCommandRuntimeService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
   CANCEL_FLOW: 'cancel_flow',
   CODE_JOB: 'code_job',
-  JOB_STATUS: 'job_status'
+  JOB_STATUS: 'job_status',
+  QUOTE_QUERY: 'quote_query'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -85,6 +90,16 @@ function detectOwnerCommand(message) {
       type: OWNER_COMMANDS.CODE_JOB,
       platform,
       task: String(message || '').trim()
+    });
+  }
+
+  if (
+    String(process.env.QUOTE_CORE_RUNTIME_ENABLED || '').toLowerCase() === 'true' &&
+    resolveQuoteRuntimeIntent(message)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.QUOTE_QUERY,
+      message: String(message || '').trim()
     });
   }
 
@@ -206,6 +221,30 @@ async function executeOwnerCommand({ command, platform }) {
       command: OWNER_COMMANDS.CODE_JOB,
       job,
       outputText: formatCodeJobAccepted(job)
+    };
+  }
+
+  if (command?.type === OWNER_COMMANDS.QUOTE_QUERY) {
+    const result = await processQuoteRuntimeCommand({
+      message: command.message,
+      actor: { role: 'owner' }
+    });
+
+    if (!result.handled) {
+      const error = new Error(result.reason || 'QUOTE_CORE_RUNTIME_UNAVAILABLE');
+      error.code = result.reason || 'QUOTE_CORE_RUNTIME_UNAVAILABLE';
+      throw error;
+    }
+
+    return {
+      command: OWNER_COMMANDS.QUOTE_QUERY,
+      job: null,
+      outputText: result.outputText,
+      quoteQuery: {
+        command: result.command,
+        scope: result.scope,
+        rows: result.rows
+      }
     };
   }
 
