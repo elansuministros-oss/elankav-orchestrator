@@ -54,6 +54,13 @@ test('detecta solicitud de una propuesta similar a una referencia', () => {
   assert.equal(result.intent, 'design');
 });
 
+test('detecta la frase así me gustaría usada con una referencia', () => {
+  const result = detectDesignIntent('Así me gustaría');
+
+  assert.equal(result.detected, true);
+  assert.equal(result.intent, 'design');
+});
+
 test('no activa diseño por pregunta educativa', () => {
   const result = detectDesignIntent(
     'Qué es diseño gráfico'
@@ -89,6 +96,35 @@ test('detecta podrías mandarme usando el proyecto conversado', () => {
 
   assert.equal(result.detected, true);
   assert.equal(result.reason, 'CONTEXTUAL_REQUEST');
+});
+
+test('una imagen de referencia con contexto de proyecto activa diseño', () => {
+  const result = detectConversationDesignIntent({
+    message: 'Así me gustaría',
+    references: [{ url: 'https://example.test/referencia.jpg' }],
+    history: [
+      { role: 'user', content: 'Quiero letras en acrílico de un metro para interior' }
+    ]
+  });
+
+  assert.equal(result.detected, true);
+  assert.equal(result.hasAssets, true);
+  assert.equal(shouldRequestLogo({ detection: result }), false);
+});
+
+test('un acabado después de recibir referencia visual continúa diseño', () => {
+  const result = detectConversationDesignIntent({
+    message: 'Un solo color, doradas',
+    history: [
+      { role: 'user', content: 'Quiero letras en acrílico de un metro para interior' },
+      { role: 'assistant', content: 'Recibí la imagen de referencia, gracias.' }
+    ]
+  });
+
+  assert.equal(result.detected, true);
+  assert.equal(result.reason, 'VISUAL_REFERENCE_CONTINUATION');
+  assert.equal(result.hasRecentVisualReference, true);
+  assert.equal(shouldRequestLogo({ detection: result }), false);
 });
 
 test('un sí aislado no activa diseño', () => {
