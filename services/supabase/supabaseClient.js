@@ -132,12 +132,82 @@ class PostgrestQuery {
   }
 }
 
+function parseJson(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); }
+  catch { return null; }
+}
+
+function normalizeStorageSignedUrl(baseUrl, value = '') {
+  const signedUrl = String(value || '').trim();
+  if (!signedUrl) return '';
+  try {
+    const url = new URL(signedUrl);
+    if (url.protocol === 'https:' || url.protocol === 'http:') return signedUrl;
+  } catch {
+    // Supabase Storage can return a path relative to /storage/v1.
+  }
+  return signedUrl.startsWith('/') ? `${baseUrl}/storage/v1${signedUrl}` : '';
+}
+
+class StorageBucketClient {
+  constructor(client, bucket) {
+    this.client = client;
+    this.bucket = String(bucket || '');
+  }
+
+  async createSignedUrl(path, expiresIn) {
+    const objectPath = String(path || '');
+    const encodedPath = objectPath.split('/').map(encodeURIComponent).join('/');
+    const response = await this.client.fetchImpl(
+      `${this.client.url}/storage/v1/object/sign/${encodeURIComponent(this.bucket)}/${encodedPath}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: this.client.serviceRoleKey,
+          Authorization: `Bearer ${this.client.serviceRoleKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ expiresIn: Number(expiresIn || 3600) })
+      }
+    );
+    const data = parseJson(await response.text());
+    const signedUrl = normalizeStorageSignedUrl(
+      this.client.url,
+      data?.signedUrl || data?.signedURL || data?.signed_url || ''
+    );
+
+    if (!response.ok || !signedUrl) {
+      return {
+        data: null,
+        error: {
+          code: String(data?.code || response.status || 'STORAGE_SIGN_FAILED'),
+          status: response.status
+        }
+      };
+    }
+
+    return { data: { signedUrl }, error: null };
+  }
+}
+
+class StorageClient {
+  constructor(client) {
+    this.client = client;
+  }
+
+  from(bucket) {
+    return new StorageBucketClient(this.client, bucket);
+  }
+}
+
 class SupabaseRestClient {
   constructor({ url, serviceRoleKey, fetchImpl = globalThis.fetch }) {
     if (typeof fetchImpl !== 'function') throw new Error('Este entorno requiere fetch nativo');
     this.url = url;
     this.serviceRoleKey = serviceRoleKey;
     this.fetchImpl = fetchImpl;
+    this.storage = new StorageClient(this);
   }
 
   from(table) {
