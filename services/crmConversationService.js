@@ -16,6 +16,35 @@ const STATE_FILE = process.env.CRM_COMMAND_STATE_FILE || '/opt/elankav/state/crm
 const normalize = value => String(value || '').trim();
 const normalizeCommand = value => normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+const CRM_STATE_TTL_MS = Number(process.env.CRM_COMMAND_STATE_TTL_MS || 30 * 60 * 1000);
+
+function isCrmStateExpired(state, now = Date.now()) {
+  const updatedAt = Date.parse(String(state?.updatedAt || ''));
+  if (!Number.isFinite(updatedAt)) return true;
+  return now - updatedAt > CRM_STATE_TTL_MS;
+}
+
+function isOwnerOperationalInterrupt(message) {
+  const value = normalizeCommand(message);
+
+  if (/\bno es (?:un )?proveedor\b/.test(value)) return true;
+
+  const action =
+    /\b(busca|buscar|buscame|encuentra|localiza|envia|enviale|manda|mandale|comparte|comparti|abre|inicia)\b/.test(value);
+
+  const target =
+    /\b(whatsapp|numero|telefono|contacto|link|enlace|formulario|diseno|captura|cliente)\b/.test(value);
+
+  return action && target;
+}
+
+function touchCrmState(state) {
+  return {
+    ...state,
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function readStates() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) || {}; }
   catch { return {}; }
@@ -523,6 +552,12 @@ async function processCrmConversation({ message, externalUserId, phone }) {
   const states = readStates();
   let state = states[key];
 
+  if (state && (isCrmStateExpired(state) || isOwnerOperationalInterrupt(message))) {
+    delete states[key];
+    writeStates(states);
+    state = null;
+  }
+
   if (state && isCancel(message)) {
     delete states[key];
     writeStates(states);
@@ -555,7 +590,7 @@ async function processCrmConversation({ message, externalUserId, phone }) {
       }
     }
 
-    state = await initializeState(start);
+    state = touchCrmState(await initializeState(start));
     states[key] = state;
     writeStates(states);
     return { handled: true, completed: false, outputText: initialPrompt(state) };
@@ -568,7 +603,7 @@ async function processCrmConversation({ message, externalUserId, phone }) {
   else result = await processEditContact(state, message);
 
   if (result.done) delete states[key];
-  else states[key] = state;
+  else states[key] = touchCrmState(state);
   writeStates(states);
   return { handled: true, completed: result.done, outputText: result.text };
 }
@@ -585,5 +620,8 @@ module.exports = {
   parseSupplierPayload,
   parseContactPayload,
   parseClientPayload,
+  isCrmStateExpired,
+  isOwnerOperationalInterrupt,
+  touchCrmState,
   processCrmConversation
 };
