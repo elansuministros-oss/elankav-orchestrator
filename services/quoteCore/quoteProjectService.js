@@ -1,4 +1,7 @@
-import { createQuoteProject, validateQuoteProject } from '../../modules/quoteCore/quoteProjectContract.js';
+import { createQuoteProject, validateQuoteProject, PROJECT_STATUSES } from '../../modules/quoteCore/quoteProjectContract.js';
+
+const PROJECT_STAGES = new Set(['quotation', 'design', 'work_order_ready', 'production', 'installation', 'delivery', 'completed']);
+const PROJECT_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 
 function mapQuotationRow(document) {
   return {
@@ -57,6 +60,47 @@ function mapProjectRow(document, quotationId) {
   };
 }
 
+function buildProjectPatch(input = {}, actor = {}) {
+  const patch = {};
+  const errors = [];
+
+  if (Object.hasOwn(input, 'title')) {
+    const title = String(input.title || '').trim();
+    if (!title) errors.push('title no puede estar vacío');
+    else patch.title = title;
+  }
+  if (Object.hasOwn(input, 'priority')) {
+    if (!PROJECT_PRIORITIES.has(input.priority)) errors.push('priority no es válido');
+    else patch.priority = input.priority;
+  }
+  if (Object.hasOwn(input, 'status')) {
+    if (!PROJECT_STATUSES.includes(input.status)) errors.push('status no es válido');
+    else patch.status = input.status;
+  }
+  if (Object.hasOwn(input, 'currentStage')) {
+    if (!PROJECT_STAGES.has(input.currentStage)) errors.push('currentStage no es válido');
+    else patch.current_stage = input.currentStage;
+  }
+  if (Object.hasOwn(input, 'expectedDeliveryAt')) {
+    if (input.expectedDeliveryAt === null || input.expectedDeliveryAt === '') {
+      patch.expected_delivery_at = null;
+    } else {
+      const date = new Date(input.expectedDeliveryAt);
+      if (Number.isNaN(date.getTime())) errors.push('expectedDeliveryAt no es válido');
+      else patch.expected_delivery_at = date.toISOString();
+    }
+  }
+  if (!Object.keys(patch).length && !errors.length) errors.push('No hay campos permitidos para actualizar');
+  if (errors.length) {
+    const error = new Error(`Actualización inválida: ${errors.join('; ')}`);
+    error.code = 'PROJECT_UPDATE_VALIDATION_ERROR';
+    error.details = errors;
+    throw error;
+  }
+  patch.updated_by = actor.userId || null;
+  return patch;
+}
+
 export class QuoteProjectService {
   constructor({ adapter, eventService } = {}) {
     if (!adapter) throw new Error('QuoteProjectService requiere adapter');
@@ -73,7 +117,6 @@ export class QuoteProjectService {
         updatedBy: actor.userId || input.audit?.updatedBy || ''
       }
     });
-
     const validation = validateQuoteProject(document);
     if (!validation.ok) {
       const error = new Error(`Cotización inválida: ${validation.errors.join('; ')}`);
@@ -81,10 +124,8 @@ export class QuoteProjectService {
       error.details = validation.errors;
       throw error;
     }
-
     const quotation = await this.adapter.createQuotation(mapQuotationRow(document));
     const project = await this.adapter.createProject(mapProjectRow(document, quotation.id));
-
     await this.adapter.upsertFollowUp({
       quotation_id: quotation.id,
       owner_executive_id: document.followUp.ownerExecutiveId || null,
@@ -96,21 +137,34 @@ export class QuoteProjectService {
       updated_by: actor.userId || null,
       updated_at: new Date().toISOString()
     });
-
     await this.recordEvent({
       quotationId: quotation.id,
       projectId: project.id,
       eventType: 'quotation.created',
       platformId: document.quotation.platformId,
       actor,
-      payload: {
-        source: document.quotation.source,
-        totalUsd: document.pricing.totalUsd,
-        payableTotalNio: document.pricing.payableTotalNio
-      }
+      payload: { source: document.quotation.source, totalUsd: document.pricing.totalUsd, payableTotalNio: document.pricing.payableTotalNio }
     });
-
     return { quotation, project, document };
+  }
+
+  async updateProject(projectId, input = {}, actor = {}) {
+    const current = await this.adapter.getProjectById(projectId);
+    if (!current) return null;
+    const patch = buildProjectPatch(input, actor);
+    const updated = await this.adapter.updateProject(projectId, patch);
+    const stageChanged = patch.current_stage && patch.current_stage !== current.current_stage;
+    if (stageChanged) {
+      await this.recordEvent({
+        quotationId: current.quotation_id,
+        projectId,
+        eventType: 'project.stage_changed',
+        platformId: current.platform_id || actor.platformId || null,
+        actor,
+        payload: { from: current.current_stage, to: patch.current_stage }
+      });
+    }
+    return updated;
   }
 
   async recordFollowUp({ quotationId, projectId = null, nextFollowUpAt = null, nextAction = '', notes = '', actor = {} }) {
@@ -125,16 +179,7 @@ export class QuoteProjectService {
       updated_by: actor.userId || null,
       updated_at: now
     });
-
-    await this.recordEvent({
-      quotationId,
-      projectId,
-      eventType: 'quotation.follow_up_recorded',
-      platformId: actor.platformId || null,
-      actor,
-      payload: { nextFollowUpAt, nextAction, notes }
-    });
-
+    await this.recordEvent({ quotationId, projectId, eventType: 'quotation.follow_up_recorded', platformId: actor.platformId || null, actor, payload: { nextFollowUpAt, nextAction, notes } });
     return followUp;
   }
 
@@ -146,34 +191,15 @@ export class QuoteProjectService {
       deposit_reference: paymentReference || null,
       updated_by: actor.userId || null
     });
-
     const project = await this.adapter.updateProject(projectId, {
       status: 'active',
       current_stage: 'work_order_ready',
       activated_at: now,
       updated_by: actor.userId || null
     });
-
     const platformId = quotation.platform_id || project.platform_id || actor.platformId || null;
-
-    await this.recordEvent({
-      quotationId,
-      projectId,
-      eventType: 'quotation.deposit_confirmed',
-      platformId,
-      actor,
-      payload: { paymentReference }
-    });
-
-    await this.recordEvent({
-      quotationId,
-      projectId,
-      eventType: 'project.activated',
-      platformId,
-      actor,
-      payload: { currentStage: 'work_order_ready' }
-    });
-
+    await this.recordEvent({ quotationId, projectId, eventType: 'quotation.deposit_confirmed', platformId, actor, payload: { paymentReference } });
+    await this.recordEvent({ quotationId, projectId, eventType: 'project.activated', platformId, actor, payload: { currentStage: 'work_order_ready' } });
     return { quotation, project };
   }
 
@@ -199,7 +225,6 @@ export class QuoteProjectService {
     if (this.eventService?.createEvent) {
       return this.eventService.createEvent({ quotationId, projectId, eventType, platformId, actor, payload });
     }
-
     return this.adapter.appendEvent({
       quotation_id: quotationId,
       project_id: projectId || null,
@@ -215,3 +240,4 @@ export class QuoteProjectService {
 }
 
 export const quoteProjectRowMappers = Object.freeze({ mapQuotationRow, mapProjectRow });
+export const quoteProjectUpdateHelpers = Object.freeze({ buildProjectPatch });
