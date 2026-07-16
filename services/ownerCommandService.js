@@ -7,13 +7,18 @@ const {
   processQuoteRuntimeCommand,
   resolveIntent: resolveQuoteRuntimeIntent
 } = require('./quoteCore/quoteCommandRuntimeService');
+const {
+  extractPhone,
+  sendDesignLink
+} = require('./ownerWahaSendService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
   CANCEL_FLOW: 'cancel_flow',
   CODE_JOB: 'code_job',
   JOB_STATUS: 'job_status',
-  QUOTE_QUERY: 'quote_query'
+  QUOTE_QUERY: 'quote_query',
+  SEND_DESIGN_LINK: 'send_design_link'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -28,6 +33,8 @@ const CODE_ACTION_PATTERN = /\b(audita|auditar|revisa|revisar|corrige|corregir|p
 const CANCEL_PATTERN = /^(cancelar|cancela|detener|deten|parar|para|olvida eso|olvidalo|deja eso|dejalo|cambiar de tema|cambiemos de tema|cancelar esta conversacion|da por cancelar esta conversacion|elimina esa orden|cancelar esta orden)$/;
 const JOB_ID_PATTERN = /\bJOB-(\d+)-([a-z0-9]+)\b/i;
 const JOB_STATUS_PATTERN = /\b(estado|estatus|avance|seguimiento|resultado|resultados|como va|que paso|error|errores|pull request|pr)\b/;
+const DESIGN_LINK_ACTION_PATTERN = /\b(envia|enviale|manda|mandale|comparte|compartile|pasale)\b/;
+const DESIGN_LINK_TARGET_PATTERN = /\b(link|enlace|formulario|sitio)\b.*\b(diseno|diseñar|diseño)\b|\b(diseno|diseñar|diseño)\b.*\b(link|enlace|formulario|sitio)\b/;
 
 function normalizeCommand(value) {
   return String(value || '')
@@ -62,12 +69,34 @@ function detectJobStatusCommand(message, normalizedMessage) {
   });
 }
 
+function detectSendDesignLinkCommand(message, normalizedMessage) {
+  if (
+    !DESIGN_LINK_ACTION_PATTERN.test(normalizedMessage) ||
+    !DESIGN_LINK_TARGET_PATTERN.test(normalizedMessage)
+  ) {
+    return null;
+  }
+
+  const phone = extractPhone(message);
+  if (!phone) return null;
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.SEND_DESIGN_LINK,
+    phone
+  });
+}
+
 function detectOwnerCommand(message) {
   const normalized = normalizeCommand(message);
   const jobStatusCommand = detectJobStatusCommand(message, normalized);
 
   if (jobStatusCommand) {
     return jobStatusCommand;
+  }
+
+  const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
+  if (sendDesignLinkCommand) {
+    return sendDesignLinkCommand;
   }
 
   if (
@@ -196,6 +225,17 @@ async function executeOwnerCommand({ command, platform }) {
     };
   }
 
+  if (command?.type === OWNER_COMMANDS.SEND_DESIGN_LINK) {
+    const sent = await sendDesignLink({ phone: command.phone });
+
+    return {
+      command: OWNER_COMMANDS.SEND_DESIGN_LINK,
+      job: null,
+      outputText: `Mensaje enviado correctamente a +${sent.phone}.\n\nEnlace: ${sent.link}`,
+      delivery: sent
+    };
+  }
+
   if (command?.type === OWNER_COMMANDS.JOB_STATUS) {
     const job = await getJob(command.jobId);
 
@@ -271,6 +311,7 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectSendDesignLinkCommand,
   executeOwnerCommand,
   formatContextSyncResult,
   formatCodeJobAccepted,
