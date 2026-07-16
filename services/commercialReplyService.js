@@ -125,11 +125,9 @@ function buildStandardMeasurementReply(product) {
   const { widthCm, heightCm } = product.standardDimensions;
 
   return [
-    `El ${product.productName.toLowerCase()} anunciado tiene una medida estándar de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm y un precio de USD ${formatAmount(product.advertisedPriceUsd)}.`,
+    `El modelo anunciado mide ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm y tiene un valor de USD ${formatAmount(product.advertisedPriceUsd)}.`,
     '',
-    `Por cada bloque adicional de ${formatAmount(product.pricingRule.stepCm)} cm se agregan USD ${formatAmount(product.pricingRule.incrementUsd)} al precio base.`,
-    '',
-    '¿Lo necesitás en la medida estándar o en otra medida?'
+    '¿Lo necesitás en esa medida o en otra?'
   ].join('\n');
 }
 
@@ -138,17 +136,9 @@ function buildRequestedMeasurementReply(product, dimensions) {
   if (!pricing) return null;
 
   const { widthCm, heightCm } = dimensions;
-  const { widthCm: baseWidth, heightCm: baseHeight } = product.standardDimensions;
-  const explanation = pricing.totalSteps
-    ? `Se aplican ${pricing.totalSteps} incremento${pricing.totalSteps === 1 ? '' : 's'} de ${formatAmount(product.pricingRule.stepCm)} cm sobre la medida estándar.`
-    : 'La medida solicitada se mantiene dentro del precio base estándar.';
 
   return [
-    `Para una medida de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm, el precio estimado es de USD ${formatAmount(pricing.amount)}.`,
-    '',
-    `La base comercial es ${formatAmount(baseWidth)} × ${formatAmount(baseHeight)} cm por USD ${formatAmount(product.advertisedPriceUsd)}. ${explanation}`,
-    '',
-    'Las reducciones en una dimensión no disminuyen el precio base de fabricación.',
+    `Para la medida de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm, el valor es de USD ${formatAmount(pricing.amount)}.`,
     '',
     '¿Sería para interior o exterior?'
   ].join('\n');
