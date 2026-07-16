@@ -15,10 +15,12 @@ class HttpBodyError extends Error {
   }
 }
 
-function pathnameOf(url = '') {
-  try { return new URL(url, 'http://localhost').pathname; }
-  catch { return url.split('?')[0]; }
+function parsedUrl(url = '') {
+  try { return new URL(url, 'http://localhost'); }
+  catch { return new URL('http://localhost'); }
 }
+
+function pathnameOf(url = '') { return parsedUrl(url).pathname; }
 
 function matchProjectRoute(pathname) {
   if (pathname === COLLECTION_ROUTE) return { type: 'collection' };
@@ -58,13 +60,8 @@ function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   });
 }
 
-function validateExternalContract(body) {
-  return validateProjectIntake(normalizeProjectIntake(body)).errors;
-}
-
-function mapExternalContract(body) {
-  return toQuoteProjectInput(normalizeProjectIntake(body));
-}
+function validateExternalContract(body) { return validateProjectIntake(normalizeProjectIntake(body)).errors; }
+function mapExternalContract(body) { return toQuoteProjectInput(normalizeProjectIntake(body)); }
 
 function resolveTemporaryActor(body = {}) {
   return {
@@ -73,6 +70,31 @@ function resolveTemporaryActor(body = {}) {
     role: '',
     executiveId: body.executive?.executiveId || body.executiveId || '',
     platformId: String(body.platform || '').trim().toUpperCase()
+  };
+}
+
+function publicQuotation(row = {}) {
+  return {
+    quotationId: row.id,
+    quotationNumber: row.quotation_number,
+    platformId: row.platform_id,
+    status: row.status,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    customerId: row.customer_id,
+    executiveId: row.executive_id,
+    customer: row.customer_snapshot || {},
+    executive: row.executive_snapshot || {},
+    items: Array.isArray(row.items) ? row.items : [],
+    pricing: row.pricing || {},
+    paymentTerms: row.payment_terms || {},
+    publicUrl: row.public_url || '',
+    issuedAt: row.issued_at,
+    validUntil: row.valid_until,
+    totalUsd: Number(row.total_usd || 0),
+    payableTotalNio: Number(row.payable_total_nio || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -90,7 +112,8 @@ async function getDefaultServices() {
           projectService: coreProjectService,
           documentBuilder: new QuotationDocumentBuilder()
         }),
-        projectQueryService: new queryModule.ProjectQueryService({ adapter })
+        projectQueryService: new queryModule.ProjectQueryService({ adapter }),
+        adapter
       };
     });
   }
@@ -107,8 +130,21 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
   if (!route) return false;
   try {
     if (route.type === 'collection') {
+      if (req.method === 'GET') {
+        const url = parsedUrl(req.url);
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 100), 1), 200);
+        const status = String(url.searchParams.get('status') || '').trim() || undefined;
+        const platformId = String(url.searchParams.get('platform') || '').trim().toUpperCase();
+        const services = await getDefaultServices();
+        const rows = await services.adapter.listQuotations({ status, limit });
+        const quotations = rows
+          .filter((row) => !platformId || String(row.platform_id || '').toUpperCase() === platformId)
+          .map(publicQuotation);
+        sendJson(res, 200, { success: true, data: quotations, count: quotations.length });
+        return true;
+      }
       if (req.method !== 'POST') {
-        res.setHeader?.('Allow', 'POST');
+        res.setHeader?.('Allow', 'GET, POST');
         sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
         return true;
       }
@@ -128,7 +164,8 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
           project_id: result.project.id,
           project_number: result.project.project_number,
           status: result.project.status,
-          stage: result.project.current_stage
+          stage: result.project.current_stage,
+          quotation_document: result.quotationDocument
         }
       });
       return true;
@@ -172,4 +209,4 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
   return true;
 }
 
-module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES };
+module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation };
