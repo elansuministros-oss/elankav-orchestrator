@@ -1,5 +1,12 @@
 'use strict';
 
+const {
+  calculateDimensionPrice,
+  extractDimensions,
+  isMeasurementQuestion,
+  resolveProductKnowledge
+} = require('./commercialProductKnowledge');
+
 function normalize(value) {
   return String(value || '')
     .normalize('NFD')
@@ -66,9 +73,8 @@ function buildHistoryEntries(history) {
     : [];
 }
 
-function resolveAdvertisedOffer({ message, history } = {}) {
-  const entries = buildHistoryEntries(history);
-  const advertisedEntry = [...entries]
+function resolveAdvertisedContext({ history } = {}) {
+  const advertisedEntry = [...buildHistoryEntries(history)]
     .reverse()
     .find(item =>
       ['assistant', 'system'].includes(item.role) &&
@@ -77,18 +83,7 @@ function resolveAdvertisedOffer({ message, history } = {}) {
 
   if (!advertisedEntry) return null;
 
-  const advertisedAmounts = extractUsdAmounts(advertisedEntry.content);
-  if (!advertisedAmounts.length) return null;
-
-  const currentAndUserHistory = [
-    ...entries
-      .filter(item => item.role === 'user')
-      .map(item => item.content),
-    String(message || '')
-  ].join('\n');
-  const referencedAmounts = extractUsdAmounts(currentAndUserHistory);
-  const amount = advertisedAmounts.find(value => referencedAmounts.includes(value));
-
+  const [amount] = extractUsdAmounts(advertisedEntry.content);
   if (!Number.isFinite(amount)) return null;
 
   return Object.freeze({
@@ -98,6 +93,24 @@ function resolveAdvertisedOffer({ message, history } = {}) {
   });
 }
 
+function resolveAdvertisedOffer({ message, history } = {}) {
+  const advertisedContext = resolveAdvertisedContext({ history });
+  if (!advertisedContext) return null;
+
+  const entries = buildHistoryEntries(history);
+  const currentAndUserHistory = [
+    ...entries
+      .filter(item => item.role === 'user')
+      .map(item => item.content),
+    String(message || '')
+  ].join('\n');
+  const referencedAmounts = extractUsdAmounts(currentAndUserHistory);
+
+  return referencedAmounts.includes(advertisedContext.amount)
+    ? advertisedContext
+    : null;
+}
+
 function buildAdvertisedOfferReply(offer) {
   return [
     `¡Claro! El modelo anunciado mantiene el precio publicado de USD ${formatAmount(offer.amount)} en la configuración mostrada en el anuncio.`,
@@ -105,6 +118,39 @@ function buildAdvertisedOfferReply(offer) {
     'Si lo querés igual al anuncio, cotizamos sobre ese valor. Cualquier cambio de medida, acabado, iluminación o instalación se confirma aparte.',
     '',
     '¿Lo querés igual al modelo anunciado o necesitás algún cambio?'
+  ].join('\n');
+}
+
+function buildStandardMeasurementReply(product) {
+  const { widthCm, heightCm } = product.standardDimensions;
+
+  return [
+    `El ${product.productName.toLowerCase()} anunciado tiene una medida estándar de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm y un precio de USD ${formatAmount(product.advertisedPriceUsd)}.`,
+    '',
+    `Por cada bloque adicional de ${formatAmount(product.pricingRule.stepCm)} cm se agregan USD ${formatAmount(product.pricingRule.incrementUsd)} al precio base.`,
+    '',
+    '¿Lo necesitás en la medida estándar o en otra medida?'
+  ].join('\n');
+}
+
+function buildRequestedMeasurementReply(product, dimensions) {
+  const pricing = calculateDimensionPrice(product, dimensions);
+  if (!pricing) return null;
+
+  const { widthCm, heightCm } = dimensions;
+  const { widthCm: baseWidth, heightCm: baseHeight } = product.standardDimensions;
+  const explanation = pricing.totalSteps
+    ? `Se aplican ${pricing.totalSteps} incremento${pricing.totalSteps === 1 ? '' : 's'} de ${formatAmount(product.pricingRule.stepCm)} cm sobre la medida estándar.`
+    : 'La medida solicitada se mantiene dentro del precio base estándar.';
+
+  return [
+    `Para una medida de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm, el precio estimado es de USD ${formatAmount(pricing.amount)}.`,
+    '',
+    `La base comercial es ${formatAmount(baseWidth)} × ${formatAmount(baseHeight)} cm por USD ${formatAmount(product.advertisedPriceUsd)}. ${explanation}`,
+    '',
+    'Las reducciones en una dimensión no disminuyen el precio base de fabricación.',
+    '',
+    '¿Sería para interior o exterior?'
   ].join('\n');
 }
 
@@ -250,6 +296,34 @@ function applyVerifiedCommercialReply({
   commercial,
   response
 } = {}) {
+  const advertisedContext = resolveAdvertisedContext({ history });
+  const productKnowledge = resolveProductKnowledge({
+    message,
+    history,
+    advertisedOffer: advertisedContext
+  });
+  const requestedDimensions = extractDimensions(message);
+
+  if (productKnowledge && isMeasurementQuestion(message)) {
+    return {
+      ...response,
+      outputText: buildStandardMeasurementReply(productKnowledge),
+      model: 'elankav-commercial-knowledge',
+      commercialAction: true,
+      commercialSource: 'product-knowledge'
+    };
+  }
+
+  if (productKnowledge && requestedDimensions) {
+    return {
+      ...response,
+      outputText: buildRequestedMeasurementReply(productKnowledge, requestedDimensions),
+      model: 'elankav-commercial-knowledge',
+      commercialAction: true,
+      commercialSource: 'product-knowledge'
+    };
+  }
+
   if (!hasCommercialPriceIntent(message)) {
     return response;
   }
@@ -288,7 +362,9 @@ function applyVerifiedCommercialReply({
 module.exports = {
   applyVerifiedCommercialReply,
   buildAdvertisedOfferReply,
+  buildRequestedMeasurementReply,
   buildSalesOpening,
+  buildStandardMeasurementReply,
   buildValueStatement,
   buildVerifiedCommercialReply,
   extractCentimeterMeasurement,
@@ -296,5 +372,6 @@ module.exports = {
   formatOffer,
   hasCommercialPriceIntent,
   qualificationWasAnswered,
+  resolveAdvertisedContext,
   resolveAdvertisedOffer
 };
