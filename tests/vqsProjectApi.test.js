@@ -37,6 +37,21 @@ function validBody() {
   };
 }
 
+function publicProject() {
+  return {
+    projectId: 'project-id',
+    projectNumber: 'PRJ-000001',
+    quotationId: 'quotation-id',
+    platformId: 'ELANVISUAL',
+    customerId: 'customer-1',
+    executiveId: 'exec-1',
+    title: 'Rótulo',
+    status: 'pending_activation',
+    currentStage: 'quotation',
+    priority: 'normal'
+  };
+}
+
 test('VQS ignora rutas diferentes', async () => {
   const response = makeResponse();
   const handled = await handleVqsProjectApi({ req: makeReq({ url: '/api/other', body: '{}' }), res: response.res, sendJson: response.sendJson });
@@ -98,4 +113,96 @@ test('VQS crea proyecto, responde 201 y no expone internalData', async () => {
   });
   assert.equal(receivedInput.items[0].internalData.cost, 40);
   assert.equal(JSON.stringify(response.state.payload).includes('internalData'), false);
+});
+
+test('VQS consulta un proyecto por id sin datos internos', async () => {
+  const response = makeResponse();
+  const projectQueryService = { async getProjectById(id) { assert.equal(id, 'project-id'); return publicProject(); } };
+  await handleVqsProjectApi({
+    req: makeReq({ url: '/api/vqs/projects/project-id', method: 'GET' }),
+    res: response.res,
+    sendJson: response.sendJson,
+    projectQueryService
+  });
+  assert.equal(response.state.statusCode, 200);
+  assert.equal(response.state.payload.data.projectId, 'project-id');
+  assert.equal(JSON.stringify(response.state.payload).includes('internalData'), false);
+});
+
+test('VQS devuelve 404 para proyecto inexistente', async () => {
+  const response = makeResponse();
+  const projectQueryService = { async getProjectById() { return null; } };
+  await handleVqsProjectApi({
+    req: makeReq({ url: '/api/vqs/projects/missing', method: 'GET' }),
+    res: response.res,
+    sendJson: response.sendJson,
+    projectQueryService
+  });
+  assert.equal(response.state.statusCode, 404);
+  assert.equal(response.state.payload.code, 'PROJECT_NOT_FOUND');
+});
+
+test('VQS consulta únicamente el estado del proyecto', async () => {
+  const response = makeResponse();
+  const projectQueryService = {
+    async getProjectStatus(id) {
+      assert.equal(id, 'project-id');
+      return { projectId: id, projectNumber: 'PRJ-000001', status: 'production', stage: 'production' };
+    }
+  };
+  await handleVqsProjectApi({
+    req: makeReq({ url: '/api/vqs/projects/project-id/status', method: 'GET' }),
+    res: response.res,
+    sendJson: response.sendJson,
+    projectQueryService
+  });
+  assert.equal(response.state.statusCode, 200);
+  assert.deepEqual(response.state.payload.data, {
+    projectId: 'project-id',
+    projectNumber: 'PRJ-000001',
+    status: 'production',
+    stage: 'production'
+  });
+});
+
+test('VQS actualiza un proyecto mediante PATCH y responde vista pública', async () => {
+  const response = makeResponse();
+  let patchReceived;
+  const projectService = {
+    async updateProject(id, patch) {
+      assert.equal(id, 'project-id');
+      patchReceived = patch;
+      return { id };
+    }
+  };
+  const projectQueryService = {
+    async getProjectById() {
+      return { ...publicProject(), title: 'Rótulo actualizado', priority: 'high' };
+    }
+  };
+  await handleVqsProjectApi({
+    req: makeReq({
+      url: '/api/vqs/projects/project-id',
+      method: 'PATCH',
+      body: JSON.stringify({ title: 'Rótulo actualizado', priority: 'high' })
+    }),
+    res: response.res,
+    sendJson: response.sendJson,
+    projectService,
+    projectQueryService
+  });
+  assert.equal(response.state.statusCode, 200);
+  assert.equal(patchReceived.title, 'Rótulo actualizado');
+  assert.equal(response.state.payload.data.priority, 'high');
+});
+
+test('VQS rechaza métodos no permitidos en detalle', async () => {
+  const response = makeResponse();
+  await handleVqsProjectApi({
+    req: makeReq({ url: '/api/vqs/projects/project-id', method: 'DELETE' }),
+    res: response.res,
+    sendJson: response.sendJson
+  });
+  assert.equal(response.state.statusCode, 405);
+  assert.equal(response.state.headers.Allow, 'GET, PATCH');
 });
