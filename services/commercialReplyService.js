@@ -42,6 +42,32 @@ function formatOffer(offer) {
   return `${label}: ${prefix}${offer?.currency || 'USD'} ${formatAmount(amount)}`;
 }
 
+function normalizePriceOffers(commercial = {}) {
+  if (Array.isArray(commercial.priceOffers)) {
+    return commercial.priceOffers
+      .filter(offer => Number.isFinite(Number(offer?.amount)))
+      .map(offer => ({
+        ...offer,
+        currency: offer?.currency || commercial.currency || 'USD'
+      }))
+      .sort((left, right) => Number(left.amount) - Number(right.amount));
+  }
+
+  const legacyPrices = commercial.prices;
+  if (!legacyPrices || typeof legacyPrices !== 'object' || Array.isArray(legacyPrices)) {
+    return [];
+  }
+
+  return Object.entries(legacyPrices)
+    .map(([key, amount]) => ({
+      label: key.charAt(0).toUpperCase() + key.slice(1),
+      amount: Number(amount),
+      currency: commercial.currency || 'USD'
+    }))
+    .filter(offer => Number.isFinite(offer.amount))
+    .sort((left, right) => left.amount - right.amount);
+}
+
 function extractUsdAmounts(value) {
   const text = String(value || '');
   const matches = text.matchAll(/\bUSD\s*([0-9]+(?:[.,][0-9]{1,2})?)/gi);
@@ -221,11 +247,7 @@ function buildVerifiedCommercialReply({
 } = {}) {
   if (!commercial?.available) return null;
 
-  const priceOffers = Array.isArray(commercial.priceOffers)
-    ? commercial.priceOffers
-        .filter(offer => Number.isFinite(Number(offer?.amount)))
-        .sort((left, right) => Number(left.amount) - Number(right.amount))
-    : [];
+  const priceOffers = normalizePriceOffers(commercial);
 
   if (!priceOffers.length) return null;
 
@@ -361,6 +383,7 @@ module.exports = {
   extractUsdAmounts,
   formatOffer,
   hasCommercialPriceIntent,
+  normalizePriceOffers,
   qualificationWasAnswered,
   resolveAdvertisedContext,
   resolveAdvertisedOffer
