@@ -79,6 +79,7 @@ test('VQS rechaza contrato incompleto', async () => {
   await handleVqsProjectApi({ req: makeReq({ body: '{}' }), res: response.res, sendJson: response.sendJson });
   assert.equal(response.state.statusCode, 422);
   assert.equal(response.state.payload.code, 'VQS_CONTRACT_INVALID');
+  assert.equal(response.state.payload.contract_version, '1.0.0');
 });
 
 test('VQS crea proyecto, responde 201 y no expone internalData', async () => {
@@ -102,6 +103,7 @@ test('VQS crea proyecto, responde 201 y no expone internalData', async () => {
   assert.equal(response.state.statusCode, 201);
   assert.deepEqual(response.state.payload, {
     success: true,
+    contract_version: '1.0.0',
     data: {
       quotation_id: 'quotation-id',
       quotation_number: 'VQS-000001',
