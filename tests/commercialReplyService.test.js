@@ -9,6 +9,11 @@ const {
   hasCommercialPriceIntent,
   resolveAdvertisedOffer
 } = require('../services/commercialReplyService');
+const {
+  PRODUCT_KNOWLEDGE,
+  calculateDimensionPrice,
+  extractDimensions
+} = require('../services/commercialProductKnowledge');
 
 const BUTTON_OFFER = Object.freeze({
   available: true,
@@ -176,4 +181,76 @@ test('SALES-AD-CONTEXT-01 no acepta un precio inventado por el cliente', () => {
 
   assert.equal(guarded.model, 'gpt-test');
   assert.equal(guarded.outputText, 'Necesito confirmar el producto.');
+});
+
+test('SALES-MEASURE-01 registra la regla oficial del jala vista', () => {
+  const [product] = PRODUCT_KNOWLEDGE;
+
+  assert.equal(product.productId, 'jalavista-acrilico-doble-cara');
+  assert.deepEqual(product.standardDimensions, { widthCm: 60, heightCm: 60 });
+  assert.equal(product.advertisedPriceUsd, 260);
+  assert.equal(product.pricingRule.stepCm, 10);
+  assert.equal(product.pricingRule.incrementUsd, 15);
+});
+
+test('SALES-MEASURE-01 responde directamente la medida preguntada por el cliente', () => {
+  const guarded = applyVerifiedCommercialReply({
+    message: 'Buenas, ¿qué medida tiene?',
+    history: AD_HISTORY,
+    commercial: { available: false },
+    response: {
+      outputText: '¿Qué medida aproximada necesitás?',
+      model: 'gpt-test'
+    }
+  });
+
+  assert.equal(guarded.model, 'elankav-commercial-knowledge');
+  assert.equal(guarded.commercialSource, 'product-knowledge');
+  assert.match(guarded.outputText, /60 × 60 cm/i);
+  assert.match(guarded.outputText, /USD 260/i);
+  assert.match(guarded.outputText, /cada bloque adicional de 10 cm/i);
+  assert.doesNotMatch(guarded.outputText, /qué medida aproximada necesitás/i);
+});
+
+test('SALES-MEASURE-01 calcula 80 × 40 cm sin descontar la dimensión menor', () => {
+  const product = PRODUCT_KNOWLEDGE[0];
+  const dimensions = extractDimensions('Unos 80 x 40 cm');
+  const pricing = calculateDimensionPrice(product, dimensions);
+
+  assert.deepEqual(dimensions, { widthCm: 80, heightCm: 40 });
+  assert.equal(pricing.widthSteps, 2);
+  assert.equal(pricing.heightSteps, 0);
+  assert.equal(pricing.amount, 290);
+});
+
+test('SALES-MEASURE-01 responde el cálculo de la medida solicitada', () => {
+  const guarded = applyVerifiedCommercialReply({
+    message: 'Unos 80x40',
+    history: AD_HISTORY,
+    commercial: { available: false },
+    response: {
+      outputText: 'El precio exacto debe revisarse en el cotizador.',
+      model: 'gpt-test'
+    }
+  });
+
+  assert.equal(guarded.model, 'elankav-commercial-knowledge');
+  assert.match(guarded.outputText, /80 × 40 cm/i);
+  assert.match(guarded.outputText, /USD 290/i);
+  assert.match(guarded.outputText, /dos|2 incremento/i);
+  assert.match(guarded.outputText, /no disminuyen el precio base/i);
+  assert.doesNotMatch(guarded.outputText, /debe revisarse en el cotizador/i);
+});
+
+test('SALES-MEASURE-01 suma incrementos cuando ambas dimensiones superan 60 cm', () => {
+  const product = PRODUCT_KNOWLEDGE[0];
+  const pricing = calculateDimensionPrice(product, {
+    widthCm: 80,
+    heightCm: 70
+  });
+
+  assert.equal(pricing.widthSteps, 2);
+  assert.equal(pricing.heightSteps, 1);
+  assert.equal(pricing.totalSteps, 3);
+  assert.equal(pricing.amount, 305);
 });
