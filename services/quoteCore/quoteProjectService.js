@@ -8,9 +8,10 @@ function mapQuotationRow(document) {
     status: document.quotation.status,
     source_type: document.quotation.source.type,
     source_id: document.quotation.source.sourceId || null,
+    design_mode: document.quotation.source.designMode,
     customer_id: document.relations.customerId,
     executive_id: document.relations.executiveId,
-    public_token: document.quotation.publicToken || null,
+    public_token: document.quotation.publicToken || undefined,
     public_url: document.quotation.publicUrl || null,
     issued_at: document.quotation.issuedAt,
     valid_until: document.quotation.validUntil || null,
@@ -21,12 +22,19 @@ function mapQuotationRow(document) {
     payment_terms: document.paymentTerms,
     relations: document.relations,
     contract_version: document.contractVersion,
+    subtotal_usd: document.pricing.subtotalUsd,
+    discount_usd: document.pricing.discountUsd,
+    tax_usd: document.pricing.taxUsd,
+    total_usd: document.pricing.totalUsd,
+    exchange_rate: document.pricing.exchangeRate,
+    payable_total_nio: document.pricing.payableTotalNio,
     created_by: document.audit.createdBy || null,
     updated_by: document.audit.updatedBy || document.audit.createdBy || null
   };
 }
 
 function mapProjectRow(document, quotationId) {
+  const firstItem = document.items?.[0];
   return {
     id: document.project.projectId || undefined,
     project_number: document.project.projectNumber || null,
@@ -34,6 +42,8 @@ function mapProjectRow(document, quotationId) {
     platform_id: document.quotation.platformId,
     customer_id: document.relations.customerId,
     executive_id: document.relations.executiveId,
+    title: firstItem?.title || 'Proyecto',
+    customer_snapshot: document.customerSnapshot,
     status: document.project.status,
     current_stage: document.project.currentStage,
     priority: document.project.priority,
@@ -42,6 +52,7 @@ function mapProjectRow(document, quotationId) {
     completed_at: document.project.completedAt || null,
     source: document.quotation.source,
     relations: document.relations,
+    created_by: document.audit.createdBy || null,
     updated_by: document.audit.updatedBy || document.audit.createdBy || null
   };
 }
@@ -76,18 +87,21 @@ export class QuoteProjectService {
 
     await this.adapter.upsertFollowUp({
       quotation_id: quotation.id,
-      owner_executive_id: document.followUp.ownerExecutiveId,
+      owner_executive_id: document.followUp.ownerExecutiveId || null,
       last_follow_up_at: document.followUp.lastFollowUpAt || null,
       next_follow_up_at: document.followUp.nextFollowUpAt || null,
       next_action: document.followUp.nextAction || null,
       notes: document.followUp.notes || null,
-      updated_by: actor.userId || null
+      created_by: actor.userId || null,
+      updated_by: actor.userId || null,
+      updated_at: new Date().toISOString()
     });
 
     await this.recordEvent({
       quotationId: quotation.id,
       projectId: project.id,
       eventType: 'quotation.created',
+      platformId: document.quotation.platformId,
       actor,
       payload: {
         source: document.quotation.source,
@@ -100,20 +114,23 @@ export class QuoteProjectService {
   }
 
   async recordFollowUp({ quotationId, projectId = null, nextFollowUpAt = null, nextAction = '', notes = '', actor = {} }) {
+    const now = new Date().toISOString();
     const followUp = await this.adapter.upsertFollowUp({
       quotation_id: quotationId,
       owner_executive_id: actor.executiveId || null,
-      last_follow_up_at: new Date().toISOString(),
+      last_follow_up_at: now,
       next_follow_up_at: nextFollowUpAt,
       next_action: nextAction || null,
       notes: notes || null,
-      updated_by: actor.userId || null
+      updated_by: actor.userId || null,
+      updated_at: now
     });
 
     await this.recordEvent({
       quotationId,
       projectId,
       eventType: 'quotation.follow_up_recorded',
+      platformId: actor.platformId || null,
       actor,
       payload: { nextFollowUpAt, nextAction, notes }
     });
@@ -122,9 +139,10 @@ export class QuoteProjectService {
   }
 
   async confirmDeposit({ quotationId, projectId, actor = {}, paymentReference = '' }) {
+    const now = new Date().toISOString();
     const quotation = await this.adapter.updateQuotation(quotationId, {
       status: 'deposit_confirmed',
-      deposit_confirmed_at: new Date().toISOString(),
+      deposit_confirmed_at: now,
       deposit_reference: paymentReference || null,
       updated_by: actor.userId || null
     });
@@ -132,14 +150,17 @@ export class QuoteProjectService {
     const project = await this.adapter.updateProject(projectId, {
       status: 'active',
       current_stage: 'work_order_ready',
-      activated_at: new Date().toISOString(),
+      activated_at: now,
       updated_by: actor.userId || null
     });
+
+    const platformId = quotation.platform_id || project.platform_id || actor.platformId || null;
 
     await this.recordEvent({
       quotationId,
       projectId,
       eventType: 'quotation.deposit_confirmed',
+      platformId,
       actor,
       payload: { paymentReference }
     });
@@ -148,6 +169,7 @@ export class QuoteProjectService {
       quotationId,
       projectId,
       eventType: 'project.activated',
+      platformId,
       actor,
       payload: { currentStage: 'work_order_ready' }
     });
@@ -173,18 +195,20 @@ export class QuoteProjectService {
     return this.adapter.listProjects(scopedFilters);
   }
 
-  async recordEvent({ quotationId, projectId, eventType, actor = {}, payload = {} }) {
+  async recordEvent({ quotationId, projectId, eventType, platformId = null, actor = {}, payload = {} }) {
     if (this.eventService?.createEvent) {
-      return this.eventService.createEvent({ quotationId, projectId, eventType, actor, payload });
+      return this.eventService.createEvent({ quotationId, projectId, eventType, platformId, actor, payload });
     }
 
     return this.adapter.appendEvent({
       quotation_id: quotationId,
       project_id: projectId || null,
       event_type: eventType,
+      actor_type: actor.type || 'user',
       actor_user_id: actor.userId || null,
       actor_role: actor.role || null,
       actor_executive_id: actor.executiveId || null,
+      platform_id: platformId,
       payload
     });
   }
