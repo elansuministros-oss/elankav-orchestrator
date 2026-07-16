@@ -5,11 +5,94 @@ const { getConfig } = require('./jobSupabaseAdapter');
 const TABLE_NAME = 'design_requests';
 const BUCKET_NAME = 'design-request-assets';
 const MAX_ASSET_BYTES = 12 * 1024 * 1024;
+const SIGNED_URL_TTL_SECONDS = 60 * 30;
+const SUPPORTED_DELIVERY_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp'
+]);
+
+const URL_FIELDS = Object.freeze([
+  'signedUrl',
+  'signedURL',
+  'publicUrl',
+  'url',
+  'downloadUrl',
+  'imageUrl',
+  'src'
+]);
 
 function createHeaders(key, legacyJwt, extra = {}) {
   const headers = { apikey: key, ...extra };
   if (legacyJwt) headers.Authorization = `Bearer ${key}`;
   return headers;
+}
+
+function isHttpUrl(value = '') {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+function getExistingAssetUrl(asset = {}) {
+  for (const field of URL_FIELDS) {
+    const value = asset[field];
+    if (typeof value === 'string' && isHttpUrl(value)) return value.trim();
+  }
+  return '';
+}
+
+function normalizeMimeType(value = '') {
+  return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function assertResolvableImageAsset(asset = {}) {
+  const mimeType = normalizeMimeType(asset.mimeType);
+  if (!SUPPORTED_DELIVERY_MIME_TYPES.has(mimeType)) {
+    const error = new Error('DESIGN_ASSET_UNSUPPORTED_MIME_TYPE');
+    error.code = 'DESIGN_ASSET_UNSUPPORTED_MIME_TYPE';
+    throw error;
+  }
+
+  const bucket = String(asset.bucket || '').trim();
+  const path = String(asset.path || '').trim();
+  const directUrl = getExistingAssetUrl(asset);
+
+  if (!directUrl && (!bucket || !path)) {
+    const error = new Error('DESIGN_ASSET_STORAGE_REFERENCE_REQUIRED');
+    error.code = 'DESIGN_ASSET_STORAGE_REFERENCE_REQUIRED';
+    throw error;
+  }
+
+  return { bucket, path, mimeType, directUrl };
+}
+
+function normalizeSignedUrl(storageBaseUrl, value = '') {
+  const signedUrl = String(value || '').trim();
+  if (!signedUrl) return '';
+  if (isHttpUrl(signedUrl)) return signedUrl;
+  if (signedUrl.startsWith('/')) return `${storageBaseUrl}${signedUrl}`;
+  return '';
+}
+
+function buildDesignResultWithDelivery(delivery = {}, status, now) {
+  if (!delivery.designResult || typeof delivery.designResult !== 'object') return undefined;
+  return {
+    ...delivery.designResult,
+    delivery: {
+      status,
+      chatId: delivery.chatId || '',
+      imageMessageId: delivery.imageMessageId || '',
+      textMessageId: delivery.textMessageId || '',
+      assetPath: delivery.assetPath || '',
+      errorCode: delivery.errorCode || '',
+      updatedAt: now,
+      ...(status === 'sent' ? { sentAt: now } : { failedAt: now })
+    }
+  };
 }
 
 function createDesignPortalSupabaseAdapter({
@@ -184,6 +267,38 @@ function createDesignPortalSupabaseAdapter({
     });
   }
 
+  async function resolveDesignAsset(asset, { expiresIn = SIGNED_URL_TTL_SECONDS } = {}) {
+    const { bucket, path, mimeType, directUrl } = assertResolvableImageAsset(asset);
+    if (directUrl) return Object.freeze({ ...asset, mimeType, signedUrl: directUrl });
+
+    const { url, key, legacyJwt } = getConfig(env);
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const response = await fetchImpl(
+      `${url}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodedPath}`,
+      {
+        method: 'POST',
+        headers: createHeaders(key, legacyJwt, {
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({ expiresIn: Number(expiresIn || SIGNED_URL_TTL_SECONDS) })
+      }
+    );
+    const data = await response.json().catch(() => null);
+    const signedUrl = normalizeSignedUrl(
+      `${url}/storage/v1`,
+      data?.signedUrl || data?.signedURL || data?.signed_url || ''
+    );
+
+    if (!response.ok || !signedUrl) {
+      const error = new Error('DESIGN_ASSET_SIGNED_URL_FAILED');
+      error.code = 'DESIGN_ASSET_SIGNED_URL_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+
+    return Object.freeze({ ...asset, mimeType, signedUrl });
+  }
+
   async function completeRequest(id, { resultFiles, designResult }, now = new Date().toISOString()) {
     const rows = await request({
       method: 'PATCH',
@@ -202,33 +317,56 @@ function createDesignPortalSupabaseAdapter({
     return rows[0] || null;
   }
 
-  async function markDeliverySuccess(id, now = new Date().toISOString()) {
+  async function markDeliverySuccess(id, delivery = {}, now = new Date().toISOString()) {
+    const designResult = buildDesignResultWithDelivery(delivery, 'sent', now);
+    const body = {
+      delivery_status: 'delivered',
+      delivery_attempts: Number(delivery.attempts || 1),
+      delivery_last_attempt_at: now,
+      delivery_error_code: null,
+      delivered_at: now,
+      updated_at: now
+    };
+    if (designResult) body.design_result = designResult;
+
     const rows = await request({
       method: 'PATCH',
       query: `id=eq.${encodeURIComponent(id)}&status=eq.review&delivery_status=neq.delivered`,
-      body: {
-        delivery_status: 'delivered',
-        delivery_attempts: 1,
-        delivery_last_attempt_at: now,
-        delivery_error_code: null,
-        delivered_at: now,
-        updated_at: now
-      }
+      body
     });
     return rows[0] || null;
   }
 
-  async function markDeliveryFailure(id, errorCode, attempts = 1, now = new Date().toISOString()) {
+  async function markDeliveryFailure(
+    id,
+    errorCode,
+    attempts = 1,
+    delivery = {},
+    now = new Date().toISOString()
+  ) {
+    if (typeof delivery === 'string') {
+      now = delivery;
+      delivery = {};
+    }
+    const sanitizedErrorCode = String(errorCode || 'DESIGN_DELIVERY_FAILED').slice(0, 120);
+    const designResult = buildDesignResultWithDelivery(
+      { ...delivery, errorCode: sanitizedErrorCode },
+      delivery.imageMessageId ? 'image_sent' : 'failed',
+      now
+    );
+    const body = {
+      delivery_status: 'failed',
+      delivery_attempts: Number(attempts || 0),
+      delivery_last_attempt_at: now,
+      delivery_error_code: sanitizedErrorCode,
+      updated_at: now
+    };
+    if (designResult) body.design_result = designResult;
+
     const rows = await request({
       method: 'PATCH',
       query: `id=eq.${encodeURIComponent(id)}&status=eq.review&delivery_status=neq.delivered`,
-      body: {
-        delivery_status: 'failed',
-        delivery_attempts: Number(attempts || 0),
-        delivery_last_attempt_at: now,
-        delivery_error_code: String(errorCode || 'DESIGN_DELIVERY_FAILED').slice(0, 120),
-        updated_at: now
-      }
+      body
     });
     return rows[0] || null;
   }
@@ -273,6 +411,7 @@ function createDesignPortalSupabaseAdapter({
     markDeliverySuccess,
     queueFollowup,
     recoverStaleRequests,
+    resolveDesignAsset,
     retryRequest,
     uploadResult
   });
@@ -281,6 +420,10 @@ function createDesignPortalSupabaseAdapter({
 module.exports = {
   BUCKET_NAME,
   MAX_ASSET_BYTES,
+  SIGNED_URL_TTL_SECONDS,
+  SUPPORTED_DELIVERY_MIME_TYPES,
   TABLE_NAME,
-  createDesignPortalSupabaseAdapter
+  assertResolvableImageAsset,
+  createDesignPortalSupabaseAdapter,
+  normalizeSignedUrl
 };
