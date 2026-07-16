@@ -9,7 +9,7 @@ function normalize(value) {
 }
 
 function hasCommercialPriceIntent(message) {
-  return /\b(cotiz|cotizar|cotizacion|precio|cuanto|cuesta|costaria|valor|presupuesto)\b/.test(
+  return /\b(cotiz|cotizar|cotizacion|precio|cuanto|cuesta|costaria|valor|presupuesto|comprar|informacion)\b/.test(
     normalize(message)
   );
 }
@@ -90,6 +90,21 @@ function buildConversationText(message, history) {
     .join('\n');
 }
 
+function buildSalesOpening(commercial) {
+  const productName = String(commercial?.productName || 'este producto').trim();
+  return `¡Claro! Te ayudamos con la cotización de ${productName}.`;
+}
+
+function buildValueStatement(commercial) {
+  const explicit = String(
+    commercial?.salesGuidance?.valueStatement || ''
+  ).trim();
+
+  if (explicit) return explicit;
+
+  return 'Trabajamos cada proyecto según medida, material, acabado e instalación para que el resultado sea profesional y durable.';
+}
+
 function buildVerifiedCommercialReply({
   message,
   history,
@@ -118,7 +133,7 @@ function buildVerifiedCommercialReply({
       .map(formatOffer)
       .filter(Boolean);
 
-    reply = `Para ${commercial.productName}, estas son las opciones verificadas: ${offers.join('; ')}.`;
+    reply = `${buildSalesOpening(commercial)}\n\n${offers.join('\n')}`;
   }
 
   const standardCm = Number(
@@ -133,7 +148,12 @@ function buildVerifiedCommercialReply({
     standardCm &&
     requestedCm !== standardCm
   ) {
-    reply += ` La medida estándar publicada es de ${formatAmount(standardCm)} cm; la medida de ${formatAmount(requestedCm)} cm debe confirmarse antes de cerrar la cotización.`;
+    reply += `\n\nLa medida estándar publicada es de ${formatAmount(standardCm)} cm. Para ${formatAmount(requestedCm)} cm confirmamos el precio exacto antes de cerrar la cotización.`;
+  }
+
+  const valueStatement = buildValueStatement(commercial);
+  if (valueStatement && !normalize(reply).includes(normalize(valueStatement))) {
+    reply += `\n\n${valueStatement}`;
   }
 
   const qualificationQuestion = String(
@@ -182,6 +202,8 @@ function applyVerifiedCommercialReply({
 
 module.exports = {
   applyVerifiedCommercialReply,
+  buildSalesOpening,
+  buildValueStatement,
   buildVerifiedCommercialReply,
   extractCentimeterMeasurement,
   formatOffer,
