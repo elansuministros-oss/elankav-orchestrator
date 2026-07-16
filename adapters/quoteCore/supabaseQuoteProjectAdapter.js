@@ -2,7 +2,10 @@ const TABLES = Object.freeze({
   quotations: 'elankav_quotations',
   projects: 'elankav_projects',
   followUps: 'elankav_quotation_follow_ups',
-  events: 'elankav_project_events'
+  events: 'elankav_project_events',
+  workOrders: 'elankav_work_orders',
+  purchaseOrders: 'elankav_purchase_orders',
+  receipts: 'elankav_project_receipts'
 });
 
 function assertClient(client) {
@@ -28,11 +31,7 @@ export class SupabaseQuoteProjectAdapter {
   }
 
   async createQuotation(row) {
-    const result = await this.supabase
-      .from(this.tables.quotations)
-      .insert(row)
-      .select('*')
-      .single();
+    const result = await this.supabase.from(this.tables.quotations).insert(row).select('*').single();
     return unwrap(result, 'No se pudo crear la cotización');
   }
 
@@ -47,11 +46,7 @@ export class SupabaseQuoteProjectAdapter {
   }
 
   async getQuotationById(quotationId) {
-    const result = await this.supabase
-      .from(this.tables.quotations)
-      .select('*')
-      .eq('id', quotationId)
-      .maybeSingle();
+    const result = await this.supabase.from(this.tables.quotations).select('*').eq('id', quotationId).maybeSingle();
     return unwrap(result, 'No se pudo consultar la cotización');
   }
 
@@ -70,11 +65,7 @@ export class SupabaseQuoteProjectAdapter {
   }
 
   async createProject(row) {
-    const result = await this.supabase
-      .from(this.tables.projects)
-      .insert(row)
-      .select('*')
-      .single();
+    const result = await this.supabase.from(this.tables.projects).insert(row).select('*').single();
     return unwrap(result, 'No se pudo crear el proyecto');
   }
 
@@ -89,11 +80,7 @@ export class SupabaseQuoteProjectAdapter {
   }
 
   async getProjectById(projectId) {
-    const result = await this.supabase
-      .from(this.tables.projects)
-      .select('*')
-      .eq('id', projectId)
-      .maybeSingle();
+    const result = await this.supabase.from(this.tables.projects).select('*').eq('id', projectId).maybeSingle();
     return unwrap(result, 'No se pudo consultar el proyecto');
   }
 
@@ -120,13 +107,63 @@ export class SupabaseQuoteProjectAdapter {
     return unwrap(result, 'No se pudo guardar el seguimiento');
   }
 
-  async appendEvent(row) {
+  async getFollowUpByQuotationId(quotationId) {
     const result = await this.supabase
-      .from(this.tables.events)
-      .insert(row)
+      .from(this.tables.followUps)
       .select('*')
-      .single();
+      .eq('quotation_id', quotationId)
+      .is('completed_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return unwrap(result, 'No se pudo consultar el seguimiento');
+  }
+
+  async appendEvent(row) {
+    const result = await this.supabase.from(this.tables.events).insert(row).select('*').single();
     return unwrap(result, 'No se pudo registrar el evento');
+  }
+
+  async listWorkOrders({ projectId, quotationId, status, limit = 100 } = {}) {
+    let query = this.supabase
+      .from(this.tables.workOrders)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (projectId) query = query.eq('project_id', projectId);
+    if (quotationId) query = query.eq('quotation_id', quotationId);
+    if (status) query = query.eq('status', status);
+
+    return unwrap(await query, 'No se pudieron consultar las órdenes de trabajo') || [];
+  }
+
+  async listPurchaseOrders({ projectId, supplierId, status, limit = 100 } = {}) {
+    let query = this.supabase
+      .from(this.tables.purchaseOrders)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (projectId) query = query.eq('project_id', projectId);
+    if (supplierId) query = query.eq('supplier_id', supplierId);
+    if (status) query = query.eq('status', status);
+
+    return unwrap(await query, 'No se pudieron consultar las órdenes de compra') || [];
+  }
+
+  async listProjectReceipts({ projectId, purchaseOrderId, supplierId, limit = 100 } = {}) {
+    let query = this.supabase
+      .from(this.tables.receipts)
+      .select('*')
+      .order('uploaded_at', { ascending: false })
+      .limit(limit);
+
+    if (projectId) query = query.eq('project_id', projectId);
+    if (purchaseOrderId) query = query.eq('purchase_order_id', purchaseOrderId);
+    if (supplierId) query = query.eq('supplier_id', supplierId);
+
+    return unwrap(await query, 'No se pudieron consultar los recibos del proyecto') || [];
   }
 }
 
