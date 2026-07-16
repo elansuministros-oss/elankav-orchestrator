@@ -1,4 +1,5 @@
 const { getPlatformBrand } = require('../../adapters/vqs/brandRegistryAdapter');
+const { getExecutive } = require('../../adapters/vqs/executiveRegistryAdapter');
 
 function assertQuotationDocument(document) {
   const errors = [];
@@ -14,6 +15,7 @@ function assertQuotationDocument(document) {
   if (!Array.isArray(document.items) || document.items.length === 0) errors.push('items debe contener al menos un elemento');
   if (!document.currency) errors.push('currency es obligatoria');
   if (!Number.isFinite(Number(document.totals?.total))) errors.push('totals.total debe ser numérico');
+  if (!document.executive?.executiveId) errors.push('executive.executiveId es obligatorio');
 
   const installments = document.paymentTerms?.installments || [];
   if (document.paymentTerms?.type === 'custom') {
@@ -40,12 +42,32 @@ function resolveQuotationTemplate(document) {
     throw error;
   }
 
+  const executive = getExecutive(document.executive.executiveId, document.platformId);
+  if (!executive) {
+    const error = new Error(`Ejecutivo no registrado o no autorizado: ${document.executive.executiveId}`);
+    error.code = 'VQS_EXECUTIVE_NOT_FOUND';
+    throw error;
+  }
+
+  const executiveSnapshot = {
+    executiveId: executive.executiveId,
+    name: executive.name,
+    role: executive.role,
+    phone: executive.phone,
+    email: executive.email,
+    photoUrl: executive.photoUrl,
+    commissionEligible: executive.commissionEligible,
+    commissionPolicyId: executive.commissionPolicyId,
+    registryVersion: executive.registryVersion
+  };
+
   return {
     schemaVersion: document.schemaVersion || '1.0.0',
     documentType: 'quotation',
     platformId: brand.platformId,
     quotationNumber: document.quotationNumber,
     brandSnapshot: brand,
+    executiveSnapshot,
     template: {
       templateId: document.template?.templateId || brand.templateId,
       templateVersion: document.template?.templateVersion || brand.templateVersion,
@@ -53,6 +75,7 @@ function resolveQuotationTemplate(document) {
     },
     publicDocument: {
       ...document,
+      executive: executiveSnapshot,
       internalData: undefined,
       paymentAccountsSnapshot: document.paymentAccountsSnapshot?.length
         ? document.paymentAccountsSnapshot
