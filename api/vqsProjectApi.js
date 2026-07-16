@@ -1,4 +1,9 @@
 const { getSupabaseClient, SupabaseConfigurationError } = require('../services/supabase/supabaseClient');
+const {
+  normalizeProjectIntake,
+  validateProjectIntake,
+  toQuoteProjectInput
+} = require('../modules/vqs/projectIntakeContract');
 
 const COLLECTION_ROUTE = '/api/vqs/projects';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -63,60 +68,11 @@ function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
 }
 
 function validateExternalContract(body) {
-  const errors = [];
-  if (!body || typeof body !== 'object' || Array.isArray(body)) errors.push('El contrato debe ser un objeto JSON');
-  if (!String(body?.platform || '').trim()) errors.push('platform es obligatorio');
-  if (!String(body?.customer?.customerId || '').trim()) errors.push('customer.customerId es obligatorio');
-  if (!String(body?.executive?.executiveId || '').trim()) errors.push('executive.executiveId es obligatorio');
-  if (!Array.isArray(body?.items) || body.items.length === 0) errors.push('items debe contener al menos un ítem');
-  if (!(Number(body?.pricing?.exchangeRate) > 0)) errors.push('pricing.exchangeRate debe ser mayor que cero');
-  return errors;
+  return validateProjectIntake(normalizeProjectIntake(body)).errors;
 }
 
 function mapExternalContract(body) {
-  return {
-    quotation: {
-      platformId: String(body.platform).trim().toUpperCase(),
-      status: 'draft',
-      source: {
-        type: body.source?.type || 'manual',
-        sourceId: body.source?.sourceId || '',
-        designRequestId: body.source?.designRequestId || '',
-        storeProductId: body.source?.storeProductId || '',
-        storeCartId: body.source?.storeCartId || '',
-        designMode: body.source?.designMode || 'optional'
-      }
-    },
-    project: { status: 'pending_activation', currentStage: 'quotation' },
-    relations: {
-      customerId: body.customer.customerId,
-      executiveId: body.executive.executiveId,
-      designRequestId: body.source?.designRequestId || '',
-      storeCartId: body.source?.storeCartId || ''
-    },
-    customerSnapshot: {
-      name: body.customer.name || '',
-      companyName: body.customer.companyName || '',
-      phone: body.customer.phone || '',
-      email: body.customer.email || '',
-      address: body.customer.address || ''
-    },
-    executiveSnapshot: {
-      executiveId: body.executive.executiveId,
-      name: body.executive.name || '',
-      role: body.executive.role || 'Ejecutivo Comercial',
-      phone: body.executive.phone || '',
-      email: body.executive.email || '',
-      photoUrl: body.executive.photoUrl || ''
-    },
-    items: body.items,
-    pricing: body.pricing || {},
-    paymentTerms: {
-      type: body.payments?.type || '60_40',
-      installments: Array.isArray(body.payments?.installments) ? body.payments.installments : []
-    },
-    followUp: { ownerExecutiveId: body.executive.executiveId }
-  };
+  return toQuoteProjectInput(normalizeProjectIntake(body));
 }
 
 function resolveTemporaryActor(body = {}) {
@@ -176,15 +132,23 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         return true;
       }
       const body = await readJsonBody(req);
-      const errors = validateExternalContract(body);
-      if (errors.length) {
-        sendJson(res, 422, { success: false, error: 'Contrato inválido', code: 'VQS_CONTRACT_INVALID', details: errors });
+      const contract = normalizeProjectIntake(body);
+      const validation = validateProjectIntake(contract);
+      if (!validation.ok) {
+        sendJson(res, 422, {
+          success: false,
+          error: 'Contrato inválido',
+          code: 'VQS_CONTRACT_INVALID',
+          contract_version: contract.contractVersion,
+          details: validation.errors
+        });
         return true;
       }
       const commands = await resolveCommands(projectService);
-      const result = await commands.create(mapExternalContract(body), resolveTemporaryActor(body));
+      const result = await commands.create(toQuoteProjectInput(contract), resolveTemporaryActor(contract));
       sendJson(res, 201, {
         success: true,
+        contract_version: contract.contractVersion,
         data: {
           quotation_id: result.quotation.id,
           quotation_number: result.quotation.quotation_number,
