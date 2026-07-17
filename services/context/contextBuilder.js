@@ -3,8 +3,11 @@
 const {
   resolveCanonicalIdentity
 } = require('./identityResolver');
+const {
+  resolvePlatform
+} = require('./platformResolver');
 
-const CONTEXT_VERSION = 'ORCH-035B';
+const CONTEXT_VERSION = 'ORCH-038';
 const DEFAULT_OWNER_PHONES = Object.freeze([
   '50588388940'
 ]);
@@ -108,7 +111,12 @@ function buildContext(input = {}) {
   const identity = resolveCanonicalIdentity(receivedIdentity);
   const phone = normalizePhone(identity.canonicalId);
   const ownerPhones = getOwnerPhones();
-  const platform = normalizePlatform(input.platform);
+  const message = input.message || findMessage(args);
+  const platformResolution = resolvePlatform({
+    platform: input.platform,
+    message,
+    metadata: input.metadata
+  });
   const channel = normalizeChannel(input.channel);
 
   return Object.freeze({
@@ -116,8 +124,8 @@ function buildContext(input = {}) {
     createdAt: new Date().toISOString(),
     requestId: input.requestId || null,
     source: input.source || 'messageService',
-    message: input.message || findMessage(args),
-    platform: platform || null,
+    message,
+    platform: platformResolution.platform,
     channel: channel || null,
     externalUserId: phone || null,
     owner: Object.freeze({
@@ -140,6 +148,12 @@ function buildContext(input = {}) {
       identityCanonicalId: phone || null,
       identityMatchedAlias: identity.matchedAlias,
       identitySource: identity.source,
+      platformResolution: Object.freeze({
+        source: platformResolution.source,
+        matchedAlias: platformResolution.matchedAlias,
+        confidence: platformResolution.confidence,
+        receivedPlatform: normalizePlatform(input.platform) || null
+      }),
       ...(input.metadata && typeof input.metadata === 'object'
         ? input.metadata
         : {})
