@@ -2,6 +2,7 @@ const { getSupabaseClient, SupabaseConfigurationError } = require('../services/s
 const { normalizeProjectIntake, validateProjectIntake, toQuoteProjectInput } = require('../modules/vqs/projectIntakeContract');
 const { QuotationDocumentBuilder } = require('../services/vqs/quotationDocumentBuilder');
 const { ProjectDocumentOrchestrationService } = require('../services/vqs/projectDocumentOrchestrationService');
+const { sendQuotationByWhatsApp } = require('../services/vqs/quotationWahaDeliveryService');
 
 const COLLECTION_ROUTE = '/api/vqs/projects';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -24,9 +25,13 @@ function pathnameOf(url = '') { return parsedUrl(url).pathname; }
 
 function matchProjectRoute(pathname) {
   if (pathname === COLLECTION_ROUTE) return { type: 'collection' };
-  const match = pathname.match(/^\/api\/vqs\/projects\/([^/]+)(?:\/(status))?$/);
+  const match = pathname.match(/^\/api\/vqs\/projects\/([^/]+)(?:\/(status|send-whatsapp))?$/);
   if (!match) return null;
-  return { type: match[2] === 'status' ? 'status' : 'detail', projectId: decodeURIComponent(match[1]) };
+  const action = match[2] || '';
+  return {
+    type: action === 'status' ? 'status' : action === 'send-whatsapp' ? 'send-whatsapp' : 'detail',
+    projectId: decodeURIComponent(match[1])
+  };
 }
 
 function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
@@ -125,7 +130,7 @@ function sendNotFound(res, sendJson) { sendJson(res, 404, { success: false, erro
 async function resolveCommands(service) { return service || (await getDefaultServices()).projectService; }
 async function resolveQueries(service) { return service || (await getDefaultServices()).projectQueryService; }
 
-async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService } = {}) {
+async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService, quotationDeliveryService } = {}) {
   const route = matchProjectRoute(pathnameOf(req?.url));
   if (!route) return false;
   try {
@@ -170,6 +175,28 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
       });
       return true;
     }
+
+    if (route.type === 'send-whatsapp') {
+      if (req.method !== 'POST') {
+        res.setHeader?.('Allow', 'POST');
+        sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
+        return true;
+      }
+
+      const body = await readJsonBody(req);
+      const project = await (await resolveQueries(projectQueryService)).getProjectById(route.projectId);
+      if (!project) return sendNotFound(res, sendJson), true;
+
+      const deliver = quotationDeliveryService || sendQuotationByWhatsApp;
+      const delivery = await deliver({
+        ...body,
+        projectId: route.projectId,
+        quotationId: body.quotationId || project.quotationId
+      });
+      sendJson(res, 200, { success: true, data: delivery });
+      return true;
+    }
+
     if (route.type === 'status') {
       if (req.method !== 'GET') {
         res.setHeader?.('Allow', 'GET');
@@ -199,6 +226,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
     sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
   } catch (error) {
     if (error instanceof HttpBodyError) sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
+    else if (error?.code === 'VQS_WHATSAPP_INVALID') sendJson(res, 422, { success: false, error: 'Datos de envío inválidos', code: error.code, details: error.details || [] });
     else if (['QUOTE_VALIDATION_ERROR', 'PROJECT_UPDATE_VALIDATION_ERROR', 'VQS_INVALID_DOCUMENT'].includes(error?.code)) sendJson(res, 422, { success: false, error: 'Contrato inválido', code: error.code, details: error.details || [] });
     else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });
     else {
