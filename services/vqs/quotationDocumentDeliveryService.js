@@ -110,7 +110,13 @@ class QuotationDocumentDeliveryService {
       });
     } catch (error) {
       try {
-        await this.storageAdapter.deleteObject({ bucket: upload.bucket, path: upload.path });
+        await this.storageAdapter.deleteObject({
+          bucket: upload.bucket,
+          path: upload.path,
+          hardDelete: true,
+          reason: 'Quotation persistence failed after upload',
+          context: 'rollback_unpersisted_upload'
+        });
       } catch (cleanupError) {
         error.cleanupError = cleanupError;
       }

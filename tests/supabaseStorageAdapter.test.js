@@ -270,7 +270,7 @@ test('createDelivery genera una URL firmada temporal', async () => {
   assert.match(delivery.signedUrl, /token=test-900$/);
 });
 
-test('deleteObject elimina mediante prefixes sin borrar el bucket', async () => {
+test('deleteObject elimina solo con intención explícita y validada', async () => {
   const calls = [];
 
   const adapter = new SupabaseStorageAdapter({
@@ -289,7 +289,10 @@ test('deleteObject elimina mediante prefixes sin borrar el bucket', async () => 
 
   const result = await adapter.deleteObject({
     bucket: 'designs',
-    path: 'client/final.png'
+    path: 'client/final.png',
+    hardDelete: true,
+    reason: 'Rollback after failed persistence',
+    context: 'rollback_unpersisted_upload'
   });
 
   assert.equal(
@@ -301,7 +304,12 @@ test('deleteObject elimina mediante prefixes sin borrar el bucket', async () => 
     JSON.parse(calls[0].options.body),
     { prefixes: ['client/final.png'] }
   );
-  assert.equal(result.deleted, true);
+  assert.deepEqual(result, {
+    bucket: 'designs',
+    path: 'client/final.png',
+    deleted: true,
+    context: 'rollback_unpersisted_upload'
+  });
 });
 
 test('rechaza rutas con navegación hacia directorios superiores', async () => {

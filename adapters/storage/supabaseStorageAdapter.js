@@ -13,6 +13,10 @@ const {
 } = require('./storageAdapterError');
 
 const DEFAULT_DELIVERY_SECONDS = 3600;
+const DELETE_CONTEXTS = Object.freeze([
+  'rollback_unpersisted_upload',
+  'administrative_asset_deletion'
+]);
 
 function normalizeRequired(value, field) {
   const normalized = String(value || '').trim();
@@ -126,6 +130,70 @@ function ensureClient(client) {
   }
 
   return client;
+}
+
+function validateDeleteIntent({
+  hardDelete,
+  reason,
+  context,
+  authorized
+} = {}) {
+  const operation = 'deleteObject';
+
+  if (hardDelete !== true) {
+    throw new StorageAdapterError(
+      'La eliminación física está bloqueada por defecto',
+      {
+        code: 'STORAGE_DELETE_BLOCKED',
+        operation
+      }
+    );
+  }
+
+  const normalizedReason = String(reason || '').trim();
+
+  if (!normalizedReason) {
+    throw new StorageAdapterError(
+      'La razón de eliminación es obligatoria',
+      {
+        code: 'STORAGE_DELETE_REASON_REQUIRED',
+        operation,
+        details: { field: 'reason' }
+      }
+    );
+  }
+
+  const normalizedContext = String(context || '').trim();
+
+  if (!DELETE_CONTEXTS.includes(normalizedContext)) {
+    throw new StorageAdapterError(
+      'El contexto de eliminación no es válido',
+      {
+        code: 'STORAGE_DELETE_CONTEXT_INVALID',
+        operation,
+        details: { context: normalizedContext || null }
+      }
+    );
+  }
+
+  if (
+    normalizedContext === 'administrative_asset_deletion' &&
+    authorized !== true
+  ) {
+    throw new StorageAdapterError(
+      'La eliminación administrativa requiere autorización explícita',
+      {
+        code: 'STORAGE_DELETE_UNAUTHORIZED',
+        operation,
+        details: { context: normalizedContext }
+      }
+    );
+  }
+
+  return {
+    reason: normalizedReason,
+    context: normalizedContext
+  };
 }
 
 class SupabaseStorageAdapter {
@@ -464,9 +532,20 @@ class SupabaseStorageAdapter {
 
   async deleteObject({
     bucket,
-    path
+    path,
+    hardDelete = false,
+    reason = '',
+    context = '',
+    authorized = false
   } = {}) {
     const operation = 'deleteObject';
+    const deleteIntent = validateDeleteIntent({
+      hardDelete,
+      reason,
+      context,
+      authorized
+    });
+
     const normalizedBucket = normalizeRequired(bucket, 'bucket');
     const normalizedPath = normalizePath(path);
     const client = this.getClient();
@@ -508,7 +587,7 @@ class SupabaseStorageAdapter {
           `Supabase Storage rechazó la eliminación con estado ${response.status}`
         ),
         {
-          code: data?.code || 'STORAGE_DELETE_FAILED',
+          code: 'STORAGE_DELETE_FAILED',
           operation,
           bucket: normalizedBucket,
           path: normalizedPath,
@@ -522,7 +601,7 @@ class SupabaseStorageAdapter {
       bucket: normalizedBucket,
       path: normalizedPath,
       deleted: true,
-      data
+      context: deleteIntent.context
     };
   }
 }
@@ -531,5 +610,7 @@ assertStorageAdapter(SupabaseStorageAdapter.prototype);
 
 module.exports = {
   SupabaseStorageAdapter,
-  DEFAULT_DELIVERY_SECONDS
+  DEFAULT_DELIVERY_SECONDS,
+  DELETE_CONTEXTS,
+  validateDeleteIntent
 };
