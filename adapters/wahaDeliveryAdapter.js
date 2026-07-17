@@ -7,6 +7,9 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
   'image/webp'
 ]);
+const SUPPORTED_FILE_MIME_TYPES = new Set([
+  'application/pdf'
+]);
 
 function normalizePhone(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -58,21 +61,43 @@ function buildDesignFollowupInstructions(row = {}) {
   ].join('\n');
 }
 
-function assertImageDeliveryInput({ imageUrl, mimeType }) {
-  const value = String(imageUrl || '').trim();
+function assertPublicUrl(value, errorCode) {
+  const normalized = String(value || '').trim();
   try {
-    const url = new URL(value);
+    const url = new URL(normalized);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('invalid');
+    return normalized;
   } catch {
-    const error = new Error('WAHA_IMAGE_URL_REQUIRED');
-    error.code = 'WAHA_IMAGE_URL_REQUIRED';
+    const error = new Error(errorCode);
+    error.code = errorCode;
     throw error;
   }
+}
+
+function assertImageDeliveryInput({ imageUrl, mimeType }) {
+  assertPublicUrl(imageUrl, 'WAHA_IMAGE_URL_REQUIRED');
 
   const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase();
   if (!SUPPORTED_IMAGE_MIME_TYPES.has(normalizedMimeType)) {
     const error = new Error('WAHA_IMAGE_MIME_UNSUPPORTED');
     error.code = 'WAHA_IMAGE_MIME_UNSUPPORTED';
+    throw error;
+  }
+}
+
+function assertFileDeliveryInput({ fileUrl, fileName, mimeType }) {
+  assertPublicUrl(fileUrl, 'WAHA_FILE_URL_REQUIRED');
+
+  if (!String(fileName || '').trim()) {
+    const error = new Error('WAHA_FILE_NAME_REQUIRED');
+    error.code = 'WAHA_FILE_NAME_REQUIRED';
+    throw error;
+  }
+
+  const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  if (!SUPPORTED_FILE_MIME_TYPES.has(normalizedMimeType)) {
+    const error = new Error('WAHA_FILE_MIME_UNSUPPORTED');
+    error.code = 'WAHA_FILE_MIME_UNSUPPORTED';
     throw error;
   }
 }
@@ -105,18 +130,11 @@ function createWahaDeliveryAdapter({
     return resolvedChatId;
   }
 
-  async function sendText({ phone, chatId, text }) {
-    const resolvedChatId = resolveChatId({ phone, chatId });
-    if (!String(text || '').trim()) {
-      const error = new Error('WAHA_TEXT_REQUIRED');
-      error.code = 'WAHA_TEXT_REQUIRED';
-      throw error;
-    }
-
-    const response = await fetchImpl(`${baseUrl}/api/sendText`, {
+  async function requestWaha(path, body) {
+    const response = await fetchImpl(`${baseUrl}${path}`, {
       method: 'POST',
       headers: createHeaders(),
-      body: JSON.stringify({ session, chatId: resolvedChatId, text })
+      body: JSON.stringify(body)
     });
     const data = await response.json().catch(() => null);
 
@@ -126,6 +144,23 @@ function createWahaDeliveryAdapter({
       error.status = response.status;
       throw error;
     }
+
+    return data;
+  }
+
+  async function sendText({ phone, chatId, text }) {
+    const resolvedChatId = resolveChatId({ phone, chatId });
+    if (!String(text || '').trim()) {
+      const error = new Error('WAHA_TEXT_REQUIRED');
+      error.code = 'WAHA_TEXT_REQUIRED';
+      throw error;
+    }
+
+    const data = await requestWaha('/api/sendText', {
+      session,
+      chatId: resolvedChatId,
+      text
+    });
 
     return Object.freeze({
       chatId: resolvedChatId,
@@ -138,28 +173,16 @@ function createWahaDeliveryAdapter({
     const resolvedChatId = resolveChatId({ phone, chatId });
     assertImageDeliveryInput({ imageUrl, mimeType });
 
-    const response = await fetchImpl(`${baseUrl}/api/sendImage`, {
-      method: 'POST',
-      headers: createHeaders(),
-      body: JSON.stringify({
-        session,
-        chatId: resolvedChatId,
-        caption: String(caption || ''),
-        file: {
-          url: String(imageUrl).trim(),
-          filename: String(fileName || 'design-render.png'),
-          mimetype: String(mimeType || '').split(';')[0].trim().toLowerCase()
-        }
-      })
+    const data = await requestWaha('/api/sendImage', {
+      session,
+      chatId: resolvedChatId,
+      caption: String(caption || ''),
+      file: {
+        url: String(imageUrl).trim(),
+        filename: String(fileName || 'design-render.png'),
+        mimetype: String(mimeType || '').split(';')[0].trim().toLowerCase()
+      }
     });
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      const error = new Error(data?.message || data?.error || `WAHA HTTP ${response.status}`);
-      error.code = `WAHA_HTTP_${response.status}`;
-      error.status = response.status;
-      throw error;
-    }
 
     return Object.freeze({
       chatId: resolvedChatId,
@@ -168,12 +191,35 @@ function createWahaDeliveryAdapter({
     });
   }
 
-  return Object.freeze({ sendImage, sendText });
+  async function sendFile({ phone, chatId, fileUrl, caption, fileName, mimeType }) {
+    const resolvedChatId = resolveChatId({ phone, chatId });
+    assertFileDeliveryInput({ fileUrl, fileName, mimeType });
+
+    const data = await requestWaha('/api/sendFile', {
+      session,
+      chatId: resolvedChatId,
+      caption: String(caption || ''),
+      file: {
+        url: String(fileUrl).trim(),
+        filename: String(fileName).trim(),
+        mimetype: String(mimeType).split(';')[0].trim().toLowerCase()
+      }
+    });
+
+    return Object.freeze({
+      chatId: resolvedChatId,
+      messageId: extractMessageId(data),
+      response: data
+    });
+  }
+
+  return Object.freeze({ sendFile, sendImage, sendText });
 }
 
 module.exports = {
   DEFAULT_WAHA_BASE_URL,
   DEFAULT_WAHA_SESSION,
+  assertFileDeliveryInput,
   assertImageDeliveryInput,
   buildChatId,
   buildDesignFollowupInstructions,
