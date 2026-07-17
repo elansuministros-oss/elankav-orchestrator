@@ -1,9 +1,16 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
+const { handleWorkOrderApi } = require('./workOrderApi');
+const { handlePurchaseOrderApi } = require('./purchaseOrderApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
 
 const VQS_ROUTE_PREFIX = '/api/vqs/';
+const PLATFORM_API_ROUTE_PREFIXES = Object.freeze([
+  VQS_ROUTE_PREFIX,
+  '/api/work-orders',
+  '/api/purchase-orders'
+]);
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://visual.elankav.com',
   'http://localhost:5173',
@@ -24,8 +31,13 @@ function isVqsRequest(req) {
   return pathname.startsWith(VQS_ROUTE_PREFIX);
 }
 
+function isPlatformApiRequest(req) {
+  const pathname = String(req?.url || '').split('?')[0];
+  return PLATFORM_API_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 function applyVqsCors(req, res) {
-  if (!isVqsRequest(req)) return { handled: false, allowed: true };
+  if (!isPlatformApiRequest(req)) return { handled: false, allowed: true };
 
   const origin = String(req?.headers?.origin || '').trim();
   const allowedOrigins = getAllowedOrigins();
@@ -79,6 +91,12 @@ async function handleMessageApi({ req, res, sendJson }) {
   const vqsProjectHandled = await handleVqsProjectApi({ req, res, sendJson });
   if (vqsProjectHandled) return true;
 
+  const workOrderHandled = await handleWorkOrderApi({ req, res, sendJson });
+  if (workOrderHandled) return true;
+
+  const purchaseOrderHandled = await handlePurchaseOrderApi({ req, res, sendJson });
+  if (purchaseOrderHandled) return true;
+
   return handleLegacyMessageApi({ req, res, sendJson });
 }
 
@@ -86,5 +104,6 @@ module.exports = {
   handleMessageApi,
   applyVqsCors,
   getAllowedOrigins,
-  isVqsRequest
+  isVqsRequest,
+  isPlatformApiRequest
 };
