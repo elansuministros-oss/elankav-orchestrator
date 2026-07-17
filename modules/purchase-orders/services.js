@@ -102,6 +102,7 @@ class PurchaseOrderService {
     }
 
     const patch = { status, updated_by: actor.userId || null };
+    const previousStatus = current.status;
     if (status === 'approved') patch.approved_at = new Date().toISOString();
     if (status === 'ordered') patch.ordered_at = new Date().toISOString();
     if (status === 'received') patch.received_at = new Date().toISOString();
@@ -111,7 +112,7 @@ class PurchaseOrderService {
       documentId: purchaseOrder.id,
       caseId: purchaseOrder.lineage?.caseId,
       action: 'purchase_order.status_changed',
-      previousStatus: current.status,
+      previousStatus,
       newStatus: purchaseOrder.status,
       actor,
       platformId: purchaseOrder.platformId
@@ -136,6 +137,7 @@ class PurchaseOrderService {
     }
 
     const now = new Date().toISOString();
+    const previousStatus = current.status;
     const receipt = {
       id: input.receiptId || `receipt-${Date.now()}`,
       receivedAt: input.receivedAt || now,
@@ -165,7 +167,7 @@ class PurchaseOrderService {
       documentId: purchaseOrder.id,
       caseId: purchaseOrder.lineage?.caseId,
       action: 'purchase_order.received',
-      previousStatus: current.status,
+      previousStatus,
       newStatus: purchaseOrder.status,
       actor,
       platformId: purchaseOrder.platformId

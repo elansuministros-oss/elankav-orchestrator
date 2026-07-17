@@ -125,6 +125,11 @@ function sendNotFound(res, sendJson) {
   sendJson(res, 404, { success: false, error: 'Orden de trabajo no encontrada', code: 'WORK_ORDER_NOT_FOUND' });
 }
 
+function isConflictError(error) {
+  const text = `${error?.code || ''} ${error?.message || ''} ${error?.cause?.code || ''} ${error?.cause?.message || ''}`;
+  return /23505|duplicate|duplicad|unique|CONFLICT|COLLISION/i.test(text);
+}
+
 async function handleWorkOrderApi({ req, res, sendJson, service } = {}) {
   const route = matchWorkOrderRoute(pathnameOf(req?.url));
   if (!route) return false;
@@ -193,6 +198,8 @@ async function handleWorkOrderApi({ req, res, sendJson, service } = {}) {
   } catch (error) {
     if (error instanceof HttpBodyError) {
       sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
+    } else if (isConflictError(error)) {
+      sendJson(res, 409, { success: false, error: 'Conflicto de orden de trabajo', code: 'WORK_ORDER_CONFLICT' });
     } else if (['WORK_ORDER_VALIDATION_ERROR', 'WORK_ORDER_UPDATE_VALIDATION_ERROR', 'WORK_ORDER_STATUS_VALIDATION_ERROR'].includes(error?.code) || String(error?.code || '').startsWith('DOCUMENT_LINEAGE_')) {
       sendJson(res, 422, { success: false, error: 'Orden de trabajo invalida', code: error.code, details: error.details || [] });
     } else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {

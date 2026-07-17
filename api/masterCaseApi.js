@@ -101,6 +101,11 @@ function sendNotFound(res, sendJson) {
   sendJson(res, 404, { success: false, error: 'Expediente maestro no encontrado', code: 'MASTER_CASE_NOT_FOUND' });
 }
 
+function isConflictError(error) {
+  const text = `${error?.code || ''} ${error?.message || ''} ${error?.cause?.code || ''} ${error?.cause?.message || ''}`;
+  return /23505|duplicate|duplicad|unique|CONFLICT|COLLISION/i.test(text);
+}
+
 async function handleMasterCaseApi({ req, res, sendJson, service } = {}) {
   const route = matchMasterCaseRoute(pathnameOf(req?.url));
   if (!route) return false;
@@ -149,6 +154,8 @@ async function handleMasterCaseApi({ req, res, sendJson, service } = {}) {
       sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
     } else if (['MASTER_CASE_VALIDATION_ERROR', 'MASTER_CASE_STATUS_VALIDATION_ERROR'].includes(error?.code)) {
       sendJson(res, 422, { success: false, error: 'Expediente maestro invalido', code: error.code, details: error.details || [] });
+    } else if (isConflictError(error)) {
+      sendJson(res, 409, { success: false, error: 'Conflicto de expediente maestro', code: 'MASTER_CASE_CONFLICT' });
     } else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
       sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });
     } else {

@@ -26,6 +26,19 @@ function normalizePlatformId(value) {
   return String(value || 'ELANVISUAL').trim().toUpperCase() || 'ELANVISUAL';
 }
 
+function platformOf(value = {}) {
+  return value.platformId || value.platform_id || '';
+}
+
+function assertPlatformMatch(resource = {}, platformId, code, label) {
+  const expected = normalizePlatformId(platformId);
+  const actualRaw = String(platformOf(resource) || '').trim();
+  const actual = actualRaw ? normalizePlatformId(actualRaw) : '';
+  if (!actual || actual !== expected) {
+    throw makeError(code, `${label} no pertenece a la plataforma solicitada`);
+  }
+}
+
 function normalizeYear(value) {
   const parsed = Number(value);
   if (Number.isInteger(parsed) && parsed > 1900) return String(parsed);
@@ -136,10 +149,18 @@ class DocumentLineageNumberService {
     });
     const sameTypeCount = await this.countByCase(this.purchaseOrderRepository, masterCase.caseId || masterCase.id);
     const attachedToExistingFlow = source.type !== 'manual' || hasText(contract.lineage?.caseId);
+    const reservedOrdinal = attachedToExistingFlow || sameTypeCount > 0
+      ? await this.reserveDocumentOrdinal({
+        caseId: masterCase.caseId || masterCase.id,
+        documentType: 'purchase_order',
+        fallbackOrdinal: sameTypeCount + 1
+      })
+      : sameTypeCount + 1;
+    const ordinal = Math.max(reservedOrdinal, sameTypeCount + 1);
     const documentNumber = formatDocumentNumber({
       documentType: 'purchase_order',
       baseSequence: masterCase.baseSequence || masterCase.base_sequence,
-      ordinal: sameTypeCount + 1,
+      ordinal,
       requiresSuffix: attachedToExistingFlow || sameTypeCount > 0
     });
 
@@ -155,6 +176,7 @@ class DocumentLineageNumberService {
       if (!masterCase) {
         throw makeError('DOCUMENT_LINEAGE_CASE_NOT_FOUND', 'El expediente maestro indicado no existe');
       }
+      assertPlatformMatch(masterCase, platformId, 'DOCUMENT_LINEAGE_PLATFORM_MISMATCH', 'El expediente maestro');
       return toPublicCase(masterCase);
     }
 
@@ -163,7 +185,7 @@ class DocumentLineageNumberService {
     }
 
     if (source.type === 'workOrder') {
-      return this.resolveWorkOrderCase(source);
+      return this.resolveWorkOrderCase(source, platformId);
     }
 
     return this.createManualCase({ source, platformId, actor, manualOriginType, manualCaseType });
@@ -182,12 +204,14 @@ class DocumentLineageNumberService {
     if (!quotation) {
       throw makeError('DOCUMENT_LINEAGE_QUOTATION_NOT_FOUND', 'La cotizacion persistida no existe');
     }
+    assertPlatformMatch(quotation, platformId, 'DOCUMENT_LINEAGE_PLATFORM_MISMATCH', 'La cotizacion persistida');
     if (!hasText(quotation.quotation_number)) {
       throw makeError('DOCUMENT_LINEAGE_QUOTATION_NUMBER_MISSING', 'La cotizacion persistida no tiene numero oficial');
     }
 
     const existing = await this.masterCaseRepository.getByQuotationId(quotationId);
     if (existing) {
+      assertPlatformMatch(existing, platformId, 'DOCUMENT_LINEAGE_PLATFORM_MISMATCH', 'El expediente maestro');
       return {
         ...toPublicCase(existing),
         __quotation: quotation
@@ -220,6 +244,7 @@ class DocumentLineageNumberService {
       const byQuotation = await this.masterCaseRepository.getByQuotationId(quotationId);
       const byNumber = byQuotation || await this.masterCaseRepository.getByCaseNumber(caseNumber);
       if (byNumber) {
+        assertPlatformMatch(byNumber, platformId, 'DOCUMENT_LINEAGE_PLATFORM_MISMATCH', 'El expediente maestro');
         return {
           ...toPublicCase(byNumber),
           __quotation: quotation
@@ -229,7 +254,7 @@ class DocumentLineageNumberService {
     }
   }
 
-  async resolveWorkOrderCase(source = {}) {
+  async resolveWorkOrderCase(source = {}, platformId) {
     const workOrderId = source.workOrderId || source.sourceId || '';
     if (!hasText(workOrderId)) {
       throw makeError('DOCUMENT_LINEAGE_WORK_ORDER_REQUIRED', 'workOrderId es obligatorio para usar una orden de trabajo como origen');
@@ -241,6 +266,7 @@ class DocumentLineageNumberService {
     if (!workOrder) {
       throw makeError('DOCUMENT_LINEAGE_WORK_ORDER_NOT_FOUND', 'La orden de trabajo persistida no existe');
     }
+    assertPlatformMatch(workOrder, platformId, 'DOCUMENT_LINEAGE_PLATFORM_MISMATCH', 'La orden de trabajo');
     const caseId = workOrder.case_id || workOrder.lineage?.caseId || workOrder.lineage?.case_id || '';
     if (!hasText(caseId)) {
       throw makeError('DOCUMENT_LINEAGE_WORK_ORDER_CASE_MISSING', 'La orden de trabajo no tiene expediente maestro');
@@ -249,6 +275,7 @@ class DocumentLineageNumberService {
     if (!masterCase) {
       throw makeError('DOCUMENT_LINEAGE_CASE_NOT_FOUND', 'El expediente maestro de la orden de trabajo no existe');
     }
+    assertPlatformMatch(masterCase, platformId, 'DOCUMENT_LINEAGE_PLATFORM_MISMATCH', 'El expediente maestro');
     return toPublicCase(masterCase);
   }
 
@@ -283,6 +310,18 @@ class DocumentLineageNumberService {
     if (!repository || typeof repository.countByCaseId !== 'function' || !caseId) return 0;
     const count = await repository.countByCaseId(caseId);
     return Number.isFinite(Number(count)) ? Number(count) : 0;
+  }
+
+  async reserveDocumentOrdinal({ caseId, documentType, fallbackOrdinal } = {}) {
+    if (
+      this.masterCaseRepository &&
+      typeof this.masterCaseRepository.reserveDocumentOrdinal === 'function' &&
+      caseId
+    ) {
+      const ordinal = await this.masterCaseRepository.reserveDocumentOrdinal({ caseId, documentType });
+      return Number.isFinite(Number(ordinal)) ? Number(ordinal) : fallbackOrdinal;
+    }
+    return fallbackOrdinal;
   }
 
   async recordAudit({

@@ -217,7 +217,8 @@ test('WO-02 WO desde COT-2026-000154 genera OT-2026-000154 y rechaza numero UI',
     quotations: {
       'quotation-154': {
         id: 'quotation-154',
-        quotation_number: 'COT-2026-000154'
+        quotation_number: 'COT-2026-000154',
+        platform_id: 'ELANVISUAL'
       }
     }
   });
@@ -238,7 +239,8 @@ test('PO-02 dos OC en el mismo expediente usan OC-2026-000154-01 y OC-2026-00015
     quotations: {
       'quotation-154': {
         id: 'quotation-154',
-        quotation_number: 'COT-2026-000154'
+        quotation_number: 'COT-2026-000154',
+        platform_id: 'ELANVISUAL'
       }
     }
   });
@@ -398,5 +400,5 @@ test('WO-02 MasterCase API expone POST, GET lista y GET detalle', async () => {
     service
   });
   assert.equal(detail.state.statusCode, 200);
-  assert.equal(detail.state.payload.data.caseNumber, 'ELK-2026-000210');
+  assert.equal(detail.state.payload.data.caseNumber, 'ELK-2026-000200');
 });

@@ -87,6 +87,13 @@ class SupabaseMasterCaseAdapter {
 
   async reserveBaseSequence({ year = new Date().getUTCFullYear() } = {}) {
     const normalizedYear = String(year);
+    if (typeof this.supabase.rpc === 'function') {
+      const data = await this.supabase
+        .rpc('elankav_reserve_master_base_sequence', { target_year: normalizedYear })
+        .then((result) => unwrap(result, 'No se pudo reservar el correlativo maestro'));
+      if (typeof data === 'string' && data.trim()) return data.trim();
+    }
+
     let current = await this.supabase
       .from(this.counterTable)
       .select('*')
@@ -113,6 +120,29 @@ class SupabaseMasterCaseAdapter {
       .then((result) => unwrap(result, 'No se pudo reservar el correlativo maestro'));
 
     return formatBaseSequence(normalizedYear, nextSequence);
+  }
+
+  async reserveDocumentOrdinal({ caseId, documentType } = {}) {
+    if (!caseId || !documentType) {
+      const error = new Error('caseId y documentType son obligatorios para reservar sufijo');
+      error.code = 'DOCUMENT_SUFFIX_INPUT_INVALID';
+      throw error;
+    }
+
+    if (typeof this.supabase.rpc === 'function') {
+      const data = await this.supabase
+        .rpc('elankav_reserve_document_suffix', {
+          target_case_id: caseId,
+          target_document_type: documentType
+        })
+        .then((result) => unwrap(result, 'No se pudo reservar el sufijo documental'));
+      const ordinal = Number(data);
+      if (Number.isInteger(ordinal) && ordinal > 0) return ordinal;
+    }
+
+    const error = new Error('No hay reserva transaccional de sufijos disponible');
+    error.code = 'DOCUMENT_SUFFIX_RESERVATION_UNAVAILABLE';
+    throw error;
   }
 
   recordAudit(row) {

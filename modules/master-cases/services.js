@@ -1,5 +1,6 @@
 const { createMasterCaseContract } = require('./contract');
 const { mapMasterCaseContractToRow, toPublicMasterCase } = require('./entities');
+const { formatCaseNumber } = require('./numbering');
 const {
   validateMasterCaseContract,
   validateMasterCaseStatusChange
@@ -12,8 +13,15 @@ class MasterCaseService {
   }
 
   async create(input = {}, actor = {}) {
+    const createdAt = input.createdAt || new Date().toISOString();
+    const year = new Date(createdAt).getUTCFullYear();
+    const baseSequence = await this.repository.reserveBaseSequence({ year });
     const contract = createMasterCaseContract({
       ...input,
+      caseId: input.caseId || '',
+      caseNumber: formatCaseNumber(baseSequence),
+      baseSequence,
+      platformId: actor.platformId || input.platformId,
       createdBy: actor.userId || input.createdBy || ''
     });
     const validation = validateMasterCaseContract(contract);

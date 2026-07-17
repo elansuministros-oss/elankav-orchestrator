@@ -231,6 +231,22 @@ create table if not exists public.elankav_document_audit_events (
   created_at timestamptz not null default now()
 );
 
+create or replace function public.elankav_block_document_audit_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'elankav_document_audit_events is immutable'
+    using errcode = '55000';
+end;
+$$;
+
+drop trigger if exists trg_elankav_document_audit_events_immutable
+  on public.elankav_document_audit_events;
+create trigger trg_elankav_document_audit_events_immutable
+before update or delete on public.elankav_document_audit_events
+for each row execute function public.elankav_block_document_audit_mutation();
+
 create index if not exists idx_elankav_ops_work_orders_platform_status
   on public.elankav_ops_work_orders(platform_id, status, created_at desc);
 
@@ -263,3 +279,52 @@ create index if not exists idx_elankav_document_audit_case
 
 create index if not exists idx_elankav_document_audit_document
   on public.elankav_document_audit_events(document_type, document_id, created_at desc);
+
+-- Rollback manual documentado. No ejecutar automaticamente desde Codex.
+-- Ejecutar en una ventana de mantenimiento y respaldar datos antes de revertir.
+--
+-- drop trigger if exists trg_elankav_document_audit_events_immutable
+--   on public.elankav_document_audit_events;
+-- drop function if exists public.elankav_block_document_audit_mutation();
+-- drop index if exists public.idx_elankav_document_audit_document;
+-- drop index if exists public.idx_elankav_document_audit_case;
+-- drop index if exists public.idx_elankav_ops_purchase_receipts_order;
+-- drop index if exists public.idx_elankav_ops_purchase_orders_supplier;
+-- drop index if exists public.idx_elankav_ops_purchase_orders_case_status;
+-- drop index if exists public.idx_elankav_ops_purchase_orders_quotation;
+-- drop index if exists public.idx_elankav_ops_purchase_orders_platform_status;
+-- drop index if exists public.idx_elankav_ops_work_orders_source;
+-- drop index if exists public.idx_elankav_ops_work_orders_case_status;
+-- drop index if exists public.idx_elankav_ops_work_orders_quotation;
+-- drop index if exists public.idx_elankav_ops_work_orders_platform_status;
+-- drop table if exists public.elankav_document_audit_events;
+-- drop table if exists public.elankav_ops_purchase_order_receipts;
+-- alter table public.elankav_ops_purchase_orders
+--   drop constraint if exists fk_elankav_ops_purchase_orders_case;
+-- alter table public.elankav_ops_work_orders
+--   drop constraint if exists fk_elankav_ops_work_orders_case;
+-- drop index if exists public.idx_elankav_ops_purchase_orders_number_unique;
+-- drop index if exists public.idx_elankav_ops_work_orders_number_unique;
+-- alter table public.elankav_ops_purchase_orders
+--   drop column if exists lineage,
+--   drop column if exists quotation_number,
+--   drop column if exists quotation_id,
+--   drop column if exists base_sequence,
+--   drop column if exists case_number,
+--   drop column if exists case_id;
+-- alter table public.elankav_ops_work_orders
+--   drop column if exists lineage,
+--   drop column if exists quotation_number,
+--   drop column if exists quotation_id,
+--   drop column if exists base_sequence,
+--   drop column if exists case_number,
+--   drop column if exists case_id;
+-- drop function if exists public.elankav_reserve_document_suffix(uuid, text);
+-- drop table if exists public.elankav_document_lineage_counters;
+-- drop index if exists public.idx_elankav_master_cases_quotation;
+-- drop index if exists public.idx_elankav_master_cases_platform_type;
+-- drop index if exists public.idx_elankav_master_cases_platform_status;
+-- drop index if exists public.idx_elankav_master_cases_number_unique;
+-- drop table if exists public.elankav_master_cases;
+-- drop function if exists public.elankav_reserve_master_base_sequence(text);
+-- drop table if exists public.elankav_master_case_counters;

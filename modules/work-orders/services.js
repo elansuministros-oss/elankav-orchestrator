@@ -105,6 +105,7 @@ class WorkOrderService {
       status,
       updated_by: actor.userId || null
     };
+    const previousStatus = current.status;
     if (status === 'completed') patch.completed_at = new Date().toISOString();
     const updated = await this.repository.update(id, patch);
     const workOrder = toPublicWorkOrder(updated);
@@ -112,7 +113,7 @@ class WorkOrderService {
       documentId: workOrder.id,
       caseId: workOrder.lineage?.caseId,
       action: 'work_order.status_changed',
-      previousStatus: current.status,
+      previousStatus,
       newStatus: workOrder.status,
       actor,
       platformId: workOrder.platformId

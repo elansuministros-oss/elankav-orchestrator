@@ -38,6 +38,13 @@ class MasterCaseRepository {
     return this.adapter.reserveBaseSequence(input);
   }
 
+  reserveDocumentOrdinal(input) {
+    if (typeof this.adapter.reserveDocumentOrdinal !== 'function') {
+      throw new Error('MasterCaseRepository requiere reserveDocumentOrdinal');
+    }
+    return this.adapter.reserveDocumentOrdinal(input);
+  }
+
   recordAudit(row) {
     if (typeof this.adapter.recordAudit !== 'function') return null;
     return this.adapter.recordAudit(row);
