@@ -1,7 +1,9 @@
 const { getSupabaseClient, SupabaseConfigurationError } = require('../services/supabase/supabaseClient');
+const { SupabaseStorageAdapter } = require('../adapters/storage/supabaseStorageAdapter');
 const { normalizeProjectIntake, validateProjectIntake, toQuoteProjectInput } = require('../modules/vqs/projectIntakeContract');
 const { QuotationDocumentBuilder } = require('../services/vqs/quotationDocumentBuilder');
 const { ProjectDocumentOrchestrationService } = require('../services/vqs/projectDocumentOrchestrationService');
+const { refreshPublicQuotationDelivery } = require('../services/vqs/publicQuotationDeliveryService');
 const { sendQuotationByWhatsApp } = require('../services/vqs/quotationWahaDeliveryService');
 
 const COLLECTION_ROUTE = '/api/vqs/projects';
@@ -111,6 +113,7 @@ async function getDefaultServices() {
       import('../services/quoteCore/projectQueryService.js')
     ]).then(([adapterModule, commandModule, queryModule]) => {
       const adapter = new adapterModule.SupabaseQuoteProjectAdapter({ supabase: getSupabaseClient() });
+      const storageAdapter = new SupabaseStorageAdapter();
       const coreProjectService = new commandModule.QuoteProjectService({ adapter });
       return {
         projectService: new ProjectDocumentOrchestrationService({
@@ -118,7 +121,8 @@ async function getDefaultServices() {
           documentBuilder: new QuotationDocumentBuilder()
         }),
         projectQueryService: new queryModule.ProjectQueryService({ adapter }),
-        adapter
+        adapter,
+        storageAdapter
       };
     });
   }
@@ -138,6 +142,25 @@ function logProjectApiError(error, route = {}) {
     errorMessage: error?.message || error?.cause?.message || 'UNKNOWN_ERROR',
     stack: error?.stack || ''
   });
+}
+
+async function refreshPublicQuotationDetail(project, services) {
+  if (!project?.quotationId || !services?.adapter || !services?.storageAdapter) return project;
+
+  const quotation = await services.adapter.getQuotationById(project.quotationId);
+  if (!quotation) return project;
+
+  const delivery = await refreshPublicQuotationDelivery({
+    quotation,
+    storageAdapter: services.storageAdapter
+  });
+
+  if (!delivery) return project;
+
+  return {
+    ...project,
+    pdfUrl: delivery.signedUrl
+  };
 }
 
 async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService, quotationDeliveryService } = {}) {
@@ -221,12 +244,14 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
       return true;
     }
     if (req.method === 'GET') {
-      const queries = await resolveQueries(projectQueryService);
+      const defaultServices = projectQueryService ? null : await getDefaultServices();
+      const queries = projectQueryService || defaultServices.projectQueryService;
       const platformId = String(parsedUrl(req.url).searchParams.get('platform') || '').trim().toUpperCase();
-      const project = typeof queries.getQuotationDetailByReference === 'function'
+      let project = typeof queries.getQuotationDetailByReference === 'function'
         ? await queries.getQuotationDetailByReference(route.projectId, { platformId })
         : await queries.getProjectById(route.projectId);
       if (!project) return sendNotFound(res, sendJson), true;
+      project = await refreshPublicQuotationDetail(project, defaultServices);
       sendJson(res, 200, { success: true, data: project });
       return true;
     }
@@ -253,4 +278,4 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
   return true;
 }
 
-module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation, logProjectApiError };
+module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation, refreshPublicQuotationDetail, logProjectApiError };
