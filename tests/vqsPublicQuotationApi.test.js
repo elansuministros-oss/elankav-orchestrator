@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { handleVqsPublicQuotationApi } = require('../api/vqsPublicQuotationApi');
+const {
+  handleVqsPublicQuotationApi,
+  resolveStorageObjectReference,
+  PUBLIC_IMAGE_SIGN_TTL_SECONDS
+} = require('../api/vqsPublicQuotationApi');
 
 function makeReq({ url = '/api/vqs/public/quotations/22222222-2222-4222-8222-222222222222', method = 'GET' } = {}) {
   return { url, method, headers: { host: 'localhost' } };
@@ -16,7 +20,7 @@ function makeResponse() {
   };
 }
 
-function buildAdapter() {
+function buildAdapter({ imageUrl = '' } = {}) {
   const quotation = {
     id: '11111111-1111-4111-8111-111111111111',
     quotation_number: 'COT-20260717-00005',
@@ -36,7 +40,8 @@ function buildAdapter() {
       quantity: 1,
       unit: 'unidad',
       unitPriceUsd: 290,
-      subtotalUsd: 290
+      subtotalUsd: 290,
+      ...(imageUrl ? { imageUrl } : {})
     }],
     pricing: {
       subtotalUsd: 290,
@@ -88,7 +93,8 @@ test('VQS publica cotizacion reconstruida desde projectId', async () => {
     req: makeReq(),
     res: response.res,
     sendJson: response.sendJson,
-    adapter: buildAdapter()
+    adapter: buildAdapter(),
+    storageClient: { from() { throw new Error('storage no debe usarse sin imagenes'); } }
   });
 
   assert.equal(response.state.statusCode, 200);
@@ -96,4 +102,50 @@ test('VQS publica cotizacion reconstruida desde projectId', async () => {
   assert.equal(response.state.payload.data.quotationNumber, 'COT-20260717-00005');
   assert.equal(response.state.payload.data.quotation_document.publicDocument.customer.name, 'Karen Vega');
   assert.equal(response.state.payload.data.quotation_document.publicDocument.totals.total, 290);
+});
+
+test('extrae bucket y object path desde signedUrl vencida de Supabase', () => {
+  const reference = resolveStorageObjectReference(
+    'https://demo.supabase.co/storage/v1/object/sign/quotation-assets/quotes%2F2026/render%20final.png?token=expired'
+  );
+
+  assert.deepEqual(reference, {
+    bucket: 'quotation-assets',
+    path: 'quotes/2026/render final.png'
+  });
+});
+
+test('renueva la signedUrl al construir la respuesta publica', async () => {
+  const response = makeResponse();
+  const calls = [];
+  const expiredUrl = 'https://demo.supabase.co/storage/v1/object/sign/quotation-assets/quotes/render.png?token=expired';
+  const renewedUrl = 'https://demo.supabase.co/storage/v1/object/sign/quotation-assets/quotes/render.png?token=fresh';
+
+  const storageClient = {
+    from(bucket) {
+      return {
+        async createSignedUrl(path, expiresIn) {
+          calls.push({ bucket, path, expiresIn });
+          return { data: { signedUrl: renewedUrl }, error: null };
+        }
+      };
+    }
+  };
+
+  await handleVqsPublicQuotationApi({
+    req: makeReq(),
+    res: response.res,
+    sendJson: response.sendJson,
+    adapter: buildAdapter({ imageUrl: expiredUrl }),
+    storageClient
+  });
+
+  assert.equal(response.state.statusCode, 200);
+  assert.deepEqual(calls, [{
+    bucket: 'quotation-assets',
+    path: 'quotes/render.png',
+    expiresIn: PUBLIC_IMAGE_SIGN_TTL_SECONDS
+  }]);
+  assert.equal(response.state.payload.data.quotation_document.publicDocument.items[0].imageUrl, renewedUrl);
+  assert.deepEqual(response.state.payload.data.quotation_document.publicDocument.items[0].images, [renewedUrl]);
 });
