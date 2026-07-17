@@ -3,7 +3,7 @@ const { SupabaseStorageAdapter } = require('../adapters/storage/supabaseStorageA
 const { normalizeProjectIntake, validateProjectIntake, toQuoteProjectInput } = require('../modules/vqs/projectIntakeContract');
 const { QuotationDocumentBuilder } = require('../services/vqs/quotationDocumentBuilder');
 const { ProjectDocumentOrchestrationService } = require('../services/vqs/projectDocumentOrchestrationService');
-const { refreshPublicQuotationDelivery } = require('../services/vqs/publicQuotationDeliveryService');
+const { refreshPublicQuotationDelivery, refreshPublicQuotationImages } = require('../services/vqs/publicQuotationDeliveryService');
 const { sendQuotationByWhatsApp } = require('../services/vqs/quotationWahaDeliveryService');
 
 const COLLECTION_ROUTE = '/api/vqs/projects';
@@ -150,16 +150,21 @@ async function refreshPublicQuotationDetail(project, services) {
   const quotation = await services.adapter.getQuotationById(project.quotationId);
   if (!quotation) return project;
 
-  const delivery = await refreshPublicQuotationDelivery({
-    quotation,
-    storageAdapter: services.storageAdapter
-  });
-
-  if (!delivery) return project;
+  const [delivery, quotationDocument] = await Promise.all([
+    refreshPublicQuotationDelivery({
+      quotation,
+      storageAdapter: services.storageAdapter
+    }),
+    refreshPublicQuotationImages({
+      quotationDocument: project.quotation_document,
+      storageAdapter: services.storageAdapter
+    })
+  ]);
 
   return {
     ...project,
-    pdfUrl: delivery.signedUrl
+    ...(delivery ? { pdfUrl: delivery.signedUrl } : {}),
+    quotation_document: quotationDocument
   };
 }
 
