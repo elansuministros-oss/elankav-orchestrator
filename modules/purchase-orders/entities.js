@@ -12,6 +12,15 @@ function toPublicPurchaseOrder(row = {}) {
       quotationId: row.source_quotation_id || '',
       purchaseRequestId: row.source_purchase_request_id || ''
     },
+    lineage: row.lineage || {
+      caseId: row.case_id || '',
+      caseNumber: row.case_number || '',
+      baseSequence: row.base_sequence || '',
+      originType: row.source_type || 'manual',
+      originId: row.source_id || row.source_work_order_id || row.source_quotation_id || row.source_purchase_request_id || '',
+      quotationId: row.quotation_id || row.source_quotation_id || '',
+      quotationNumber: row.quotation_number || ''
+    },
     supplier: row.supplier_snapshot || {},
     requester: row.requester_snapshot || {},
     project: row.project_snapshot || {},
@@ -43,6 +52,12 @@ function mapPurchaseOrderContractToRow(document = {}) {
     source_work_order_id: document.source?.workOrderId || null,
     source_quotation_id: document.source?.quotationId || null,
     source_purchase_request_id: document.source?.purchaseRequestId || null,
+    case_id: document.lineage?.caseId || null,
+    case_number: document.lineage?.caseNumber || null,
+    base_sequence: document.lineage?.baseSequence || null,
+    quotation_id: document.lineage?.quotationId || document.source?.quotationId || null,
+    quotation_number: document.lineage?.quotationNumber || null,
+    lineage: document.lineage || {},
     supplier_id: document.supplierSnapshot?.supplierId || null,
     supplier_snapshot: document.supplierSnapshot || {},
     requester_snapshot: document.requesterSnapshot || {},
@@ -63,6 +78,10 @@ function mapPurchaseOrderContractToRow(document = {}) {
   if (document.purchaseOrder?.purchaseOrderNumber) {
     row.purchase_order_number = document.purchaseOrder.purchaseOrderNumber;
   }
+
+  Object.keys(row).forEach((key) => {
+    if (row[key] === undefined) delete row[key];
+  });
 
   return row;
 }

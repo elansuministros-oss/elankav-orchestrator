@@ -2,6 +2,11 @@ const { getSupabaseClient, SupabaseConfigurationError } = require('../services/s
 const { SupabaseWorkOrderAdapter } = require('../modules/work-orders/adapter');
 const { WorkOrderRepository } = require('../modules/work-orders/repository');
 const { WorkOrderService } = require('../modules/work-orders/services');
+const { SupabasePurchaseOrderAdapter } = require('../modules/purchase-orders/adapter');
+const { PurchaseOrderRepository } = require('../modules/purchase-orders/repository');
+const { SupabaseMasterCaseAdapter } = require('../modules/master-cases/adapter');
+const { MasterCaseRepository } = require('../modules/master-cases/repository');
+const { DocumentLineageNumberService } = require('../modules/master-cases/numbering');
 
 const COLLECTION_ROUTE = '/api/work-orders';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -82,12 +87,28 @@ function resolveActor(req = {}, body = {}) {
 
 async function getDefaultService() {
   if (!servicePromise) {
-    servicePromise = Promise.resolve().then(() => {
-      const adapter = new SupabaseWorkOrderAdapter({ supabase: getSupabaseClient() });
-      return new WorkOrderService({
-        repository: new WorkOrderRepository({ adapter })
+    servicePromise = (async () => {
+      const supabase = getSupabaseClient();
+      const { SupabaseQuoteProjectAdapter } = await import('../adapters/quoteCore/supabaseQuoteProjectAdapter.js');
+      const adapter = new SupabaseWorkOrderAdapter({ supabase });
+      const repository = new WorkOrderRepository({ adapter });
+      const purchaseOrderRepository = new PurchaseOrderRepository({
+        adapter: new SupabasePurchaseOrderAdapter({ supabase })
       });
-    });
+      const masterCaseRepository = new MasterCaseRepository({
+        adapter: new SupabaseMasterCaseAdapter({ supabase })
+      });
+      const lineageNumberService = new DocumentLineageNumberService({
+        masterCaseRepository,
+        workOrderRepository: repository,
+        purchaseOrderRepository,
+        quotationRepository: new SupabaseQuoteProjectAdapter({ supabase })
+      });
+      return new WorkOrderService({
+        repository,
+        lineageNumberService
+      });
+    })();
   }
   return servicePromise;
 }
@@ -118,6 +139,8 @@ async function handleWorkOrderApi({ req, res, sendJson, service } = {}) {
           platformId: String(url.searchParams.get('platform') || '').trim().toUpperCase() || undefined,
           status: String(url.searchParams.get('status') || '').trim() || undefined,
           sourceType: String(url.searchParams.get('sourceType') || '').trim() || undefined,
+          caseId: String(url.searchParams.get('caseId') || '').trim() || undefined,
+          quotationId: String(url.searchParams.get('quotationId') || '').trim() || undefined,
           limit: Math.min(Math.max(Number(url.searchParams.get('limit') || 100), 1), 200)
         };
         const rows = await workOrderService.list(filters);
@@ -170,7 +193,7 @@ async function handleWorkOrderApi({ req, res, sendJson, service } = {}) {
   } catch (error) {
     if (error instanceof HttpBodyError) {
       sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
-    } else if (['WORK_ORDER_VALIDATION_ERROR', 'WORK_ORDER_UPDATE_VALIDATION_ERROR', 'WORK_ORDER_STATUS_VALIDATION_ERROR'].includes(error?.code)) {
+    } else if (['WORK_ORDER_VALIDATION_ERROR', 'WORK_ORDER_UPDATE_VALIDATION_ERROR', 'WORK_ORDER_STATUS_VALIDATION_ERROR'].includes(error?.code) || String(error?.code || '').startsWith('DOCUMENT_LINEAGE_')) {
       sendJson(res, 422, { success: false, error: 'Orden de trabajo invalida', code: error.code, details: error.details || [] });
     } else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
       sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });

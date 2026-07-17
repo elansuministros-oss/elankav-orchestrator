@@ -24,6 +24,11 @@ class PurchaseOrderRepository {
     if (typeof this.adapter.receive === 'function') return this.adapter.receive(id, receipt);
     return this.adapter.update(id, receipt.patch || {});
   }
+
+  countByCaseId(caseId) {
+    if (typeof this.adapter.countByCaseId !== 'function') return 0;
+    return this.adapter.countByCaseId(caseId);
+  }
 }
 
 module.exports = { PurchaseOrderRepository };

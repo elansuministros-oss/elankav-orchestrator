@@ -8,10 +8,11 @@ const {
 const { PurchaseOrderDocumentBuilder } = require('./documents/PurchaseOrderDocumentBuilder');
 
 class PurchaseOrderService {
-  constructor({ repository, documentBuilder } = {}) {
+  constructor({ repository, documentBuilder, lineageNumberService } = {}) {
     if (!repository) throw new Error('PurchaseOrderService requiere repository');
     this.repository = repository;
     this.documentBuilder = documentBuilder || new PurchaseOrderDocumentBuilder();
+    this.lineageNumberService = lineageNumberService || null;
   }
 
   async create(input = {}, actor = {}) {
@@ -31,8 +32,30 @@ class PurchaseOrderService {
       throw error;
     }
 
-    const created = await this.repository.create(mapPurchaseOrderContractToRow(contract));
+    if (this.lineageNumberService) {
+      const assignment = await this.lineageNumberService.assignPurchaseOrderLineage(contract, actor);
+      contract.purchaseOrder.purchaseOrderNumber = assignment.documentNumber;
+      contract.lineage = assignment.lineage;
+    }
+
+    const row = mapPurchaseOrderContractToRow(contract);
+    const snapshotPurchaseOrder = toPublicPurchaseOrder({
+      ...row,
+      id: row.id || '',
+      purchase_order_number: row.purchase_order_number || contract.purchaseOrder.purchaseOrderNumber || ''
+    });
+    row.document_snapshot = this.documentBuilder.build({ purchaseOrder: snapshotPurchaseOrder });
+
+    const created = await this.repository.create(row);
     const purchaseOrder = toPublicPurchaseOrder(created);
+    await this.recordAudit({
+      documentId: purchaseOrder.id,
+      caseId: purchaseOrder.lineage?.caseId,
+      action: 'purchase_order.created',
+      newStatus: purchaseOrder.status,
+      actor,
+      platformId: purchaseOrder.platformId
+    });
     return {
       purchaseOrder,
       document: this.documentBuilder.build({ purchaseOrder })
@@ -83,7 +106,17 @@ class PurchaseOrderService {
     if (status === 'ordered') patch.ordered_at = new Date().toISOString();
     if (status === 'received') patch.received_at = new Date().toISOString();
     const updated = await this.repository.update(id, patch);
-    return toPublicPurchaseOrder(updated);
+    const purchaseOrder = toPublicPurchaseOrder(updated);
+    await this.recordAudit({
+      documentId: purchaseOrder.id,
+      caseId: purchaseOrder.lineage?.caseId,
+      action: 'purchase_order.status_changed',
+      previousStatus: current.status,
+      newStatus: purchaseOrder.status,
+      actor,
+      platformId: purchaseOrder.platformId
+    });
+    return purchaseOrder;
   }
 
   approve(id, actor = {}) {
@@ -127,7 +160,25 @@ class PurchaseOrderService {
       },
       patch
     });
-    return toPublicPurchaseOrder(updated);
+    const purchaseOrder = toPublicPurchaseOrder(updated);
+    await this.recordAudit({
+      documentId: purchaseOrder.id,
+      caseId: purchaseOrder.lineage?.caseId,
+      action: 'purchase_order.received',
+      previousStatus: current.status,
+      newStatus: purchaseOrder.status,
+      actor,
+      platformId: purchaseOrder.platformId
+    });
+    return purchaseOrder;
+  }
+
+  async recordAudit(event = {}) {
+    if (!this.lineageNumberService || typeof this.lineageNumberService.recordAudit !== 'function') return null;
+    return this.lineageNumberService.recordAudit({
+      documentType: 'purchase_order',
+      ...event
+    });
   }
 }
 

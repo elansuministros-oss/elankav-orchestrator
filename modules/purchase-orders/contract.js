@@ -2,7 +2,7 @@ const { PURCHASE_ORDER_STATUSES } = require('./states');
 
 const PURCHASE_ORDER_CONTRACT_VERSION = '1.0.0';
 const PURCHASE_ORDER_SOURCE_TYPES = Object.freeze(['manual', 'workOrder', 'quotation', 'purchaseRequest']);
-const ACTIVE_PURCHASE_ORDER_SOURCE_TYPES = Object.freeze(['manual']);
+const ACTIVE_PURCHASE_ORDER_SOURCE_TYPES = Object.freeze(['manual', 'workOrder', 'quotation']);
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -25,6 +25,18 @@ function normalizeSource(source = {}) {
   };
 }
 
+function normalizeLineage(lineage = {}, source = {}) {
+  return {
+    caseId: lineage.caseId || '',
+    caseNumber: lineage.caseNumber || '',
+    baseSequence: lineage.baseSequence || '',
+    originType: lineage.originType || source.type || 'manual',
+    originId: lineage.originId || source.sourceId || source.workOrderId || source.quotationId || source.purchaseRequestId || '',
+    quotationId: lineage.quotationId || source.quotationId || '',
+    quotationNumber: lineage.quotationNumber || ''
+  };
+}
+
 function createPurchaseOrderContract(input = {}) {
   const now = new Date().toISOString();
   const source = normalizeSource(input.source);
@@ -41,6 +53,7 @@ function createPurchaseOrderContract(input = {}) {
       requiredBy: input.purchaseOrder?.requiredBy || ''
     },
     source,
+    lineage: normalizeLineage(input.lineage, source),
     supplierSnapshot: {
       supplierId: input.supplierSnapshot?.supplierId || '',
       name: input.supplierSnapshot?.name || '',

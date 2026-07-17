@@ -60,13 +60,14 @@ test('PO-01 crea PurchaseOrderContract v1 manual valido', () => {
   assert.equal(validation.ok, true);
 });
 
-test('PO-01 deja workOrder preparado pero no activo como origen', () => {
+test('PO-02 acepta workOrder como origen validado por Orchestrator', () => {
   const contract = createPurchaseOrderContract(makePurchaseOrderInput({ source: { type: 'workOrder', workOrderId: 'wo1' } }));
   const validation = validatePurchaseOrderContract(contract);
 
   assert.equal(contract.source.type, 'workOrder');
-  assert.equal(validation.ok, false);
-  assert.match(validation.errors.join(' '), /source\.type/);
+  assert.equal(validation.ok, true);
+  assert.equal(contract.lineage.originType, 'workOrder');
+  assert.equal(contract.lineage.originId, 'wo1');
 });
 
 test('PO-01 mapper futuro desde WorkOrder no esta activado', () => {

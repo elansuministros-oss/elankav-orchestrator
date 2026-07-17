@@ -15,6 +15,9 @@ function validateWorkOrderContract(document) {
   if (!ACTIVE_WORK_ORDER_SOURCE_TYPES.includes(document?.source?.type)) {
     errors.push('source.type no esta activo para WorkOrderContract v1');
   }
+  if (document?.source?.type === 'quotation' && !hasText(document.source.quotationId || document.source.sourceId)) {
+    errors.push('source.quotationId es obligatorio para ordenes originadas en cotizacion');
+  }
   if (!Array.isArray(document?.items) || document.items.length === 0) errors.push('items debe contener al menos un item');
 
   for (const [index, item] of (document?.items || []).entries()) {

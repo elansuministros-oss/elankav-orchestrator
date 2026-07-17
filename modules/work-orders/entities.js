@@ -12,6 +12,15 @@ function toPublicWorkOrder(row = {}) {
       quotationId: row.source_quotation_id || '',
       projectId: row.source_project_id || ''
     },
+    lineage: row.lineage || {
+      caseId: row.case_id || '',
+      caseNumber: row.case_number || '',
+      baseSequence: row.base_sequence || '',
+      originType: row.source_type || 'manual',
+      originId: row.source_id || row.source_quotation_id || row.source_project_id || '',
+      quotationId: row.quotation_id || row.source_quotation_id || '',
+      quotationNumber: row.quotation_number || ''
+    },
     customer: row.customer_snapshot || {},
     project: row.project_snapshot || {},
     productionScope: row.production_scope || {},
@@ -40,6 +49,12 @@ function mapWorkOrderContractToRow(document = {}) {
     source_id: document.source?.sourceId || null,
     source_quotation_id: document.source?.quotationId || null,
     source_project_id: document.source?.projectId || null,
+    case_id: document.lineage?.caseId || null,
+    case_number: document.lineage?.caseNumber || null,
+    base_sequence: document.lineage?.baseSequence || null,
+    quotation_id: document.lineage?.quotationId || document.source?.quotationId || null,
+    quotation_number: document.lineage?.quotationNumber || null,
+    lineage: document.lineage || {},
     customer_snapshot: document.customerSnapshot || {},
     project_snapshot: document.projectSnapshot || {},
     production_scope: document.productionScope || {},
@@ -59,6 +74,10 @@ function mapWorkOrderContractToRow(document = {}) {
   if (document.workOrder?.workOrderNumber) {
     row.work_order_number = document.workOrder.workOrderNumber;
   }
+
+  Object.keys(row).forEach((key) => {
+    if (row[key] === undefined) delete row[key];
+  });
 
   return row;
 }

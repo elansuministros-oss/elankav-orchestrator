@@ -2,7 +2,7 @@ const { WORK_ORDER_STATUSES } = require('./states');
 
 const WORK_ORDER_CONTRACT_VERSION = '1.0.0';
 const WORK_ORDER_SOURCE_TYPES = Object.freeze(['manual', 'quotation', 'project']);
-const ACTIVE_WORK_ORDER_SOURCE_TYPES = Object.freeze(['manual']);
+const ACTIVE_WORK_ORDER_SOURCE_TYPES = Object.freeze(['manual', 'quotation']);
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -21,6 +21,18 @@ function normalizeSource(source = {}) {
     quotationId: source.quotationId || '',
     projectId: source.projectId || '',
     mapperVersion: source.mapperVersion || ''
+  };
+}
+
+function normalizeLineage(lineage = {}, source = {}) {
+  return {
+    caseId: lineage.caseId || '',
+    caseNumber: lineage.caseNumber || '',
+    baseSequence: lineage.baseSequence || '',
+    originType: lineage.originType || source.type || 'manual',
+    originId: lineage.originId || source.sourceId || source.quotationId || source.projectId || '',
+    quotationId: lineage.quotationId || source.quotationId || '',
+    quotationNumber: lineage.quotationNumber || ''
   };
 }
 
@@ -43,6 +55,7 @@ function createWorkOrderContract(input = {}) {
       completedAt: input.workOrder?.completedAt || ''
     },
     source,
+    lineage: normalizeLineage(input.lineage, source),
     customerSnapshot: {
       customerId: input.customerSnapshot?.customerId || '',
       name: input.customerSnapshot?.name || '',

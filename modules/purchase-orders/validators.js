@@ -15,6 +15,12 @@ function validatePurchaseOrderContract(document) {
   if (!ACTIVE_PURCHASE_ORDER_SOURCE_TYPES.includes(document?.source?.type)) {
     errors.push('source.type no esta activo para PurchaseOrderContract v1');
   }
+  if (document?.source?.type === 'quotation' && !hasText(document.source.quotationId || document.source.sourceId)) {
+    errors.push('source.quotationId es obligatorio para compras originadas en cotizacion');
+  }
+  if (document?.source?.type === 'workOrder' && !hasText(document.source.workOrderId || document.source.sourceId)) {
+    errors.push('source.workOrderId es obligatorio para compras originadas en orden de trabajo');
+  }
   if (!Array.isArray(document?.items) || document.items.length === 0) errors.push('items debe contener al menos un item');
 
   for (const [index, item] of (document?.items || []).entries()) {

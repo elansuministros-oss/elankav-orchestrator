@@ -1,6 +1,7 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
+const { handleMasterCaseApi } = require('./masterCaseApi');
 const { handleWorkOrderApi } = require('./workOrderApi');
 const { handlePurchaseOrderApi } = require('./purchaseOrderApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
@@ -8,6 +9,7 @@ const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy
 const VQS_ROUTE_PREFIX = '/api/vqs/';
 const PLATFORM_API_ROUTE_PREFIXES = Object.freeze([
   VQS_ROUTE_PREFIX,
+  '/api/master-cases',
   '/api/work-orders',
   '/api/purchase-orders'
 ]);
@@ -90,6 +92,9 @@ async function handleMessageApi({ req, res, sendJson }) {
 
   const vqsProjectHandled = await handleVqsProjectApi({ req, res, sendJson });
   if (vqsProjectHandled) return true;
+
+  const masterCaseHandled = await handleMasterCaseApi({ req, res, sendJson });
+  if (masterCaseHandled) return true;
 
   const workOrderHandled = await handleWorkOrderApi({ req, res, sendJson });
   if (workOrderHandled) return true;

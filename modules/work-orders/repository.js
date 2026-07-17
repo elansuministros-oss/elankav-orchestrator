@@ -19,6 +19,11 @@ class WorkOrderRepository {
   update(id, patch) {
     return this.adapter.update(id, patch);
   }
+
+  countByCaseId(caseId) {
+    if (typeof this.adapter.countByCaseId !== 'function') return 0;
+    return this.adapter.countByCaseId(caseId);
+  }
 }
 
 module.exports = { WorkOrderRepository };

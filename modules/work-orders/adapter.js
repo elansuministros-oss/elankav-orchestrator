@@ -28,7 +28,7 @@ class SupabaseWorkOrderAdapter {
     );
   }
 
-  list({ platformId, status, sourceType, limit = 100 } = {}) {
+  list({ platformId, status, sourceType, caseId, quotationId, limit = 100 } = {}) {
     let query = this.supabase
       .from(this.table)
       .select('*')
@@ -38,6 +38,8 @@ class SupabaseWorkOrderAdapter {
     if (platformId) query = query.eq('platform_id', platformId);
     if (status) query = query.eq('status', status);
     if (sourceType) query = query.eq('source_type', sourceType);
+    if (caseId) query = query.eq('case_id', caseId);
+    if (quotationId) query = query.eq('quotation_id', quotationId);
 
     return Promise.resolve(query).then((result) => unwrap(result, 'No se pudieron consultar las ordenes de trabajo') || []);
   }
@@ -56,6 +58,15 @@ class SupabaseWorkOrderAdapter {
       .select('*')
       .single()
       .then((result) => unwrap(result, 'No se pudo actualizar la orden de trabajo'));
+  }
+
+  countByCaseId(caseId) {
+    return this.supabase
+      .from(this.table)
+      .select('*')
+      .eq('case_id', caseId)
+      .then((result) => unwrap(result, 'No se pudieron contar las ordenes de trabajo') || [])
+      .then((rows) => rows.length);
   }
 }
 

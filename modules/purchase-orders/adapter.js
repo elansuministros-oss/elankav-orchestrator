@@ -30,7 +30,7 @@ class SupabasePurchaseOrderAdapter {
     );
   }
 
-  list({ platformId, status, supplierId, sourceType, limit = 100 } = {}) {
+  list({ platformId, status, supplierId, sourceType, caseId, quotationId, limit = 100 } = {}) {
     let query = this.supabase
       .from(this.table)
       .select('*')
@@ -41,6 +41,8 @@ class SupabasePurchaseOrderAdapter {
     if (status) query = query.eq('status', status);
     if (supplierId) query = query.eq('supplier_id', supplierId);
     if (sourceType) query = query.eq('source_type', sourceType);
+    if (caseId) query = query.eq('case_id', caseId);
+    if (quotationId) query = query.eq('quotation_id', quotationId);
 
     return Promise.resolve(query).then((result) => unwrap(result, 'No se pudieron consultar las ordenes de compra') || []);
   }
@@ -66,6 +68,15 @@ class SupabasePurchaseOrderAdapter {
       unwrap(result, 'No se pudo registrar la recepcion de compra')
     );
     return this.update(id, receipt.patch);
+  }
+
+  countByCaseId(caseId) {
+    return this.supabase
+      .from(this.table)
+      .select('*')
+      .eq('case_id', caseId)
+      .then((result) => unwrap(result, 'No se pudieron contar las ordenes de compra') || [])
+      .then((rows) => rows.length);
   }
 }
 

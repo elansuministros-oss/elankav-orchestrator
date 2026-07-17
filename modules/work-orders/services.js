@@ -8,10 +8,11 @@ const {
 const { WorkOrderDocumentBuilder } = require('./documents/WorkOrderDocumentBuilder');
 
 class WorkOrderService {
-  constructor({ repository, documentBuilder } = {}) {
+  constructor({ repository, documentBuilder, lineageNumberService } = {}) {
     if (!repository) throw new Error('WorkOrderService requiere repository');
     this.repository = repository;
     this.documentBuilder = documentBuilder || new WorkOrderDocumentBuilder();
+    this.lineageNumberService = lineageNumberService || null;
   }
 
   async create(input = {}, actor = {}) {
@@ -31,8 +32,30 @@ class WorkOrderService {
       throw error;
     }
 
-    const created = await this.repository.create(mapWorkOrderContractToRow(contract));
+    if (this.lineageNumberService) {
+      const assignment = await this.lineageNumberService.assignWorkOrderLineage(contract, actor);
+      contract.workOrder.workOrderNumber = assignment.documentNumber;
+      contract.lineage = assignment.lineage;
+    }
+
+    const row = mapWorkOrderContractToRow(contract);
+    const snapshotWorkOrder = toPublicWorkOrder({
+      ...row,
+      id: row.id || '',
+      work_order_number: row.work_order_number || contract.workOrder.workOrderNumber || ''
+    });
+    row.document_snapshot = this.documentBuilder.build({ workOrder: snapshotWorkOrder });
+
+    const created = await this.repository.create(row);
     const workOrder = toPublicWorkOrder(created);
+    await this.recordAudit({
+      documentId: workOrder.id,
+      caseId: workOrder.lineage?.caseId,
+      action: 'work_order.created',
+      newStatus: workOrder.status,
+      actor,
+      platformId: workOrder.platformId
+    });
     return {
       workOrder,
       document: this.documentBuilder.build({ workOrder })
@@ -84,7 +107,25 @@ class WorkOrderService {
     };
     if (status === 'completed') patch.completed_at = new Date().toISOString();
     const updated = await this.repository.update(id, patch);
-    return toPublicWorkOrder(updated);
+    const workOrder = toPublicWorkOrder(updated);
+    await this.recordAudit({
+      documentId: workOrder.id,
+      caseId: workOrder.lineage?.caseId,
+      action: 'work_order.status_changed',
+      previousStatus: current.status,
+      newStatus: workOrder.status,
+      actor,
+      platformId: workOrder.platformId
+    });
+    return workOrder;
+  }
+
+  async recordAudit(event = {}) {
+    if (!this.lineageNumberService || typeof this.lineageNumberService.recordAudit !== 'function') return null;
+    return this.lineageNumberService.recordAudit({
+      documentType: 'work_order',
+      ...event
+    });
   }
 }
 

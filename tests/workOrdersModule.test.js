@@ -60,13 +60,14 @@ test('WO-01 crea WorkOrderContract v1 manual valido', () => {
   assert.equal(validation.ok, true);
 });
 
-test('WO-01 deja quotation preparado pero no activo como origen', () => {
+test('WO-02 acepta quotation como origen validado por Orchestrator', () => {
   const contract = createWorkOrderContract(makeWorkOrderInput({ source: { type: 'quotation', quotationId: 'q1' } }));
   const validation = validateWorkOrderContract(contract);
 
   assert.equal(contract.source.type, 'quotation');
-  assert.equal(validation.ok, false);
-  assert.match(validation.errors.join(' '), /source\.type/);
+  assert.equal(validation.ok, true);
+  assert.equal(contract.lineage.originType, 'quotation');
+  assert.equal(contract.lineage.quotationId, 'q1');
 });
 
 test('WO-01 mapper futuro desde Quotation no esta activado', () => {
