@@ -14,21 +14,11 @@ function money(value) {
   }).format(Number(value || 0));
 }
 
-function publicQuotationUrl({ quotationId, documentUrl, env = process.env } = {}) {
-  const explicitUrl = String(documentUrl || '').trim();
-  if (explicitUrl) {
-    try {
-      const url = new URL(explicitUrl);
-      if (url.protocol === 'https:' || url.protocol === 'http:') return url.toString();
-    } catch {
-      // Ignore invalid external URL and use the official viewer route.
-    }
-  }
-
-  const id = String(quotationId || '').trim();
+function publicQuotationUrl({ projectId, env = process.env } = {}) {
+  const id = String(projectId || '').trim();
   if (!id) return '';
   const baseUrl = String(env.ELANVISUAL_PUBLIC_URL || DEFAULT_PUBLIC_BASE_URL).replace(/\/+$/, '');
-  return `${baseUrl}/cotizaciones/${encodeURIComponent(id)}`;
+  return `${baseUrl}/cotizaciones/publicas/${encodeURIComponent(id)}`;
 }
 
 function buildQuotationMessage(payload = {}, options = {}) {
@@ -36,11 +26,7 @@ function buildQuotationMessage(payload = {}, options = {}) {
   const quotationNumber = String(payload.quotationNumber || '').trim();
   const items = Array.isArray(payload.items) ? payload.items : [];
   const installments = Array.isArray(payload.installments) ? payload.installments : [];
-  const documentUrl = publicQuotationUrl({
-    quotationId: payload.quotationId,
-    documentUrl: payload.documentUrl,
-    env: options.env
-  });
+  const publicUrl = publicQuotationUrl({ projectId: payload.projectId, env: options.env });
 
   return [
     customerName ? `Hola, ${customerName}.` : 'Hola.',
@@ -51,8 +37,8 @@ function buildQuotationMessage(payload = {}, options = {}) {
     items.length ? '' : null,
     `Total: ${money(payload.totalUsd)}`,
     ...installments.map((payment) => `${String(payment.label || 'Pago').trim()} ${Number(payment.percentage || 0)}%: ${money(payment.amountUsd)}`),
-    documentUrl ? '' : null,
-    documentUrl ? `Ver cotización oficial: ${documentUrl}` : null,
+    '',
+    `Ver cotización y descargar PDF: ${publicUrl}`,
     '',
     'Quedamos atentos a tu confirmación.'
   ].filter((line) => line !== null).join('\n');
@@ -61,6 +47,7 @@ function buildQuotationMessage(payload = {}, options = {}) {
 function validateQuotationDelivery(payload = {}) {
   const errors = [];
   if (!normalizePhone(payload.phone)) errors.push('phone es obligatorio y debe ser válido');
+  if (!String(payload.projectId || '').trim()) errors.push('projectId es obligatorio');
   if (!String(payload.quotationId || '').trim()) errors.push('quotationId es obligatorio');
   if (!String(payload.quotationNumber || '').trim()) errors.push('quotationNumber es obligatorio');
   return errors;
@@ -77,23 +64,19 @@ async function sendQuotationByWhatsApp(payload = {}, { delivery, env = process.e
 
   const phone = normalizePhone(payload.phone);
   const adapter = delivery || createWahaDeliveryAdapter({ env });
-  const sent = await adapter.sendText({
-    phone,
-    text: buildQuotationMessage(payload, { env })
-  });
+  const text = buildQuotationMessage(payload, { env });
+  const sent = await adapter.sendText({ phone, text });
 
   return Object.freeze({
     delivered: true,
+    deliveryType: 'public-link',
     phone,
     chatId: sent.chatId,
     messageId: sent.messageId || null,
+    projectId: String(payload.projectId).trim(),
     quotationId: String(payload.quotationId).trim(),
     quotationNumber: String(payload.quotationNumber).trim(),
-    documentUrl: publicQuotationUrl({
-      quotationId: payload.quotationId,
-      documentUrl: payload.documentUrl,
-      env
-    })
+    publicUrl: publicQuotationUrl({ projectId: payload.projectId, env })
   });
 }
 

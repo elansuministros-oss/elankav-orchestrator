@@ -1,4 +1,5 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
+const { handleVqsPublicQuotationApi } = require('./vqsPublicQuotationApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
@@ -69,6 +70,9 @@ async function handleMessageApi({ req, res, sendJson }) {
     });
     return true;
   }
+
+  const publicQuotationHandled = await handleVqsPublicQuotationApi({ req, res, sendJson });
+  if (publicQuotationHandled) return true;
 
   const vqsCustomerHandled = await handleVqsCustomerApi({ req, res, sendJson });
   if (vqsCustomerHandled) return true;
