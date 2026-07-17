@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 
 const {
   resolveStoredDelivery,
+  parseSupabaseStorageLocation,
+  refreshPublicQuotationImages,
   refreshPublicQuotationDelivery
 } = require('../services/vqs/publicQuotationDeliveryService');
 
@@ -72,4 +74,71 @@ test('mantiene compatibilidad cuando no existe metadata de Storage', async () =>
   });
 
   assert.equal(result, null);
+});
+
+test('extrae bucket y path de una signedUrl vencida de Supabase', () => {
+  const location = parseSupabaseStorageLocation(
+    'https://example.supabase.co/storage/v1/object/sign/quotation-assets/ELANVISUAL/quotes/Q-1/rotulo%20principal.webp?token=expired'
+  );
+
+  assert.deepEqual(location, {
+    bucket: 'quotation-assets',
+    path: 'ELANVISUAL/quotes/Q-1/rotulo principal.webp'
+  });
+});
+
+test('renueva miniaturas de items sin cambiar la estructura pública', async () => {
+  const calls = [];
+  const storageAdapter = {
+    async createDelivery(input) {
+      calls.push(input);
+      return {
+        ...input,
+        signedUrl: `https://fresh.example/${encodeURIComponent(input.path)}?token=fresh`,
+        expiresIn: input.expiresIn
+      };
+    }
+  };
+  const expired = 'https://example.supabase.co/storage/v1/object/sign/quotation-assets/ELANVISUAL/quotes/Q-1/rotulo.webp?token=expired';
+  const quotationDocument = {
+    schemaVersion: '1.0.0',
+    publicDocument: {
+      items: [{ id: 'item-1', title: 'Rótulo', imageUrl: expired, images: [expired] }],
+      project: { images: [] }
+    }
+  };
+
+  const refreshed = await refreshPublicQuotationImages({ quotationDocument, storageAdapter });
+  const item = refreshed.publicDocument.items[0];
+
+  assert.equal(item.id, 'item-1');
+  assert.equal(item.title, 'Rótulo');
+  assert.match(item.imageUrl, /token=fresh/);
+  assert.match(item.images[0], /token=fresh/);
+  assert.notEqual(item.imageUrl, expired);
+  assert.deepEqual(calls[0], {
+    bucket: 'quotation-assets',
+    path: 'ELANVISUAL/quotes/Q-1/rotulo.webp',
+    expiresIn: 3600
+  });
+});
+
+test('deja intactas imágenes externas que no pertenecen a Supabase Storage', async () => {
+  const external = 'https://cdn.example.com/product.webp';
+  const refreshed = await refreshPublicQuotationImages({
+    quotationDocument: {
+      publicDocument: {
+        items: [{ imageUrl: external, images: [external] }],
+        project: { images: [] }
+      }
+    },
+    storageAdapter: {
+      async createDelivery() {
+        throw new Error('no debe ejecutarse');
+      }
+    }
+  });
+
+  assert.equal(refreshed.publicDocument.items[0].imageUrl, external);
+  assert.equal(refreshed.publicDocument.items[0].images[0], external);
 });
