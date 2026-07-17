@@ -170,18 +170,20 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         return true;
       }
       const result = await (await resolveCommands(projectService)).create(toQuoteProjectInput(contract), resolveTemporaryActor(contract));
+      const responseData = {
+        quotation_id: result.quotation.id,
+        quotation_number: result.quotation.quotation_number,
+        project_id: result.project.id,
+        project_number: result.project.project_number,
+        status: result.project.status,
+        stage: result.project.current_stage,
+        quotation_document: result.quotationDocument
+      };
+      if (result.documentDelivery) responseData.document_delivery = result.documentDelivery;
       sendJson(res, 201, {
         success: true,
         contract_version: contract.contractVersion,
-        data: {
-          quotation_id: result.quotation.id,
-          quotation_number: result.quotation.quotation_number,
-          project_id: result.project.id,
-          project_number: result.project.project_number,
-          status: result.project.status,
-          stage: result.project.current_stage,
-          quotation_document: result.quotationDocument
-        }
+        data: responseData
       });
       return true;
     }
