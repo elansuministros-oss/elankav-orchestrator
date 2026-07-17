@@ -132,6 +132,40 @@ test('VQS consulta un proyecto por id sin datos internos', async () => {
   assert.equal(JSON.stringify(response.state.payload).includes('internalData'), false);
 });
 
+test('VQS resuelve detalle por numero comercial de cotizacion', async () => {
+  const response = makeResponse();
+  const projectQueryService = {
+    async getQuotationDetailByReference(reference, options) {
+      assert.equal(reference, 'COT-20260717-00005');
+      assert.equal(options.platformId, 'ELANVISUAL');
+      return {
+        projectId: 'project-id',
+        quotationId: 'quotation-id',
+        quotationNumber: reference,
+        quotation_document: {
+          publicDocument: {
+            quotationNumber: reference,
+            customer: { name: 'Karen Vega' },
+            items: [{ title: 'Rotulo comercial' }],
+            totals: { total: 290 }
+          }
+        }
+      };
+    }
+  };
+
+  await handleVqsProjectApi({
+    req: makeReq({ url: '/api/vqs/projects/COT-20260717-00005?platform=ELANVISUAL', method: 'GET' }),
+    res: response.res,
+    sendJson: response.sendJson,
+    projectQueryService
+  });
+
+  assert.equal(response.state.statusCode, 200);
+  assert.equal(response.state.payload.data.quotationNumber, 'COT-20260717-00005');
+  assert.equal(response.state.payload.data.quotation_document.publicDocument.customer.name, 'Karen Vega');
+});
+
 test('VQS devuelve 404 para proyecto inexistente', async () => {
   const response = makeResponse();
   const projectQueryService = { async getProjectById() { return null; } };

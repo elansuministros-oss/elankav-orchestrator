@@ -50,6 +50,15 @@ export class SupabaseQuoteProjectAdapter {
     return unwrap(result, 'No se pudo consultar la cotización');
   }
 
+  async getQuotationByNumber(quotationNumber) {
+    const result = await this.supabase
+      .from(this.tables.quotations)
+      .select('*')
+      .eq('quotation_number', quotationNumber)
+      .maybeSingle();
+    return unwrap(result, 'No se pudo consultar la cotizacion por numero');
+  }
+
   async listQuotations({ executiveId, status, customerId, limit = 100 } = {}) {
     let query = this.supabase
       .from(this.tables.quotations)
@@ -82,6 +91,15 @@ export class SupabaseQuoteProjectAdapter {
   async getProjectById(projectId) {
     const result = await this.supabase.from(this.tables.projects).select('*').eq('id', projectId).maybeSingle();
     return unwrap(result, 'No se pudo consultar el proyecto');
+  }
+
+  async getProjectByQuotationId(quotationId) {
+    const result = await this.supabase
+      .from(this.tables.projects)
+      .select('*')
+      .eq('quotation_id', quotationId)
+      .maybeSingle();
+    return unwrap(result, 'No se pudo consultar el proyecto por cotizacion');
   }
 
   async listProjects({ executiveId, status, customerId, limit = 100 } = {}) {

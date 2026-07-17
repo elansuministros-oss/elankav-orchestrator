@@ -1,3 +1,7 @@
+import quotationDocumentBuilderModule from '../vqs/quotationDocumentBuilder.js';
+
+const { buildQuotationDocument } = quotationDocumentBuilderModule;
+
 const ACTIVE_QUOTATION_STATUSES = new Set([
   'draft',
   'quoted',
@@ -16,6 +20,7 @@ const ACTIVE_PROJECT_STATUSES = new Set([
 ]);
 
 const normalizeText = (value = '') => String(value).trim().toLocaleLowerCase('es');
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const asDate = (value) => {
   if (!value) return null;
@@ -90,6 +95,157 @@ function publicQuotation(row) {
   };
 }
 
+function safeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function numberOrFallback(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizePlatformId(value = '') {
+  return String(value || '').trim().toUpperCase();
+}
+
+function samePlatform({ quotation = {}, project = {}, platformId = '' } = {}) {
+  const expected = normalizePlatformId(platformId);
+  if (!expected) return true;
+  return [quotation.platform_id, project.platform_id]
+    .map(normalizePlatformId)
+    .some((value) => value === expected);
+}
+
+function isInvalidUuidError(error) {
+  const code = error?.cause?.code || error?.code;
+  const message = String(error?.cause?.message || error?.message || '');
+  return code === '22P02' || message.includes('invalid input syntax for type uuid');
+}
+
+function resolveStoredPricing(quotation = {}) {
+  const pricing = { ...safeObject(quotation.pricing) };
+  if (pricing.subtotalUsd === undefined) pricing.subtotalUsd = numberOrFallback(quotation.subtotal_usd);
+  if (pricing.discountUsd === undefined) pricing.discountUsd = numberOrFallback(quotation.discount_usd);
+  if (pricing.taxUsd === undefined) pricing.taxUsd = numberOrFallback(quotation.tax_usd);
+  if (pricing.totalUsd === undefined) pricing.totalUsd = numberOrFallback(quotation.total_usd);
+  if (pricing.exchangeRate === undefined) pricing.exchangeRate = numberOrFallback(quotation.exchange_rate);
+  if (pricing.payableTotalNio === undefined) pricing.payableTotalNio = numberOrFallback(quotation.payable_total_nio);
+  return pricing;
+}
+
+function buildStoredDocument({ quotation = {}, project = {} } = {}) {
+  const executiveSnapshot = safeObject(quotation.executive_snapshot);
+  const relations = {
+    ...safeObject(quotation.relations),
+    customerId: firstText(quotation.customer_id, project.customer_id, quotation.relations?.customerId),
+    executiveId: firstText(quotation.executive_id, project.executive_id, quotation.relations?.executiveId)
+  };
+
+  return {
+    contractVersion: quotation.contract_version || '1.0.0',
+    quotation: {
+      quotationId: quotation.id,
+      quotationNumber: quotation.quotation_number,
+      platformId: firstText(quotation.platform_id, project.platform_id),
+      status: quotation.status || 'draft',
+      issuedAt: quotation.issued_at || quotation.created_at || '',
+      validUntil: quotation.valid_until || '',
+      source: {
+        type: quotation.source_type || 'manual',
+        sourceId: quotation.source_id || '',
+        designMode: quotation.design_mode || 'optional'
+      }
+    },
+    project: {
+      projectId: project.id,
+      projectNumber: project.project_number || '',
+      status: project.status || 'pending_activation',
+      currentStage: project.current_stage || 'quotation',
+      priority: project.priority || 'normal',
+      expectedDeliveryAt: project.expected_delivery_at || '',
+      images: safeArray(project.images)
+    },
+    relations,
+    customerSnapshot: safeObject(quotation.customer_snapshot),
+    executiveSnapshot: {
+      ...executiveSnapshot,
+      executiveId: firstText(executiveSnapshot.executiveId, executiveSnapshot.executive_id, relations.executiveId)
+    },
+    items: safeArray(quotation.items),
+    pricing: resolveStoredPricing(quotation),
+    paymentTerms: safeObject(quotation.payment_terms)
+  };
+}
+
+function resolvePdfUrl(quotation = {}, quotationDocument = {}) {
+  const publicDocument = safeObject(quotationDocument.publicDocument);
+  const candidates = [
+    quotation.pdf_url,
+    quotation.document_url,
+    quotation.public_url,
+    quotationDocument.pdfUrl,
+    quotationDocument.pdf_url,
+    publicDocument.pdfUrl,
+    publicDocument.pdf_url,
+    publicDocument.documentUrl,
+    publicDocument.document_url
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.toString();
+    } catch {}
+  }
+
+  return '';
+}
+
+function publicQuotationDetail({ project = {}, quotation = {}, quotationDocument = {} } = {}) {
+  const publicDocument = safeObject(quotationDocument.publicDocument);
+  return {
+    projectId: project.id,
+    projectNumber: project.project_number || '',
+    quotationId: quotation.id,
+    quotationNumber: quotation.quotation_number || publicDocument.quotationNumber || '',
+    platformId: quotation.platform_id || project.platform_id || '',
+    status: quotation.status || project.status || '',
+    issuedAt: quotation.issued_at || publicDocument.issuedAt || null,
+    validUntil: quotation.valid_until || publicDocument.validUntil || null,
+    customerId: quotation.customer_id || project.customer_id || '',
+    executiveId: quotation.executive_id || project.executive_id || '',
+    totalUsd: quotation.total_usd,
+    payableTotalNio: quotation.payable_total_nio,
+    pdfUrl: resolvePdfUrl(quotation, quotationDocument),
+    createdAt: quotation.created_at || project.created_at,
+    updatedAt: quotation.updated_at || project.updated_at,
+    quotation_document: {
+      schemaVersion: quotationDocument.schemaVersion || '1.0.0',
+      documentType: quotationDocument.documentType || 'quotation',
+      platformId: quotationDocument.platformId || quotation.platform_id || project.platform_id || '',
+      quotationNumber: quotationDocument.quotationNumber || quotation.quotation_number || '',
+      brandSnapshot: quotationDocument.brandSnapshot,
+      executiveSnapshot: quotationDocument.executiveSnapshot,
+      template: quotationDocument.template,
+      publicDocument
+    }
+  };
+}
+
 export class ProjectQueryService {
   constructor({ adapter, now = () => new Date() } = {}) {
     if (!adapter) throw new Error('ProjectQueryService requiere adapter');
@@ -105,6 +261,50 @@ export class ProjectQueryService {
     }
     const project = await this.adapter.getProjectById(projectId);
     return project ? publicProject(project) : null;
+  }
+
+  async getQuotationDetailByReference(reference, { platformId } = {}) {
+    const id = String(reference || '').trim();
+    if (!id) {
+      const error = new Error('reference es obligatorio');
+      error.code = 'PROJECT_REFERENCE_REQUIRED';
+      throw error;
+    }
+
+    let project = null;
+    let quotation = null;
+
+    if (UUID_PATTERN.test(id)) {
+      project = await this.adapter.getProjectById(id);
+      if (project?.quotation_id) quotation = await this.adapter.getQuotationById(project.quotation_id);
+      if (!quotation) {
+        quotation = await this.adapter.getQuotationById(id);
+        if (quotation?.id && typeof this.adapter.getProjectByQuotationId === 'function') {
+          project = await this.adapter.getProjectByQuotationId(quotation.id);
+        }
+      }
+    } else if (typeof this.adapter.getQuotationByNumber === 'function') {
+      quotation = await this.adapter.getQuotationByNumber(id);
+      if (quotation?.id && typeof this.adapter.getProjectByQuotationId === 'function') {
+        project = await this.adapter.getProjectByQuotationId(quotation.id);
+      }
+    }
+
+    if (!project && !quotation) {
+      try {
+        project = await this.adapter.getProjectById(id);
+        if (project?.quotation_id) quotation = await this.adapter.getQuotationById(project.quotation_id);
+      } catch (error) {
+        if (!isInvalidUuidError(error)) throw error;
+      }
+    }
+
+    if (!project || !quotation) return null;
+    if (!samePlatform({ quotation, project, platformId })) return null;
+
+    const document = buildStoredDocument({ quotation, project });
+    const quotationDocument = buildQuotationDocument({ document, quotation, project });
+    return publicQuotationDetail({ project, quotation, quotationDocument });
   }
 
   async getProjectStatus(projectId) {

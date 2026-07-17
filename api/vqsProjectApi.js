@@ -130,6 +130,16 @@ function sendNotFound(res, sendJson) { sendJson(res, 404, { success: false, erro
 async function resolveCommands(service) { return service || (await getDefaultServices()).projectService; }
 async function resolveQueries(service) { return service || (await getDefaultServices()).projectQueryService; }
 
+function logProjectApiError(error, route = {}) {
+  console.error('[VQS_PROJECT_API_ERROR]', {
+    routeType: route.type || '',
+    routeProjectId: route.projectId || '',
+    errorCode: error?.code || error?.cause?.code || 'UNKNOWN_ERROR',
+    errorMessage: error?.message || error?.cause?.message || 'UNKNOWN_ERROR',
+    stack: error?.stack || ''
+  });
+}
+
 async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService, quotationDeliveryService } = {}) {
   const route = matchProjectRoute(pathnameOf(req?.url));
   if (!route) return false;
@@ -209,7 +219,11 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
       return true;
     }
     if (req.method === 'GET') {
-      const project = await (await resolveQueries(projectQueryService)).getProjectById(route.projectId);
+      const queries = await resolveQueries(projectQueryService);
+      const platformId = String(parsedUrl(req.url).searchParams.get('platform') || '').trim().toUpperCase();
+      const project = typeof queries.getQuotationDetailByReference === 'function'
+        ? await queries.getQuotationDetailByReference(route.projectId, { platformId })
+        : await queries.getProjectById(route.projectId);
       if (!project) return sendNotFound(res, sendJson), true;
       sendJson(res, 200, { success: true, data: project });
       return true;
@@ -230,11 +244,11 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
     else if (['QUOTE_VALIDATION_ERROR', 'PROJECT_UPDATE_VALIDATION_ERROR', 'VQS_INVALID_DOCUMENT'].includes(error?.code)) sendJson(res, 422, { success: false, error: 'Contrato inválido', code: error.code, details: error.details || [] });
     else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });
     else {
-      console.error('[VQS_PROJECT_API_ERROR]', error?.code || error?.message || 'UNKNOWN_ERROR');
+      logProjectApiError(error, route);
       sendJson(res, 500, { success: false, error: 'No fue posible procesar el proyecto', code: 'PROJECT_API_ERROR' });
     }
   }
   return true;
 }
 
-module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation };
+module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation, logProjectApiError };
