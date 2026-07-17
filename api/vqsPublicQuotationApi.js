@@ -105,6 +105,58 @@ async function refreshPublicImageUrl(asset, storageClient) {
   return result.data.signedUrl;
 }
 
+function collectItemImageCandidates(item = {}) {
+  const source = safeObject(item);
+  const candidates = [source.imageUrl, source.image_url];
+  const arrayFields = [
+    'images',
+    'imagenes',
+    'renders',
+    'manualImages',
+    'manual_images',
+    'resultFiles',
+    'result_files',
+    'assetFiles',
+    'asset_files'
+  ];
+
+  for (const field of arrayFields) {
+    const value = source[field];
+    if (Array.isArray(value)) candidates.push(...value);
+    else if (value) candidates.push(value);
+  }
+
+  return candidates.filter(Boolean);
+}
+
+function imageCandidateKey(candidate) {
+  const reference = resolveStorageObjectReference(candidate);
+  if (reference) return `${reference.bucket}/${reference.path}`;
+  if (typeof candidate === 'string') return candidate.trim();
+  return firstText(candidate?.url, candidate?.src, candidate?.imageUrl, candidate?.signedUrl, candidate?.publicUrl, candidate?.downloadUrl);
+}
+
+async function refreshImageCandidates(candidates, storageClient) {
+  const refreshed = [];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    const key = imageCandidateKey(candidate);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+
+    try {
+      const url = await refreshPublicImageUrl(candidate, storageClient);
+      if (url) refreshed.push(url);
+    } catch (error) {
+      if (error?.code !== 'PUBLIC_QUOTATION_IMAGE_SIGN_FAILED') throw error;
+      console.error('[VQS_PUBLIC_QUOTATION_IMAGE_SKIPPED]', error.details || {});
+    }
+  }
+
+  return refreshed;
+}
+
 async function refreshPublicQuotationImages(quotation = {}, storageClient) {
   const document = safeObject(quotation.quotation_document || quotation.quotationDocument);
   const publicDocument = safeObject(document.publicDocument || document.public_document);
@@ -114,21 +166,20 @@ async function refreshPublicQuotationImages(quotation = {}, storageClient) {
   const items = Array.isArray(publicDocument.items) ? publicDocument.items : [];
   nextPublicDocument.items = await Promise.all(items.map(async (item) => {
     const nextItem = { ...safeObject(item) };
-    const sourceImage = firstText(nextItem.imageUrl, Array.isArray(nextItem.images) ? nextItem.images[0] : '');
-    if (!sourceImage) return nextItem;
-    const refreshedUrl = await refreshPublicImageUrl(sourceImage, storageClient);
-    nextItem.imageUrl = refreshedUrl;
-    nextItem.images = refreshedUrl ? [refreshedUrl] : [];
+    const refreshedImages = await refreshImageCandidates(collectItemImageCandidates(nextItem), storageClient);
+    if (!refreshedImages.length) return nextItem;
+    nextItem.imageUrl = refreshedImages[0];
+    nextItem.images = refreshedImages;
     return nextItem;
   }));
 
   const project = safeObject(publicDocument.project);
   const projectImages = Array.isArray(project.images) ? project.images : [];
   if (projectImages.length) {
-    const refreshedProjectImage = await refreshPublicImageUrl(projectImages[0], storageClient);
+    const refreshedProjectImages = await refreshImageCandidates(projectImages, storageClient);
     nextPublicDocument.project = {
       ...project,
-      images: refreshedProjectImage ? [refreshedProjectImage] : []
+      images: refreshedProjectImages
     };
   }
 
