@@ -539,7 +539,7 @@ class SupabaseStorageAdapter {
     authorized = false
   } = {}) {
     const operation = 'deleteObject';
-    validateDeleteIntent({
+    const deleteIntent = validateDeleteIntent({
       hardDelete,
       reason,
       context,
@@ -587,7 +587,7 @@ class SupabaseStorageAdapter {
           `Supabase Storage rechazó la eliminación con estado ${response.status}`
         ),
         {
-          code: data?.code || 'STORAGE_DELETE_FAILED',
+          code: 'STORAGE_DELETE_FAILED',
           operation,
           bucket: normalizedBucket,
           path: normalizedPath,
@@ -601,7 +601,7 @@ class SupabaseStorageAdapter {
       bucket: normalizedBucket,
       path: normalizedPath,
       deleted: true,
-      data
+      context: deleteIntent.context
     };
   }
 }
