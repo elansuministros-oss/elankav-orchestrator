@@ -1,5 +1,6 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
+const { handleVqsCustomerApi } = require('./vqsCustomerApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
 
 const VQS_ROUTE_PREFIX = '/api/vqs/';
@@ -68,6 +69,9 @@ async function handleMessageApi({ req, res, sendJson }) {
     });
     return true;
   }
+
+  const vqsCustomerHandled = await handleVqsCustomerApi({ req, res, sendJson });
+  if (vqsCustomerHandled) return true;
 
   const vqsContextHandled = await handleVqsContextApi({ req, res, sendJson });
   if (vqsContextHandled) return true;
