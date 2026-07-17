@@ -4,6 +4,7 @@ const { getSupabaseClient, SupabaseConfigurationError } = require('../services/s
 
 const PUBLIC_ROUTE = /^\/api\/vqs\/public\/quotations\/([^/?#]+)$/;
 const UNAVAILABLE_STATUSES = new Set(['cancelled', 'expired', 'void']);
+const PUBLIC_IMAGE_SIGN_TTL_SECONDS = 3600;
 let adapterPromise = null;
 let queryServiceModulePromise = null;
 
@@ -40,6 +41,104 @@ function resetVqsPublicQuotationApiForTests() {
 
 function safeObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function decodeStoragePath(value = '') {
+  return String(value || '')
+    .split('/')
+    .map((segment) => {
+      try { return decodeURIComponent(segment); }
+      catch { return segment; }
+    })
+    .join('/');
+}
+
+function resolveStorageObjectReference(asset) {
+  const source = safeObject(asset);
+  const explicitBucket = firstText(source.bucket, source.bucketId, source.storageBucket, source.storage_bucket);
+  const explicitPath = firstText(source.objectPath, source.object_path, source.storagePath, source.storage_path, source.path);
+  if (explicitBucket && explicitPath) {
+    return { bucket: explicitBucket, path: explicitPath.replace(/^\/+/, '') };
+  }
+
+  const candidate = typeof asset === 'string'
+    ? asset
+    : firstText(source.signedUrl, source.signed_url, source.url, source.src, source.imageUrl, source.publicUrl, source.downloadUrl);
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(candidate, 'http://localhost');
+    const match = url.pathname.match(/\/storage\/v1\/object\/(?:sign|authenticated)\/([^/]+)\/(.+)$/);
+    if (!match) return null;
+    return {
+      bucket: decodeStoragePath(match[1]),
+      path: decodeStoragePath(match[2]).replace(/^\/+/, '')
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function refreshPublicImageUrl(asset, storageClient) {
+  const reference = resolveStorageObjectReference(asset);
+  if (!reference) return typeof asset === 'string' ? asset : firstText(asset?.url, asset?.src, asset?.imageUrl, asset?.signedUrl);
+
+  const result = await storageClient
+    .from(reference.bucket)
+    .createSignedUrl(reference.path, PUBLIC_IMAGE_SIGN_TTL_SECONDS);
+
+  if (result?.error || !result?.data?.signedUrl) {
+    const error = new Error('No fue posible renovar la imagen publica de la cotizacion');
+    error.code = 'PUBLIC_QUOTATION_IMAGE_SIGN_FAILED';
+    error.details = { bucket: reference.bucket, path: reference.path };
+    throw error;
+  }
+
+  return result.data.signedUrl;
+}
+
+async function refreshPublicQuotationImages(quotation = {}, storageClient) {
+  const document = safeObject(quotation.quotation_document || quotation.quotationDocument);
+  const publicDocument = safeObject(document.publicDocument || document.public_document);
+  if (!Object.keys(publicDocument).length) return quotation;
+
+  const nextPublicDocument = { ...publicDocument };
+  const items = Array.isArray(publicDocument.items) ? publicDocument.items : [];
+  nextPublicDocument.items = await Promise.all(items.map(async (item) => {
+    const nextItem = { ...safeObject(item) };
+    const sourceImage = firstText(nextItem.imageUrl, Array.isArray(nextItem.images) ? nextItem.images[0] : '');
+    if (!sourceImage) return nextItem;
+    const refreshedUrl = await refreshPublicImageUrl(sourceImage, storageClient);
+    nextItem.imageUrl = refreshedUrl;
+    nextItem.images = refreshedUrl ? [refreshedUrl] : [];
+    return nextItem;
+  }));
+
+  const project = safeObject(publicDocument.project);
+  const projectImages = Array.isArray(project.images) ? project.images : [];
+  if (projectImages.length) {
+    const refreshedProjectImage = await refreshPublicImageUrl(projectImages[0], storageClient);
+    nextPublicDocument.project = {
+      ...project,
+      images: refreshedProjectImage ? [refreshedProjectImage] : []
+    };
+  }
+
+  return {
+    ...quotation,
+    quotation_document: {
+      ...document,
+      publicDocument: nextPublicDocument
+    }
+  };
 }
 
 function resolveDocument(quotation = {}) {
@@ -100,7 +199,7 @@ function sanitizePublicQuotation({ project = {}, quotation = {} } = {}) {
   });
 }
 
-async function handleVqsPublicQuotationApi({ req, res, sendJson, adapter } = {}) {
+async function handleVqsPublicQuotationApi({ req, res, sendJson, adapter, storageClient } = {}) {
   const route = matchPublicQuotationRoute(req?.url);
   if (!route) return false;
 
@@ -127,12 +226,17 @@ async function handleVqsPublicQuotationApi({ req, res, sendJson, adapter } = {})
       return true;
     }
 
-    sendJson(res, 200, { success: true, data: quotation });
+    const storage = storageClient || getSupabaseClient().storage;
+    const publicQuotation = await refreshPublicQuotationImages(quotation, storage);
+    sendJson(res, 200, { success: true, data: publicQuotation });
   } catch (error) {
     if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
       sendJson(res, 503, { success: false, code: 'PUBLIC_QUOTATION_UNAVAILABLE', error: 'Servicio temporalmente no disponible' });
     } else if (error?.code === 'PUBLIC_QUOTATION_DOCUMENT_MISSING') {
       sendJson(res, 410, { success: false, code: error.code, error: 'Cotizacion no disponible' });
+    } else if (error?.code === 'PUBLIC_QUOTATION_IMAGE_SIGN_FAILED') {
+      console.error('[VQS_PUBLIC_QUOTATION_IMAGE_SIGN_FAILED]', error.details || {});
+      sendJson(res, 503, { success: false, code: error.code, error: 'Imagenes temporalmente no disponibles' });
     } else {
       console.error('[VQS_PUBLIC_QUOTATION_ERROR]', {
         errorCode: error?.code || error?.cause?.code || 'UNKNOWN',
@@ -149,5 +253,9 @@ module.exports = {
   handleVqsPublicQuotationApi,
   matchPublicQuotationRoute,
   resetVqsPublicQuotationApiForTests,
-  sanitizePublicQuotation
+  sanitizePublicQuotation,
+  resolveStorageObjectReference,
+  refreshPublicImageUrl,
+  refreshPublicQuotationImages,
+  PUBLIC_IMAGE_SIGN_TTL_SECONDS
 };
