@@ -180,7 +180,8 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
           project_number: result.project.project_number,
           status: result.project.status,
           stage: result.project.current_stage,
-          quotation_document: result.quotationDocument
+          quotation_document: result.quotationDocument,
+          document_delivery: result.documentDelivery || null
         }
       });
       return true;
