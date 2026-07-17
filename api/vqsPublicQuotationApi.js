@@ -5,6 +5,7 @@ const { getSupabaseClient, SupabaseConfigurationError } = require('../services/s
 const PUBLIC_ROUTE = /^\/api\/vqs\/public\/quotations\/([^/?#]+)$/;
 const UNAVAILABLE_STATUSES = new Set(['cancelled', 'expired', 'void']);
 let adapterPromise = null;
+let queryServiceModulePromise = null;
 
 function pathnameOf(url = '') {
   try { return new URL(url, 'http://localhost').pathname; }
@@ -24,8 +25,17 @@ async function getAdapter() {
   return adapterPromise;
 }
 
+async function createQueryService(adapter) {
+  if (!queryServiceModulePromise) {
+    queryServiceModulePromise = import('../services/quoteCore/projectQueryService.js');
+  }
+  const { ProjectQueryService } = await queryServiceModulePromise;
+  return new ProjectQueryService({ adapter });
+}
+
 function resetVqsPublicQuotationApiForTests() {
   adapterPromise = null;
+  queryServiceModulePromise = null;
 }
 
 function safeObject(value) {
@@ -51,6 +61,7 @@ function resolvePdfUrl(quotation = {}, document = {}) {
     publicDocument.documentUrl,
     publicDocument.document_url
   ];
+
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
     if (!value) continue;
@@ -59,13 +70,14 @@ function resolvePdfUrl(quotation = {}, document = {}) {
       if (url.protocol === 'https:' || url.protocol === 'http:') return url.toString();
     } catch {}
   }
+
   return '';
 }
 
 function sanitizePublicQuotation({ project = {}, quotation = {} } = {}) {
   const document = resolveDocument(quotation);
   if (!document) {
-    const error = new Error('Documento público no disponible');
+    const error = new Error('Documento publico no disponible');
     error.code = 'PUBLIC_QUOTATION_DOCUMENT_MISSING';
     throw error;
   }
@@ -94,41 +106,40 @@ async function handleVqsPublicQuotationApi({ req, res, sendJson, adapter } = {})
 
   if (req.method !== 'GET') {
     res.setHeader?.('Allow', 'GET');
-    sendJson(res, 405, { success: false, code: 'METHOD_NOT_ALLOWED', error: 'Método no permitido' });
+    sendJson(res, 405, { success: false, code: 'METHOD_NOT_ALLOWED', error: 'Metodo no permitido' });
     return true;
   }
 
   try {
     const repository = adapter || await getAdapter();
-    const project = await repository.getProjectById(route.projectId);
-    if (!project) {
-      sendJson(res, 404, { success: false, code: 'PUBLIC_QUOTATION_NOT_FOUND', error: 'Cotización no encontrada' });
-      return true;
-    }
-
-    const quotation = await repository.getQuotationById(project.quotation_id);
-    if (!quotation || String(quotation.platform_id || project.platform_id || '').toUpperCase() !== 'ELANVISUAL') {
-      sendJson(res, 404, { success: false, code: 'PUBLIC_QUOTATION_NOT_FOUND', error: 'Cotización no encontrada' });
+    const queryService = await createQueryService(repository);
+    const quotation = await queryService.getQuotationDetailByReference(route.projectId, { platformId: 'ELANVISUAL' });
+    if (!quotation) {
+      sendJson(res, 404, { success: false, code: 'PUBLIC_QUOTATION_NOT_FOUND', error: 'Cotizacion no encontrada' });
       return true;
     }
 
     const status = String(quotation.status || '').toLowerCase();
-    const validUntil = quotation.valid_until ? new Date(quotation.valid_until) : null;
+    const validUntil = quotation.validUntil ? new Date(quotation.validUntil) : null;
     const expiredByDate = validUntil && !Number.isNaN(validUntil.getTime()) && validUntil.getTime() < Date.now();
     if (UNAVAILABLE_STATUSES.has(status) || expiredByDate) {
-      sendJson(res, 410, { success: false, code: 'PUBLIC_QUOTATION_UNAVAILABLE', error: 'Cotización no disponible' });
+      sendJson(res, 410, { success: false, code: 'PUBLIC_QUOTATION_UNAVAILABLE', error: 'Cotizacion no disponible' });
       return true;
     }
 
-    sendJson(res, 200, { success: true, data: sanitizePublicQuotation({ project, quotation }) });
+    sendJson(res, 200, { success: true, data: quotation });
   } catch (error) {
     if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
       sendJson(res, 503, { success: false, code: 'PUBLIC_QUOTATION_UNAVAILABLE', error: 'Servicio temporalmente no disponible' });
     } else if (error?.code === 'PUBLIC_QUOTATION_DOCUMENT_MISSING') {
-      sendJson(res, 410, { success: false, code: error.code, error: 'Cotización no disponible' });
+      sendJson(res, 410, { success: false, code: error.code, error: 'Cotizacion no disponible' });
     } else {
-      console.error('[VQS_PUBLIC_QUOTATION_ERROR]', error?.code || error?.message || 'UNKNOWN');
-      sendJson(res, 500, { success: false, code: 'PUBLIC_QUOTATION_ERROR', error: 'No fue posible consultar la cotización' });
+      console.error('[VQS_PUBLIC_QUOTATION_ERROR]', {
+        errorCode: error?.code || error?.cause?.code || 'UNKNOWN',
+        errorMessage: error?.message || error?.cause?.message || 'UNKNOWN',
+        stack: error?.stack || ''
+      });
+      sendJson(res, 500, { success: false, code: 'PUBLIC_QUOTATION_ERROR', error: 'No fue posible consultar la cotizacion' });
     }
   }
   return true;
