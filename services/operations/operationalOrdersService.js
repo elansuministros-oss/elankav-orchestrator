@@ -28,6 +28,16 @@ function requiredText(value, field) {
   return normalized;
 }
 
+function unwrap(result, context) {
+  if (result?.error) {
+    const error = new Error(`${context}: ${result.error.message || 'error de Supabase'}`);
+    error.code = result.error.code || 'SUPABASE_ERROR';
+    error.cause = result.error;
+    throw error;
+  }
+  return result?.data ?? null;
+}
+
 function publicWorkOrder(row) {
   if (!row) return null;
   return {
@@ -64,7 +74,69 @@ function publicPurchaseOrder(row) {
 class OperationalOrdersService {
   constructor({ adapter } = {}) {
     if (!adapter) throw new Error('OperationalOrdersService requiere adapter');
+    if (!adapter.supabase || !adapter.tables) throw new Error('OperationalOrdersService requiere adapter Supabase oficial');
     this.adapter = adapter;
+  }
+
+  async createWorkOrderRow({ projectId, quotationId, generatedBy, generatedByRole, payload }) {
+    const result = await this.adapter.supabase.rpc('elankav_create_work_order', {
+      target_project_id: projectId,
+      target_quotation_id: quotationId,
+      target_generated_by: generatedBy,
+      target_generated_by_role: generatedByRole,
+      target_payload: payload || {}
+    });
+    const rows = unwrap(result, 'No se pudo crear la OT');
+    return Array.isArray(rows) ? rows[0] : rows;
+  }
+
+  async createPurchaseOrderRow({ projectId, supplierId, generatedBy, payload }) {
+    const result = await this.adapter.supabase.rpc('elankav_create_purchase_order', {
+      target_project_id: projectId,
+      target_supplier_id: supplierId,
+      target_generated_by: generatedBy,
+      target_payload: payload || {}
+    });
+    const rows = unwrap(result, 'No se pudo crear la OC');
+    return Array.isArray(rows) ? rows[0] : rows;
+  }
+
+  async getWorkOrderRow(id) {
+    const result = await this.adapter.supabase
+      .from(this.adapter.tables.workOrders)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    return unwrap(result, 'No se pudo consultar la OT');
+  }
+
+  async updateWorkOrderRow(id, patch) {
+    const result = await this.adapter.supabase
+      .from(this.adapter.tables.workOrders)
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+    return unwrap(result, 'No se pudo actualizar la OT');
+  }
+
+  async getPurchaseOrderRow(id) {
+    const result = await this.adapter.supabase
+      .from(this.adapter.tables.purchaseOrders)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    return unwrap(result, 'No se pudo consultar la OC');
+  }
+
+  async updatePurchaseOrderRow(id, patch) {
+    const result = await this.adapter.supabase
+      .from(this.adapter.tables.purchaseOrders)
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+    return unwrap(result, 'No se pudo actualizar la OC');
   }
 
   async createWorkOrder(projectId, input = {}, actor = {}) {
@@ -85,7 +157,7 @@ class OperationalOrdersService {
     const existing = await this.adapter.listWorkOrders({ projectId: project.id, quotationId, limit: 1 });
     if (existing.length) return publicWorkOrder(existing[0]);
 
-    const row = await this.adapter.createWorkOrder({
+    const row = await this.createWorkOrderRow({
       projectId: project.id,
       quotationId,
       generatedBy: actor.userId || input.generatedBy || 'ELANVISUAL',
@@ -114,7 +186,7 @@ class OperationalOrdersService {
   }
 
   async getWorkOrder(projectId, workOrderId) {
-    const row = await this.adapter.getWorkOrderById(requiredText(workOrderId, 'workOrderId'));
+    const row = await this.getWorkOrderRow(requiredText(workOrderId, 'workOrderId'));
     if (!row || String(row.project_id) !== String(projectId)) return null;
     return publicWorkOrder(row);
   }
@@ -125,7 +197,7 @@ class OperationalOrdersService {
   }
 
   async updateWorkOrder(projectId, workOrderId, patch = {}) {
-    const current = await this.adapter.getWorkOrderById(requiredText(workOrderId, 'workOrderId'));
+    const current = await this.getWorkOrderRow(requiredText(workOrderId, 'workOrderId'));
     if (!current || String(current.project_id) !== String(projectId)) return null;
     const update = {};
     if (Object.hasOwn(patch, 'status')) {
@@ -142,7 +214,7 @@ class OperationalOrdersService {
       error.code = 'OPERATIONAL_ORDER_VALIDATION_ERROR';
       throw error;
     }
-    return publicWorkOrder(await this.adapter.updateWorkOrder(workOrderId, update));
+    return publicWorkOrder(await this.updateWorkOrderRow(workOrderId, update));
   }
 
   async createPurchaseOrder(projectId, input = {}, actor = {}) {
@@ -154,7 +226,7 @@ class OperationalOrdersService {
     }
 
     const supplierId = requiredText(input.supplierId, 'supplierId');
-    const row = await this.adapter.createPurchaseOrder({
+    const row = await this.createPurchaseOrderRow({
       projectId: project.id,
       supplierId,
       generatedBy: actor.userId || input.generatedBy || 'ELANVISUAL',
@@ -181,7 +253,7 @@ class OperationalOrdersService {
   }
 
   async getPurchaseOrder(projectId, purchaseOrderId) {
-    const row = await this.adapter.getPurchaseOrderById(requiredText(purchaseOrderId, 'purchaseOrderId'));
+    const row = await this.getPurchaseOrderRow(requiredText(purchaseOrderId, 'purchaseOrderId'));
     if (!row || String(row.project_id) !== String(projectId)) return null;
     return publicPurchaseOrder(row);
   }
@@ -192,7 +264,7 @@ class OperationalOrdersService {
   }
 
   async updatePurchaseOrder(projectId, purchaseOrderId, patch = {}) {
-    const current = await this.adapter.getPurchaseOrderById(requiredText(purchaseOrderId, 'purchaseOrderId'));
+    const current = await this.getPurchaseOrderRow(requiredText(purchaseOrderId, 'purchaseOrderId'));
     if (!current || String(current.project_id) !== String(projectId)) return null;
     const update = {};
     if (Object.hasOwn(patch, 'status')) {
@@ -211,7 +283,7 @@ class OperationalOrdersService {
       error.code = 'OPERATIONAL_ORDER_VALIDATION_ERROR';
       throw error;
     }
-    return publicPurchaseOrder(await this.adapter.updatePurchaseOrder(purchaseOrderId, update));
+    return publicPurchaseOrder(await this.updatePurchaseOrderRow(purchaseOrderId, update));
   }
 }
 
