@@ -1,5 +1,6 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
 const { handleVqsOperationalOrdersApi } = require('./vqsOperationalOrdersApi');
+const { handleVqsQuotationAssetApi } = require('./vqsQuotationAssetApi');
 const { handleVqsPublicQuotationApi } = require('./vqsPublicQuotationApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
@@ -74,6 +75,9 @@ async function handleMessageApi({ req, res, sendJson }) {
 
   const publicQuotationHandled = await handleVqsPublicQuotationApi({ req, res, sendJson });
   if (publicQuotationHandled) return true;
+
+  const quotationAssetHandled = await handleVqsQuotationAssetApi({ req, res, sendJson });
+  if (quotationAssetHandled) return true;
 
   const vqsCustomerHandled = await handleVqsCustomerApi({ req, res, sendJson });
   if (vqsCustomerHandled) return true;
