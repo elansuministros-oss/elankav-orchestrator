@@ -69,6 +69,6 @@ test('reemplaza data URL por referencia persistente antes de crear la cotizació
   });
 
   assert.equal(result.items[0].imageUrl, 'https://storage.example/photo');
-  assert.equal(result.items[0].images[0].bucket, 'official-documents');
+  assert.equal(result.items[0].images[0].bucket, 'quotation-assets');
   assert.equal(result.items[0].images[0].path.includes('/quotation-assets/'), true);
 });
