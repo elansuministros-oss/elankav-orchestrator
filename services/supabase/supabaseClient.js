@@ -213,6 +213,36 @@ class SupabaseRestClient {
   from(table) {
     return new PostgrestQuery(this, table);
   }
+
+  async rpc(functionName, args = {}) {
+    const response = await this.fetchImpl(
+      `${this.url}/rest/v1/rpc/${encodeURIComponent(functionName)}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: this.serviceRoleKey,
+          Authorization: `Bearer ${this.serviceRoleKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(args || {})
+      }
+    );
+
+    const text = await response.text();
+    const data = parseJson(text);
+    if (!response.ok) {
+      return {
+        data: null,
+        error: {
+          message: data?.message || data?.error || `Supabase respondio ${response.status}`,
+          code: data?.code || String(response.status),
+          details: data?.details || null,
+          hint: data?.hint || null
+        }
+      };
+    }
+    return { data: (data ?? text) || null, error: null };
+  }
 }
 
 function getSupabaseClient({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
