@@ -1,5 +1,7 @@
 'use strict';
 
+const { QuotationAssetPersistenceService } = require('./quotationAssetPersistenceService');
+
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -56,7 +58,7 @@ function mapProjectPatch(document, current = {}, actor = {}) {
 }
 
 class QuotationEditService {
-  constructor({ adapter, documentBuilder, documentDeliveryService = null } = {}) {
+  constructor({ adapter, documentBuilder, documentDeliveryService = null, assetPersistenceService = null } = {}) {
     if (!adapter) throw new Error('QuotationEditService requiere adapter');
     if (!documentBuilder || typeof documentBuilder.build !== 'function') {
       throw new Error('QuotationEditService requiere documentBuilder.build()');
@@ -67,6 +69,7 @@ class QuotationEditService {
     this.adapter = adapter;
     this.documentBuilder = documentBuilder;
     this.documentDeliveryService = documentDeliveryService;
+    this.assetPersistenceService = assetPersistenceService || new QuotationAssetPersistenceService();
   }
 
   async update(projectId, input, actor = {}) {
@@ -83,23 +86,24 @@ class QuotationEditService {
       throw error;
     }
 
+    const persistedInput = await this.assetPersistenceService.persistInput(input);
     const { createQuoteProject, validateQuoteProject } = await import('../../modules/quoteCore/quoteProjectContract.js');
     const document = createQuoteProject({
-      ...input,
+      ...persistedInput,
       quotation: {
-        ...asObject(input.quotation),
+        ...asObject(persistedInput.quotation),
         quotationId: quotation.id,
         quotationNumber: quotation.quotation_number,
-        platformId: input.quotation?.platformId || quotation.platform_id,
+        platformId: persistedInput.quotation?.platformId || quotation.platform_id,
         status: quotation.status,
         publicToken: quotation.public_token || '',
         publicUrl: quotation.public_url || '',
         issuedAt: quotation.issued_at,
-        validUntil: input.quotation?.validUntil || quotation.valid_until || '',
-        source: input.quotation?.source || project.source || {}
+        validUntil: persistedInput.quotation?.validUntil || quotation.valid_until || '',
+        source: persistedInput.quotation?.source || project.source || {}
       },
       project: {
-        ...asObject(input.project),
+        ...asObject(persistedInput.project),
         projectId: project.id,
         projectNumber: project.project_number || '',
         status: project.status,
@@ -110,7 +114,7 @@ class QuotationEditService {
       relations: {
         ...asObject(quotation.relations),
         ...asObject(project.relations),
-        ...asObject(input.relations)
+        ...asObject(persistedInput.relations)
       },
       audit: {
         createdAt: quotation.created_at,
