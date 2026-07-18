@@ -2,7 +2,8 @@ const { getSupabaseClient, SupabaseConfigurationError } = require('../services/s
 const { SupabaseStorageAdapter } = require('../adapters/storage/supabaseStorageAdapter');
 const { normalizeProjectIntake, validateProjectIntake, toQuoteProjectInput } = require('../modules/vqs/projectIntakeContract');
 const { QuotationDocumentBuilder } = require('../services/vqs/quotationDocumentBuilder');
-const { ProjectDocumentOrchestrationService } = require('../services/vqs/projectDocumentOrchestrationService');
+const { ProjectDocumentOrchestrationService, createDefaultDeliveryService } = require('../services/vqs/projectDocumentOrchestrationService');
+const { QuotationEditService } = require('../services/vqs/quotationEditService');
 const { refreshPublicQuotationDelivery, refreshPublicQuotationImages } = require('../services/vqs/publicQuotationDeliveryService');
 const { sendQuotationByWhatsApp } = require('../services/vqs/quotationWahaDeliveryService');
 
@@ -69,6 +70,12 @@ function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
 
 function validateExternalContract(body) { return validateProjectIntake(normalizeProjectIntake(body)).errors; }
 function mapExternalContract(body) { return toQuoteProjectInput(normalizeProjectIntake(body)); }
+function isQuotationEditBody(body = {}) {
+  return Boolean(
+    body?.contractVersion || body?.platform || body?.customer || body?.executive ||
+    Array.isArray(body?.items) || body?.pricing || body?.payments
+  );
+}
 
 function resolveTemporaryActor(body = {}) {
   return {
@@ -115,10 +122,18 @@ async function getDefaultServices() {
       const adapter = new adapterModule.SupabaseQuoteProjectAdapter({ supabase: getSupabaseClient() });
       const storageAdapter = new SupabaseStorageAdapter();
       const coreProjectService = new commandModule.QuoteProjectService({ adapter });
+      const documentBuilder = new QuotationDocumentBuilder();
+      const documentDeliveryService = createDefaultDeliveryService(coreProjectService);
       return {
         projectService: new ProjectDocumentOrchestrationService({
           projectService: coreProjectService,
-          documentBuilder: new QuotationDocumentBuilder()
+          documentBuilder,
+          documentDeliveryService
+        }),
+        quotationEditService: new QuotationEditService({
+          adapter,
+          documentBuilder,
+          documentDeliveryService
         }),
         projectQueryService: new queryModule.ProjectQueryService({ adapter }),
         adapter,
@@ -151,14 +166,8 @@ async function refreshPublicQuotationDetail(project, services) {
   if (!quotation) return project;
 
   const [delivery, quotationDocument] = await Promise.all([
-    refreshPublicQuotationDelivery({
-      quotation,
-      storageAdapter: services.storageAdapter
-    }),
-    refreshPublicQuotationImages({
-      quotationDocument: project.quotation_document,
-      storageAdapter: services.storageAdapter
-    })
+    refreshPublicQuotationDelivery({ quotation, storageAdapter: services.storageAdapter }),
+    refreshPublicQuotationImages({ quotationDocument: project.quotation_document, storageAdapter: services.storageAdapter })
   ]);
 
   return {
@@ -168,7 +177,7 @@ async function refreshPublicQuotationDetail(project, services) {
   };
 }
 
-async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService, quotationDeliveryService } = {}) {
+async function handleVqsProjectApi({ req, res, sendJson, projectService, projectQueryService, quotationDeliveryService, quotationEditService } = {}) {
   const route = matchProjectRoute(pathnameOf(req?.url));
   if (!route) return false;
   try {
@@ -208,11 +217,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         quotation_document: result.quotationDocument
       };
       if (result.documentDelivery) responseData.document_delivery = result.documentDelivery;
-      sendJson(res, 201, {
-        success: true,
-        contract_version: contract.contractVersion,
-        data: responseData
-      });
+      sendJson(res, 201, { success: true, contract_version: contract.contractVersion, data: responseData });
       return true;
     }
 
@@ -222,17 +227,11 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
         return true;
       }
-
       const body = await readJsonBody(req);
       const project = await (await resolveQueries(projectQueryService)).getProjectById(route.projectId);
       if (!project) return sendNotFound(res, sendJson), true;
-
       const deliver = quotationDeliveryService || sendQuotationByWhatsApp;
-      const delivery = await deliver({
-        ...body,
-        projectId: route.projectId,
-        quotationId: body.quotationId || project.quotationId
-      });
+      const delivery = await deliver({ ...body, projectId: route.projectId, quotationId: body.quotationId || project.quotationId });
       sendJson(res, 200, { success: true, data: delivery });
       return true;
     }
@@ -248,6 +247,7 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
       sendJson(res, 200, { success: true, data: project });
       return true;
     }
+
     if (req.method === 'GET') {
       const defaultServices = projectQueryService ? null : await getDefaultServices();
       const queries = projectQueryService || defaultServices.projectQueryService;
@@ -260,19 +260,46 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
       sendJson(res, 200, { success: true, data: project });
       return true;
     }
+
     if (req.method === 'PATCH') {
       const body = await readJsonBody(req);
+      if (isQuotationEditBody(body)) {
+        const contract = normalizeProjectIntake(body);
+        const validation = validateProjectIntake(contract);
+        if (!validation.ok) {
+          sendJson(res, 422, { success: false, error: 'Contrato inválido', code: 'VQS_CONTRACT_INVALID', contract_version: contract.contractVersion, details: validation.errors });
+          return true;
+        }
+        const editService = quotationEditService || (await getDefaultServices()).quotationEditService;
+        const result = await editService.update(route.projectId, toQuoteProjectInput(contract), resolveTemporaryActor(contract));
+        if (!result) return sendNotFound(res, sendJson), true;
+        const responseData = {
+          quotation_id: result.quotation.id,
+          quotation_number: result.quotation.quotation_number,
+          project_id: result.project.id,
+          project_number: result.project.project_number,
+          status: result.project.status,
+          stage: result.project.current_stage,
+          quotation_document: result.quotationDocument
+        };
+        if (result.documentDelivery) responseData.document_delivery = result.documentDelivery;
+        sendJson(res, 200, { success: true, contract_version: contract.contractVersion, data: responseData });
+        return true;
+      }
+
       const project = await (await resolveCommands(projectService)).updateProject(route.projectId, body, resolveTemporaryActor(body));
       if (!project) return sendNotFound(res, sendJson), true;
       const publicProject = await (await resolveQueries(projectQueryService)).getProjectById(route.projectId);
       sendJson(res, 200, { success: true, data: publicProject });
       return true;
     }
+
     res.setHeader?.('Allow', 'GET, PATCH');
     sendJson(res, 405, { success: false, error: 'Método no permitido', code: 'METHOD_NOT_ALLOWED' });
   } catch (error) {
     if (error instanceof HttpBodyError) sendJson(res, error.statusCode, { success: false, error: error.message, code: error.code });
     else if (error?.code === 'VQS_WHATSAPP_INVALID') sendJson(res, 422, { success: false, error: 'Datos de envío inválidos', code: error.code, details: error.details || [] });
+    else if (error?.code === 'QUOTATION_EDIT_NOT_ALLOWED') sendJson(res, 409, { success: false, error: error.message, code: error.code, details: error.details || {} });
     else if (['QUOTE_VALIDATION_ERROR', 'PROJECT_UPDATE_VALIDATION_ERROR', 'VQS_INVALID_DOCUMENT'].includes(error?.code)) sendJson(res, 422, { success: false, error: 'Contrato inválido', code: error.code, details: error.details || [] });
     else if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') sendJson(res, 503, { success: false, error: 'Persistencia no disponible', code: 'SUPABASE_CONFIGURATION_ERROR' });
     else {
@@ -283,4 +310,4 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
   return true;
 }
 
-module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation, refreshPublicQuotationDetail, logProjectApiError };
+module.exports = { handleVqsProjectApi, matchProjectRoute, mapExternalContract, resolveTemporaryActor, validateExternalContract, readJsonBody, resetVqsProjectApiForTests, MAX_BODY_BYTES, publicQuotation, refreshPublicQuotationDetail, isQuotationEditBody, logProjectApiError };
