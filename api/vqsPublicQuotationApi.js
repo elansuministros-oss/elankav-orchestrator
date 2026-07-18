@@ -90,8 +90,16 @@ function resolveStorageObjectReference(asset) {
 }
 
 async function refreshPublicImageUrl(asset, storageClient) {
+  const directUrl = typeof asset === 'string'
+    ? asset.trim()
+    : firstText(asset?.url, asset?.src, asset?.imageUrl, asset?.signedUrl);
+
+  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(directUrl)) {
+    return directUrl;
+  }
+
   const reference = resolveStorageObjectReference(asset);
-  if (!reference) return typeof asset === 'string' ? asset : firstText(asset?.url, asset?.src, asset?.imageUrl, asset?.signedUrl);
+  if (!reference) return directUrl;
 
   const result = await storageClient
     .from(reference.bucket)
