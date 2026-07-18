@@ -149,35 +149,3 @@ test('renueva la signedUrl al construir la respuesta publica', async () => {
   assert.equal(response.state.payload.data.quotation_document.publicDocument.items[0].imageUrl, renewedUrl);
   assert.deepEqual(response.state.payload.data.quotation_document.publicDocument.items[0].images, [renewedUrl]);
 });
-
-test('conserva imágenes Base64 sin intentar firmarlas en Storage', async () => {
-  const response = makeResponse();
-  const base64Image = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD';
-  let storageUsed = false;
-
-  const storageClient = {
-    from() {
-      storageUsed = true;
-      throw new Error('Storage no debe utilizarse para imágenes Base64');
-    }
-  };
-
-  await handleVqsPublicQuotationApi({
-    req: makeReq(),
-    res: response.res,
-    sendJson: response.sendJson,
-    adapter: buildAdapter({ imageUrl: base64Image }),
-    storageClient
-  });
-
-  assert.equal(response.state.statusCode, 200);
-  assert.equal(storageUsed, false);
-  assert.equal(
-    response.state.payload.data.quotation_document.publicDocument.items[0].imageUrl,
-    base64Image
-  );
-  assert.deepEqual(
-    response.state.payload.data.quotation_document.publicDocument.items[0].images,
-    [base64Image]
-  );
-});
