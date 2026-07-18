@@ -1,5 +1,6 @@
 const { getSupabaseClient, SupabaseConfigurationError } = require('../services/supabase/supabaseClient');
 const { OperationalOrdersService } = require('../services/operations/operationalOrdersService');
+const { OperationalOrdersDocumentService } = require('../services/operations/operationalOrdersDocumentService');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 let servicePromise = null;
@@ -22,29 +23,43 @@ function matchRoute(pathname) {
 function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     req.on('data', (chunk) => {
+      if (settled) return;
       size += chunk.length;
       if (size > maxBytes) {
         const error = new Error('El cuerpo excede el tamaño permitido');
         error.code = 'PAYLOAD_TOO_LARGE';
         error.statusCode = 413;
-        reject(error);
+        fail(error);
         req.destroy?.();
         return;
       }
       chunks.push(chunk);
     });
-    req.on('error', reject);
+    req.on('error', fail);
     req.on('end', () => {
+      if (settled) return;
       const raw = Buffer.concat(chunks).toString('utf8').trim();
-      if (!raw) return resolve({});
-      try { resolve(JSON.parse(raw)); }
-      catch {
+      if (!raw) {
+        settled = true;
+        resolve({});
+        return;
+      }
+      try {
+        settled = true;
+        resolve(JSON.parse(raw));
+      } catch {
         const error = new Error('JSON inválido');
         error.code = 'INVALID_JSON';
         error.statusCode = 400;
-        reject(error);
+        fail(error);
       }
     });
   });
@@ -64,7 +79,8 @@ async function defaultService() {
   if (!servicePromise) {
     servicePromise = import('../adapters/quoteCore/supabaseQuoteProjectAdapter.js').then((module) => {
       const adapter = new module.SupabaseQuoteProjectAdapter({ supabase: getSupabaseClient() });
-      return new OperationalOrdersService({ adapter });
+      const ordersService = new OperationalOrdersService({ adapter });
+      return new OperationalOrdersDocumentService({ ordersService });
     });
   }
   return servicePromise;
@@ -76,10 +92,10 @@ async function handleVqsOperationalOrdersApi({ req, res, sendJson, ordersService
   const route = matchRoute(parsedUrl(req?.url).pathname);
   if (!route) return false;
 
-  const service = ordersService || await defaultService();
-  const actor = actorFromHeaders(req);
-
   try {
+    const service = ordersService || await defaultService();
+    const actor = actorFromHeaders(req);
+
     if (route.resource === 'work-orders') {
       if (!route.itemId && req.method === 'GET') {
         const rows = await service.listWorkOrders(route.projectId, {
@@ -142,7 +158,7 @@ async function handleVqsOperationalOrdersApi({ req, res, sendJson, ordersService
     return true;
   } catch (error) {
     const code = error?.code || 'OPERATIONAL_ORDER_ERROR';
-    const status = error?.statusCode || (code === 'PROJECT_NOT_FOUND' ? 404 : code.includes('VALIDATION') || code.includes('INVALID') ? 422 : error instanceof SupabaseConfigurationError ? 503 : 500);
+    const status = error?.statusCode || (code === 'PROJECT_NOT_FOUND' ? 404 : code.includes('VALIDATION') || code.includes('INVALID') || code.includes('LINEAGE') ? 422 : error instanceof SupabaseConfigurationError ? 503 : 500);
     sendJson(res, status, {
       success: false,
       code,
