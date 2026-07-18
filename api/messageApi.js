@@ -1,4 +1,5 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
+const { handleVqsOperationalOrdersApi } = require('./vqsOperationalOrdersApi');
 const { handleVqsPublicQuotationApi } = require('./vqsPublicQuotationApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
@@ -36,7 +37,7 @@ function applyVqsCors(req, res) {
   res.setHeader?.('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader?.(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Request-Id, X-Elankav-Actor-Type, X-Elankav-Role, X-Elankav-Platform'
+    'Content-Type, Authorization, X-Request-Id, X-Elankav-Actor-Type, X-Elankav-User-Id, X-Elankav-Executive-Id, X-Elankav-Role, X-Elankav-Platform'
   );
   res.setHeader?.('Access-Control-Max-Age', '600');
 
@@ -79,6 +80,9 @@ async function handleMessageApi({ req, res, sendJson }) {
 
   const vqsContextHandled = await handleVqsContextApi({ req, res, sendJson });
   if (vqsContextHandled) return true;
+
+  const operationalOrdersHandled = await handleVqsOperationalOrdersApi({ req, res, sendJson });
+  if (operationalOrdersHandled) return true;
 
   const vqsProjectHandled = await handleVqsProjectApi({ req, res, sendJson });
   if (vqsProjectHandled) return true;
