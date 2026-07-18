@@ -1,6 +1,8 @@
 'use strict';
 
 const { getSupabaseClient, SupabaseConfigurationError } = require('../services/supabase/supabaseClient');
+const { SupabaseStorageAdapter } = require('../adapters/storage/supabaseStorageAdapter');
+const { refreshPublicQuotationDelivery } = require('../services/vqs/publicQuotationDeliveryService');
 
 const PUBLIC_ROUTE = /^\/api\/vqs\/public\/quotations\/([^/?#]+)$/;
 const UNAVAILABLE_STATUSES = new Set(['cancelled', 'expired', 'void']);
@@ -250,7 +252,42 @@ function sanitizePublicQuotation({ project = {}, quotation = {} } = {}) {
   });
 }
 
-async function handleVqsPublicQuotationApi({ req, res, sendJson, adapter, storageClient } = {}) {
+async function refreshPublicPdfUrl({
+  publicQuotation,
+  quotation,
+  storageAdapter
+} = {}) {
+  const fallbackPdfUrl = String(publicQuotation?.pdfUrl || '').trim();
+
+  try {
+    const delivery = await refreshPublicQuotationDelivery({
+      quotation,
+      storageAdapter
+    });
+
+    return delivery?.signedUrl
+      ? { ...publicQuotation, pdfUrl: delivery.signedUrl }
+      : publicQuotation;
+  } catch (error) {
+    console.error('[VQS_PUBLIC_QUOTATION_PDF_SIGN_SKIPPED]', {
+      errorCode: error?.code || 'PUBLIC_QUOTATION_PDF_SIGN_FAILED'
+    });
+
+    return {
+      ...publicQuotation,
+      pdfUrl: fallbackPdfUrl
+    };
+  }
+}
+
+async function handleVqsPublicQuotationApi({
+  req,
+  res,
+  sendJson,
+  adapter,
+  storageClient,
+  storageAdapter
+} = {}) {
   const route = matchPublicQuotationRoute(req?.url);
   if (!route) return false;
 
@@ -278,7 +315,17 @@ async function handleVqsPublicQuotationApi({ req, res, sendJson, adapter, storag
     }
 
     const storage = storageClient || getSupabaseClient().storage;
-    const publicQuotation = await refreshPublicQuotationImages(quotation, storage);
+    const withImages = await refreshPublicQuotationImages(quotation, storage);
+    const storedQuotation = quotation.quotationId && typeof repository.getQuotationById === 'function'
+      ? await repository.getQuotationById(quotation.quotationId)
+      : null;
+    const documentStorageAdapter = storageAdapter || new SupabaseStorageAdapter();
+    const publicQuotation = await refreshPublicPdfUrl({
+      publicQuotation: withImages,
+      quotation: storedQuotation || quotation,
+      storageAdapter: documentStorageAdapter
+    });
+
     sendJson(res, 200, { success: true, data: publicQuotation });
   } catch (error) {
     if (error instanceof SupabaseConfigurationError || error?.code === 'SUPABASE_CONFIGURATION_ERROR') {
@@ -308,5 +355,6 @@ module.exports = {
   resolveStorageObjectReference,
   refreshPublicImageUrl,
   refreshPublicQuotationImages,
+  refreshPublicPdfUrl,
   PUBLIC_IMAGE_SIGN_TTL_SECONDS
 };
