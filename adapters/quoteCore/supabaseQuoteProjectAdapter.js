@@ -17,10 +17,21 @@ function assertClient(client) {
 function unwrap(result, context) {
   if (result?.error) {
     const error = new Error(`${context}: ${result.error.message || 'error de Supabase'}`);
+    error.code = result.error.code || 'SUPABASE_ERROR';
     error.cause = result.error;
     throw error;
   }
   return result?.data ?? null;
+}
+
+function projectNumberYear(createdAt) {
+  const date = createdAt ? new Date(createdAt) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    const error = new Error('createdAt no es válido para generar el número de proyecto');
+    error.code = 'PROJECT_NUMBER_DATE_INVALID';
+    throw error;
+  }
+  return date.getUTCFullYear();
 }
 
 export class SupabaseQuoteProjectAdapter {
@@ -73,8 +84,34 @@ export class SupabaseQuoteProjectAdapter {
     return unwrap(await query, 'No se pudieron consultar las cotizaciones') || [];
   }
 
+  async reserveProjectNumber({ createdAt } = {}) {
+    if (typeof this.supabase.rpc !== 'function') {
+      const error = new Error('No hay reserva transaccional de número de proyecto disponible');
+      error.code = 'PROJECT_NUMBER_RESERVATION_UNAVAILABLE';
+      throw error;
+    }
+
+    const result = await this.supabase.rpc('elankav_reserve_project_number', {
+      target_year: projectNumberYear(createdAt)
+    });
+    const projectNumber = unwrap(result, 'No se pudo reservar el número de proyecto');
+
+    if (typeof projectNumber !== 'string' || !/^PRY-\d{4}-\d{6}$/.test(projectNumber)) {
+      const error = new Error('Supabase devolvió un número de proyecto inválido');
+      error.code = 'PROJECT_NUMBER_INVALID';
+      throw error;
+    }
+
+    return projectNumber;
+  }
+
   async createProject(row) {
-    const result = await this.supabase.from(this.tables.projects).insert(row).select('*').single();
+    const projectNumber = row.project_number || await this.reserveProjectNumber({ createdAt: row.created_at });
+    const result = await this.supabase
+      .from(this.tables.projects)
+      .insert({ ...row, project_number: projectNumber })
+      .select('*')
+      .single();
     return unwrap(result, 'No se pudo crear el proyecto');
   }
 
@@ -186,3 +223,4 @@ export class SupabaseQuoteProjectAdapter {
 }
 
 export const QUOTE_CORE_TABLES = TABLES;
+export const projectNumberHelpers = Object.freeze({ projectNumberYear });
