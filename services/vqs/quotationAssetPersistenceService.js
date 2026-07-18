@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const { SupabaseStorageAdapter } = require('../../adapters/storage/supabaseStorageAdapter');
 
-const DEFAULT_BUCKET = 'official-documents';
+const DEFAULT_BUCKET = 'quotation-assets';
 const DEFAULT_EXPIRES_IN = 3600;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MIME_EXTENSIONS = Object.freeze({
@@ -46,7 +46,7 @@ function buildAssetPath({ platformId, itemId, extension, now = new Date(), id = 
 }
 
 class QuotationAssetPersistenceService {
-  constructor({ storageAdapter, bucket = process.env.VQS_DOCUMENT_BUCKET || DEFAULT_BUCKET, expiresIn = DEFAULT_EXPIRES_IN } = {}) {
+  constructor({ storageAdapter, bucket = process.env.VQS_ASSET_BUCKET || DEFAULT_BUCKET, expiresIn = DEFAULT_EXPIRES_IN } = {}) {
     this.storageAdapter = storageAdapter || new SupabaseStorageAdapter();
     this.bucket = String(bucket || DEFAULT_BUCKET).trim();
     this.expiresIn = Number(expiresIn || DEFAULT_EXPIRES_IN);
