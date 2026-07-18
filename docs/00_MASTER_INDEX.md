@@ -16,6 +16,7 @@ Establecer una fuente documental única, auditable y separada del código funcio
 | `05_ROADMAP_PROPUESTO.md` | Orden recomendado, VSC-001, IAM, Knowledge Base y movimientos de voz | ACTUALIZADO |
 | `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir auditorías | VERIFICADO/EVOLUCIÓN |
 | `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación | DOCUMENTADO/IAM INICIAL |
+| `EAC_STORAGE_VQS_INCIDENT_20260718.md` | Evidencia, errores operativos, configuración validada y procedimiento obligatorio para Storage/VQS/Asset Core | VERIFICADO/PENDIENTE E2E |
 | `VOICE-001.md` | Identidad oficial, arquitectura, diccionario y selección futura de voz de ELAN IA | APROBADO/CERRADO |
 | `ECS-001_ELAN_CREATIVE_STUDIO_EXECUTION.md` | Alcance, arquitectura, sistemas, costos y ejecución de ELAN Creative Studio | DESIGN-001A COMPLETADO |
 
@@ -31,6 +32,12 @@ Para conocer la gobernanza documental y localizar documentos vigentes debe leers
 
 ```text
 docs/00_MASTER_INDEX.md
+```
+
+Para cualquier trabajo relacionado con Storage, VQS, imágenes de cotización, Document Delivery o Asset Core debe leerse obligatoriamente:
+
+```text
+docs/EAC_STORAGE_VQS_INCIDENT_20260718.md
 ```
 
 Para usuarios, permisos, Owner Mode o delegación debe leerse también:
@@ -144,6 +151,7 @@ Esta sección consolida reglas ya presentes en la Base Oficial de Conocimiento; 
 | `ECS-001` | Auditoría ejecutable de ELAN Creative Studio y fases de diseño/video | CERRADO DOCUMENTALMENTE |
 | `DESIGN-001A` | Fundación de `elankav-design-engine`, PR #1, merge `161768d`, QA 28/28 | CERRADO |
 | `STT-001A` | Reconocimiento de audio desacoplado | PENDIENTE EN SU LÍNEA |
+| `EAC-STORAGE-INCIDENT-20260718` | Incidente de bucket, errores de procedimiento, evidencia viva y runbook preventivo documentados | DOCUMENTADO; E2E PENDIENTE |
 
 ## Criterio de cierre documental
 
