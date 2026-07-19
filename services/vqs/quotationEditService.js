@@ -73,7 +73,25 @@ class QuotationEditService {
   }
 
   async update(projectId, input, actor = {}) {
-    const project = await this.adapter.getProjectById(projectId);
+    const reference = String(projectId || '').trim();
+    let project = null;
+
+    if (/^COT-/i.test(reference)) {
+      if (
+        typeof this.adapter.getQuotationByNumber !== 'function' ||
+        typeof this.adapter.getProjectByQuotationId !== 'function'
+      ) {
+        return null;
+      }
+
+      const referencedQuotation = await this.adapter.getQuotationByNumber(reference);
+      project = referencedQuotation
+        ? await this.adapter.getProjectByQuotationId(referencedQuotation.id)
+        : null;
+    } else {
+      project = await this.adapter.getProjectById(reference);
+    }
+
     if (!project) return null;
 
     const quotation = await this.adapter.getQuotationById(project.quotation_id);
