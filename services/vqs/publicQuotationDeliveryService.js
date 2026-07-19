@@ -106,6 +106,12 @@ async function refreshAsset(asset, storageAdapter, expiresIn) {
   return refreshed;
 }
 
+function deliveryUrlFromAsset(asset) {
+  if (typeof asset === 'string') return asset.trim();
+  if (!asset || typeof asset !== 'object') return '';
+  return firstText(...URL_FIELDS.map((field) => asset[field]));
+}
+
 async function refreshPublicQuotationImages({
   quotationDocument,
   storageAdapter,
@@ -122,15 +128,26 @@ async function refreshPublicQuotationImages({
   const items = Array.isArray(publicDocument.items) ? publicDocument.items : [];
 
   const refreshedItems = await Promise.all(items.map(async (item = {}) => {
+    const originalImages = Array.isArray(item.images) ? item.images : [];
     const refreshedImageUrl = await refreshAsset(item.imageUrl, storageAdapter, expiresIn);
-    const refreshedImages = Array.isArray(item.images)
-      ? await Promise.all(item.images.map((asset) => refreshAsset(asset, storageAdapter, expiresIn)))
+    const refreshedImages = originalImages.length
+      ? await Promise.all(originalImages.map((asset) => refreshAsset(asset, storageAdapter, expiresIn)))
       : item.images;
+    const storageBackedImageUrls = Array.isArray(refreshedImages)
+      ? refreshedImages
+          .filter((_asset, index) => resolveAssetStorageLocation(originalImages[index]))
+          .map(deliveryUrlFromAsset)
+      : [];
+    const primaryImageUrl = firstText(
+      ...storageBackedImageUrls,
+      deliveryUrlFromAsset(refreshedImageUrl),
+      ...(Array.isArray(refreshedImages) ? refreshedImages.map(deliveryUrlFromAsset) : [])
+    );
 
     return {
       ...item,
-      imageUrl: refreshedImageUrl,
-      images: refreshedImages
+      imageUrl: primaryImageUrl,
+      images: primaryImageUrl ? [primaryImageUrl] : refreshedImages
     };
   }));
 

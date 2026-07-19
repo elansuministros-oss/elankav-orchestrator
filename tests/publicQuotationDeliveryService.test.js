@@ -142,3 +142,42 @@ test('deja intactas imágenes externas que no pertenecen a Supabase Storage', as
   assert.equal(refreshed.publicDocument.items[0].imageUrl, external);
   assert.equal(refreshed.publicDocument.items[0].images[0], external);
 });
+test('renueva miniaturas desde bucket y objectPath aunque no exista signedUrl', async () => {
+  const calls = [];
+  const storageAdapter = {
+    async createDelivery(input) {
+      calls.push(input);
+      return {
+        ...input,
+        signedUrl: `https://fresh.example/${encodeURIComponent(input.path)}?token=fresh`,
+        expiresIn: input.expiresIn
+      };
+    }
+  };
+  const asset = {
+    kind: 'quotation-image',
+    itemId: 'item-1',
+    bucket: 'elanvisual',
+    objectPath: 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.jpg',
+    mimeType: 'image/jpeg',
+    sizeBytes: 123
+  };
+  const quotationDocument = {
+    schemaVersion: '1.0.0',
+    publicDocument: {
+      items: [{ id: 'item-1', title: 'Rotulo', imageUrl: '', images: [asset] }],
+      project: { images: [] }
+    }
+  };
+
+  const refreshed = await refreshPublicQuotationImages({ quotationDocument, storageAdapter });
+  const item = refreshed.publicDocument.items[0];
+
+  assert.match(item.imageUrl, /token=fresh/);
+  assert.match(item.images[0], /token=fresh/);
+  assert.deepEqual(calls[0], {
+    bucket: 'elanvisual',
+    path: 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.jpg',
+    expiresIn: 3600
+  });
+});
