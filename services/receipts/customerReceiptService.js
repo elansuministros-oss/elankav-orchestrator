@@ -11,6 +11,41 @@ function validationError(errors) {
   return error;
 }
 
+function quotationTotalUsd(quotation = {}) {
+  const values = [
+    quotation.total_usd,
+    quotation.pricing?.totalUsd,
+    quotation.pricing?.total_usd
+  ];
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number >= 0) return number;
+  }
+  return NaN;
+}
+
+function depositPercentage(quotation = {}) {
+  const terms = quotation.payment_terms || {};
+  const direct = [
+    terms.depositPercentage,
+    terms.deposit_percentage,
+    terms.advance?.percentage,
+    terms.anticipo?.percentage
+  ];
+  for (const value of direct) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0 && number <= 100) return number;
+  }
+
+  const installments = Array.isArray(terms.installments) ? terms.installments : [];
+  const advance = installments.find((entry) => /anticipo|advance|deposit/i.test(String(entry?.label || entry?.name || '')))
+    || installments[0];
+  const installmentPercentage = Number(advance?.percentage);
+  return Number.isFinite(installmentPercentage) && installmentPercentage > 0 && installmentPercentage <= 100
+    ? installmentPercentage
+    : 60;
+}
+
 export class CustomerReceiptService {
   constructor({ adapter, quoteProjectService } = {}) {
     if (!adapter) throw new Error('CustomerReceiptService requiere adapter');
@@ -19,13 +54,10 @@ export class CustomerReceiptService {
   }
 
   async create(input = {}, actor = {}) {
-    const payment = normalizeCustomerPayment(input);
-    const validation = validateCustomerPayment(payment);
-    if (!validation.ok) throw validationError(validation.errors);
-
+    const normalized = normalizeCustomerPayment(input);
     const [quotation, project] = await Promise.all([
-      this.adapter.getQuotationById(payment.quotationId),
-      this.adapter.getProjectById(payment.projectId)
+      this.adapter.getQuotationById(normalized.quotationId),
+      this.adapter.getProjectById(normalized.projectId)
     ]);
 
     if (!quotation) {
@@ -38,16 +70,36 @@ export class CustomerReceiptService {
       error.code = 'PAYMENT_PROJECT_LINEAGE_INVALID';
       throw error;
     }
-    if (String(quotation.customer_id || '') !== payment.customerId) {
-      const error = new Error('El cliente no corresponde a la cotización');
-      error.code = 'PAYMENT_CUSTOMER_LINEAGE_INVALID';
+
+    const payment = {
+      ...normalized,
+      customerId: String(quotation.customer_id || ''),
+      executiveId: String(quotation.executive_id || actor.executiveId || ''),
+      quotationTotal: quotationTotalUsd(quotation),
+      requiredDepositPercentage: depositPercentage(quotation)
+    };
+
+    if (payment.currency !== 'USD') {
+      const error = new Error('La API de recibos requiere montos normalizados en USD');
+      error.code = 'PAYMENT_CURRENCY_NOT_SUPPORTED';
+      error.statusCode = 422;
       throw error;
     }
+
+    const validation = validateCustomerPayment(payment);
+    if (!validation.ok) throw validationError(validation.errors);
 
     const confirmed = await this.adapter.listCustomerPayments({
       quotationId: payment.quotationId,
       statuses: ['confirmed']
     });
+    if (confirmed.some((row) => String(row.currency || '').toUpperCase() !== payment.currency)) {
+      const error = new Error('Existen pagos históricos sin normalización monetaria compatible');
+      error.code = 'PAYMENT_CURRENCY_MIXED';
+      error.statusCode = 409;
+      throw error;
+    }
+
     const previousPaid = confirmed.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const balance = calculatePaymentBalance({
       quotationTotal: payment.quotationTotal,
@@ -81,6 +133,7 @@ export class CustomerReceiptService {
       executive_snapshot: quotation.executive_snapshot || {},
       payment_terms_snapshot: quotation.payment_terms || {},
       metadata: payment.metadata,
+      confirmed_at: payment.status === 'confirmed' ? new Date().toISOString() : null,
       created_by: actor.userId || null,
       updated_by: actor.userId || null
     });
@@ -102,3 +155,8 @@ export class CustomerReceiptService {
     return { payment: created, balance };
   }
 }
+
+export const customerReceiptAuthority = Object.freeze({
+  quotationTotalUsd,
+  depositPercentage
+});
