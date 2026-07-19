@@ -73,7 +73,8 @@ async function handleVqsQuotationAssetApi({ req, res, sendJson, assetService } =
     const body = await readJsonBody(req);
     const persisted = await (assetService || getService()).persistDataUrl(body.dataUrl, {
       platformId: body.platform || req.headers?.['x-elankav-platform'] || 'ELANVISUAL',
-      itemId: body.itemId || 'item'
+      itemId: body.itemId || 'item',
+      assetId: body.assetId || body.uploadToken || ''
     });
 
     if (!persisted) {
