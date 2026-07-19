@@ -83,9 +83,12 @@ export class SupabaseCustomerPaymentAdapter {
     if (quotationId) query = query.eq('quotation_id', quotationId);
     if (projectId) query = query.eq('project_id', projectId);
     if (customerId) query = query.eq('customer_id', customerId);
-    if (Array.isArray(statuses) && statuses.length) query = query.in('status', statuses);
+    if (Array.isArray(statuses) && statuses.length === 1) query = query.eq('status', statuses[0]);
 
-    return unwrap(await query, 'No se pudieron consultar los pagos del cliente') || [];
+    const rows = unwrap(await query, 'No se pudieron consultar los pagos del cliente') || [];
+    if (!Array.isArray(statuses) || statuses.length <= 1) return rows;
+    const allowed = new Set(statuses.map((value) => String(value)));
+    return rows.filter((row) => allowed.has(String(row.status || '')));
   }
 }
 
