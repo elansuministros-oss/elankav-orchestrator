@@ -217,6 +217,14 @@ function resolvePdfUrl(quotation = {}, quotationDocument = {}) {
 
 function publicQuotationDetail({ project = {}, quotation = {}, quotationDocument = {} } = {}) {
   const publicDocument = safeObject(quotationDocument.publicDocument);
+  const quotationRelations = safeObject(quotation.relations);
+  const projectRelations = safeObject(project.relations);
+  const sourceAssets = safeArray(
+    quotationRelations.sourceAssets ||
+    quotationRelations.source_assets ||
+    projectRelations.sourceAssets ||
+    projectRelations.source_assets
+  );
   return {
     projectId: project.id,
     projectNumber: project.project_number || '',
@@ -231,6 +239,9 @@ function publicQuotationDetail({ project = {}, quotation = {}, quotationDocument
     totalUsd: quotation.total_usd,
     payableTotalNio: quotation.payable_total_nio,
     pdfUrl: resolvePdfUrl(quotation, quotationDocument),
+    metadata: {
+      sourceAssets
+    },
     createdAt: quotation.created_at || project.created_at,
     updatedAt: quotation.updated_at || project.updated_at,
     quotation_document: {
