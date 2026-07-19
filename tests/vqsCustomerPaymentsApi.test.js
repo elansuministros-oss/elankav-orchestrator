@@ -14,10 +14,15 @@ function request({ method = 'GET', url, body, headers = {} }) {
   req.url = url;
   req.headers = headers;
   req.destroy = () => {};
-  queueMicrotask(() => {
+
+  // IncomingMessage permanece disponible mientras el handler realiza
+  // autenticación asíncrona. setImmediate evita emitir end antes de que
+  // readJsonBody registre sus listeners en las pruebas de POST.
+  setImmediate(() => {
     if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body)));
     req.emit('end');
   });
+
   return req;
 }
 
