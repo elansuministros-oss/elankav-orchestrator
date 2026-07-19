@@ -17,6 +17,7 @@ function fixture() {
     status: 'awaiting_deposit',
     customer_id: 'customer-1',
     executive_id: 'executive-1',
+    total_usd: 1000,
     customer_snapshot: { name: 'Cliente Prueba' },
     executive_snapshot: { name: 'Ejecutivo Prueba' },
     payment_terms: { depositPercentage: 60 }
@@ -35,7 +36,7 @@ function fixture() {
   const quoteProjectService = {
     async confirmDeposit(input) { confirmedDeposits.push(input); quotation.status = 'deposit_confirmed'; }
   };
-  return { adapter, quoteProjectService, payments, confirmedDeposits };
+  return { adapter, quoteProjectService, payments, confirmedDeposits, quotation };
 }
 
 function paymentInput(overrides = {}) {
@@ -87,6 +88,23 @@ test('crea recibo vinculado y activa proyecto al cubrir el anticipo', async () =
   assert.equal(state.confirmedDeposits[0].paymentReference, 'TX-001');
 });
 
+test('usa total, cliente, ejecutivo y porcentaje de la cotización, no del cliente HTTP', async () => {
+  const { CustomerReceiptService } = await modules();
+  const state = fixture();
+  const service = new CustomerReceiptService(state);
+  const result = await service.create(paymentInput({
+    customerId: 'cliente-falso',
+    executiveId: 'ejecutivo-falso',
+    quotationTotal: 1,
+    requiredDepositPercentage: 1
+  }), { userId: 'owner-1', role: 'owner' });
+
+  assert.equal(result.payment.customer_id, 'customer-1');
+  assert.equal(result.payment.executive_id, 'executive-1');
+  assert.equal(result.balance.quotationTotal, 1000);
+  assert.equal(result.balance.requiredDepositPercentage, 60);
+});
+
 test('acumula abonos y no activa antes de alcanzar el porcentaje requerido', async () => {
   const { CustomerReceiptService } = await modules();
   const state = fixture();
@@ -125,4 +143,13 @@ test('un recibo cancelado no activa el proyecto', async () => {
 
   assert.equal(result.payment.status, 'cancelled');
   assert.equal(state.confirmedDeposits.length, 0);
+});
+
+test('rechaza NIO mientras no exista normalización monetaria persistente', async () => {
+  const { CustomerReceiptService } = await modules();
+  const service = new CustomerReceiptService(fixture());
+  await assert.rejects(
+    () => service.create(paymentInput({ currency: 'NIO' })),
+    (error) => error.code === 'PAYMENT_CURRENCY_NOT_SUPPORTED'
+  );
 });
