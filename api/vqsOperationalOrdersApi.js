@@ -77,9 +77,14 @@ function actorFromHeaders(req = {}) {
 
 async function defaultService() {
   if (!servicePromise) {
-    servicePromise = import('../adapters/quoteCore/supabaseQuoteProjectAdapter.js').then((module) => {
-      const adapter = new module.SupabaseQuoteProjectAdapter({ supabase: getSupabaseClient() });
-      const ordersService = new OperationalOrdersService({ adapter });
+    servicePromise = Promise.all([
+      import('../adapters/quoteCore/supabaseQuoteProjectAdapter.js'),
+      import('../adapters/receipts/supabaseCustomerPaymentAdapter.js')
+    ]).then(([quoteModule, paymentModule]) => {
+      const supabase = getSupabaseClient();
+      const adapter = new quoteModule.SupabaseQuoteProjectAdapter({ supabase });
+      const paymentAdapter = new paymentModule.SupabaseCustomerPaymentAdapter({ supabase });
+      const ordersService = new OperationalOrdersService({ adapter, paymentAdapter });
       return new OperationalOrdersDocumentService({ ordersService });
     });
   }
@@ -158,7 +163,11 @@ async function handleVqsOperationalOrdersApi({ req, res, sendJson, ordersService
     return true;
   } catch (error) {
     const code = error?.code || 'OPERATIONAL_ORDER_ERROR';
-    const status = error?.statusCode || (code === 'PROJECT_NOT_FOUND' ? 404 : code.includes('VALIDATION') || code.includes('INVALID') || code.includes('LINEAGE') ? 422 : error instanceof SupabaseConfigurationError ? 503 : 500);
+    const status = error?.statusCode
+      || (code === 'PROJECT_NOT_FOUND' ? 404
+        : code.includes('VALIDATION') || code.includes('INVALID') || code.includes('LINEAGE') ? 422
+          : code.includes('REQUIRED_FOR_') || code === 'DEPOSIT_REQUIRED_FOR_WORK_ORDER' ? 409
+            : error instanceof SupabaseConfigurationError ? 503 : 500);
     sendJson(res, status, {
       success: false,
       code,
