@@ -6,16 +6,6 @@ const {
   PURCHASE_ORDER_STATES
 } = require('../services/operations/operationalOrdersService');
 
-function singleChain(row, onUpdate) {
-  return {
-    select() { return this; },
-    eq() { return this; },
-    maybeSingle() { return Promise.resolve({ data: row, error: null }); },
-    update(patch) { onUpdate?.(patch); return this; },
-    single() { return Promise.resolve({ data: { ...row, ...(onUpdate?.patch || {}) }, error: null }); }
-  };
-}
-
 function makeAdapter({ project, workOrders = [], purchaseOrders = [] } = {}) {
   const calls = { rpc: [], events: [], updates: [] };
   const workOrderRow = {
@@ -54,7 +44,15 @@ function makeAdapter({ project, workOrders = [], purchaseOrders = [] } = {}) {
     appendEvent(row) { calls.events.push(row); return Promise.resolve(row); }
   };
 
-  return { adapter, calls };
+  return { adapter, calls, workOrderRow };
+}
+
+function paymentAdapter({ depositCompleted = true } = {}) {
+  return {
+    listCustomerPayments() {
+      return Promise.resolve(depositCompleted ? [{ id: 'payment-1', status: 'confirmed', deposit_completed: true }] : []);
+    }
+  };
 }
 
 const project = {
@@ -62,9 +60,9 @@ const project = {
   title: 'Rótulo', customer_snapshot: { name: 'Cliente' }, platform_id: 'ELANVISUAL'
 };
 
-test('crea OT con numeración transaccional y lineage correcto', async () => {
+test('crea OT con numeración transaccional y lineage correcto después del anticipo', async () => {
   const { adapter, calls } = makeAdapter({ project });
-  const service = new OperationalOrdersService({ adapter });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   const result = await service.createWorkOrder(project.id, { quotationId: project.quotation_id }, { userId: 'user-1', role: 'ventas' });
 
   assert.equal(result.workOrderNumber, 'OT-2026-000001');
@@ -74,29 +72,48 @@ test('crea OT con numeración transaccional y lineage correcto', async () => {
   assert.equal(calls.events[0].event_type, 'work_order.created');
 });
 
+test('rechaza OT cuando el anticipo no está completado', async () => {
+  const { adapter } = makeAdapter({ project });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter({ depositCompleted: false }) });
+  await assert.rejects(
+    service.createWorkOrder(project.id, { quotationId: project.quotation_id }),
+    (error) => error.code === 'DEPOSIT_REQUIRED_FOR_WORK_ORDER'
+  );
+});
+
 test('rechaza OT cuando quotation_id no corresponde al proyecto', async () => {
   const { adapter } = makeAdapter({ project });
-  const service = new OperationalOrdersService({ adapter });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   await assert.rejects(
     service.createWorkOrder(project.id, { quotationId: 'quotation-other' }),
     (error) => error.code === 'WORK_ORDER_LINEAGE_INVALID'
   );
 });
 
-test('crea OC vinculada a proyecto y proveedor', async () => {
-  const { adapter, calls } = makeAdapter({ project });
-  const service = new OperationalOrdersService({ adapter });
+test('crea OC vinculada a proyecto, OT y proveedor', async () => {
+  const { adapter, calls, workOrderRow } = makeAdapter({ project, workOrders: [{ ...workOrderRow, id: 'wo-1', project_id: project.id }] });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   const result = await service.createPurchaseOrder(project.id, { supplierId: 'supplier-1' }, { userId: 'user-1' });
 
   assert.equal(result.purchaseOrderNumber, 'OC-2026-000001');
   assert.equal(result.supplierId, 'supplier-1');
   assert.equal(calls.rpc[0].name, 'elankav_create_purchase_order');
   assert.equal(calls.rpc[0].params.target_project_id, project.id);
+  assert.equal(calls.rpc[0].params.target_payload.workOrderId, 'wo-1');
 });
 
-test('rechaza OC sin proveedor', async () => {
-  const { adapter } = makeAdapter({ project });
-  const service = new OperationalOrdersService({ adapter });
+test('rechaza OC cuando no existe OT', async () => {
+  const { adapter } = makeAdapter({ project, workOrders: [] });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
+  await assert.rejects(
+    service.createPurchaseOrder(project.id, { supplierId: 'supplier-1' }),
+    (error) => error.code === 'WORK_ORDER_REQUIRED_FOR_PURCHASE_ORDER'
+  );
+});
+
+test('rechaza OC sin proveedor después de validar la OT', async () => {
+  const { adapter, workOrderRow } = makeAdapter({ project, workOrders: [{ ...workOrderRow, id: 'wo-1', project_id: project.id }] });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   await assert.rejects(
     service.createPurchaseOrder(project.id, {}),
     (error) => error.code === 'OPERATIONAL_ORDER_VALIDATION_ERROR'
@@ -108,7 +125,7 @@ test('valida los estados oficiales de OT y OC', async () => {
   assert.deepEqual(PURCHASE_ORDER_STATES, ['draft', 'pending_approval', 'approved', 'ordered', 'partially_received', 'received', 'cancelled']);
 
   const { adapter } = makeAdapter({ project });
-  const service = new OperationalOrdersService({ adapter });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   await assert.rejects(service.updateWorkOrder(project.id, 'wo-1', { status: 'approved' }), (error) => error.code === 'WORK_ORDER_STATUS_INVALID');
   await assert.rejects(service.updatePurchaseOrder(project.id, 'po-1', { status: 'in_progress' }), (error) => error.code === 'PURCHASE_ORDER_STATUS_INVALID');
 });
