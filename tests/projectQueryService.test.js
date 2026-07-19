@@ -127,6 +127,10 @@ function buildQuotationDetailAdapter() {
   const calls = [];
   return {
     calls,
+    async listQuotations(filters = {}) {
+      calls.push(['listQuotations', filters]);
+      return [quotation];
+    },
     async getQuotationByNumber(quotationNumber) {
       calls.push(['getQuotationByNumber', quotationNumber]);
       return quotationNumber === quotation.quotation_number ? quotation : null;
@@ -202,6 +206,21 @@ test('resuelve detalle oficial por numero comercial de cotizacion', async () => 
   assert.equal(detail.quotation_document.publicDocument.totals.total, 290);
   assert.deepEqual(adapter.calls.slice(0, 2), [
     ['getQuotationByNumber', 'COT-20260717-00005'],
+    ['getProjectByQuotationId', '11111111-1111-4111-8111-111111111111']
+  ]);
+});
+
+test('lista cotizaciones con el projectId persistido por quotation_id', async () => {
+  const adapter = buildQuotationDetailAdapter();
+  const service = new ProjectQueryService({ adapter, now: () => now });
+  const rows = await service.listQuotations({ platformId: 'ELANVISUAL', limit: 50 });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, '22222222-2222-4222-8222-222222222222');
+  assert.equal(rows[0].projectId, '22222222-2222-4222-8222-222222222222');
+  assert.equal(rows[0].quotationId, '11111111-1111-4111-8111-111111111111');
+  assert.deepEqual(adapter.calls.slice(0, 2), [
+    ['listQuotations', { status: undefined, limit: 50 }],
     ['getProjectByQuotationId', '11111111-1111-4111-8111-111111111111']
   ]);
 });

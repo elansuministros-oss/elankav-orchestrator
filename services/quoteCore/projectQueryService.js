@@ -79,12 +79,17 @@ function publicProjectStatus(row) {
   };
 }
 
-function publicQuotation(row) {
+function publicQuotation(row, project = {}) {
+  const projectId = firstText(project.id, row.project_id);
   return {
+    id: projectId,
+    projectId,
+    projectNumber: firstText(project.project_number, row.project_number),
     quotationId: row.id,
     quotationNumber: row.quotation_number,
     customerId: row.customer_id,
     executiveId: row.executive_id,
+    platformId: firstText(row.platform_id, project.platform_id),
     status: row.status,
     issuedAt: row.issued_at,
     validUntil: row.valid_until,
@@ -315,6 +320,21 @@ export class ProjectQueryService {
     }
     const project = await this.adapter.getProjectById(projectId);
     return project ? publicProjectStatus(project) : null;
+  }
+
+  async listQuotations({ status, platformId, limit = 100 } = {}) {
+    const quotations = await this.adapter.listQuotations({ status, limit });
+    const results = [];
+
+    for (const quotation of quotations) {
+      const project = typeof this.adapter.getProjectByQuotationId === 'function'
+        ? await this.adapter.getProjectByQuotationId(quotation.id)
+        : null;
+      if (!samePlatform({ quotation, project: project || {}, platformId })) continue;
+      results.push(publicQuotation(quotation, project || {}));
+    }
+
+    return results;
   }
 
   async getProjectsByCustomer({ customerQuery, status, executiveId, limit = 100 } = {}) {
