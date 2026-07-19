@@ -118,6 +118,102 @@ test('VQS crea proyecto, responde 201 y no expone internalData', async () => {
   assert.equal(JSON.stringify(response.state.payload).includes('internalData'), false);
 });
 
+test('VQS lista cotizaciones con projectId persistido para abrir visor', async () => {
+  const response = makeResponse();
+  const calls = [];
+  const projectQueryService = {
+    async listQuotations(filters) {
+      calls.push(filters);
+      return [{
+        id: 'project-id',
+        projectId: 'project-id',
+        projectNumber: 'PRJ-000001',
+        quotationId: 'quotation-id',
+        quotationNumber: 'VQS-000001',
+        platformId: 'ELANVISUAL',
+        status: 'draft'
+      }];
+    }
+  };
+
+  await handleVqsProjectApi({
+    req: makeReq({ url: '/api/vqs/projects?platform=ELANVISUAL&limit=200', method: 'GET' }),
+    res: response.res,
+    sendJson: response.sendJson,
+    projectQueryService
+  });
+
+  assert.equal(response.state.statusCode, 200);
+  assert.equal(calls[0].platformId, 'ELANVISUAL');
+  assert.equal(response.state.payload.data[0].projectId, 'project-id');
+  assert.equal(response.state.payload.data[0].quotationId, 'quotation-id');
+  assert.equal(response.state.payload.data[0].id, 'project-id');
+});
+
+test('VQS crea cotizacion y el visor recupera usando el project_id devuelto', async () => {
+  const created = makeResponse();
+  const projectService = {
+    async create() {
+      return {
+        quotation: { id: 'quotation-id', quotation_number: 'VQS-000001' },
+        project: { id: 'project-id', project_number: 'PRJ-000001', status: 'pending_activation', current_stage: 'quotation' },
+        quotationDocument: {
+          publicDocument: {
+            projectId: 'project-id',
+            quotationId: 'quotation-id',
+            quotationNumber: 'VQS-000001',
+            customer: { name: 'Cliente' },
+            items: [{ title: 'Rotulo' }]
+          }
+        }
+      };
+    }
+  };
+
+  await handleVqsProjectApi({
+    req: makeReq({ body: JSON.stringify(validBody()) }),
+    res: created.res,
+    sendJson: created.sendJson,
+    projectService
+  });
+
+  const projectId = created.state.payload.data.project_id;
+  const detail = makeResponse();
+  const projectQueryService = {
+    async getQuotationDetailByReference(reference, options) {
+      assert.equal(reference, projectId);
+      assert.equal(options.platformId, 'ELANVISUAL');
+      return {
+        projectId,
+        quotationId: 'quotation-id',
+        quotationNumber: 'VQS-000001',
+        quotation_document: {
+          publicDocument: {
+            projectId,
+            quotationId: 'quotation-id',
+            quotationNumber: 'VQS-000001',
+            customer: { name: 'Cliente' },
+            items: [{ title: 'Rotulo' }]
+          }
+        }
+      };
+    }
+  };
+
+  await handleVqsProjectApi({
+    req: makeReq({ url: `/api/vqs/projects/${encodeURIComponent(projectId)}?platform=ELANVISUAL`, method: 'GET' }),
+    res: detail.res,
+    sendJson: detail.sendJson,
+    projectQueryService
+  });
+
+  assert.equal(created.state.statusCode, 201);
+  assert.equal(projectId, 'project-id');
+  assert.equal(detail.state.statusCode, 200);
+  assert.equal(detail.state.payload.data.projectId, 'project-id');
+  assert.equal(detail.state.payload.data.quotationId, 'quotation-id');
+});
+
 test('VQS consulta un proyecto por id sin datos internos', async () => {
   const response = makeResponse();
   const projectQueryService = { async getProjectById(id) { assert.equal(id, 'project-id'); return publicProject(); } };

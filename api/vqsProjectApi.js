@@ -187,11 +187,13 @@ async function handleVqsProjectApi({ req, res, sendJson, projectService, project
         const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 100), 1), 200);
         const status = String(url.searchParams.get('status') || '').trim() || undefined;
         const platformId = String(url.searchParams.get('platform') || '').trim().toUpperCase();
-        const services = await getDefaultServices();
-        const rows = await services.adapter.listQuotations({ status, limit });
-        const quotations = rows
-          .filter((row) => !platformId || String(row.platform_id || '').toUpperCase() === platformId)
-          .map(publicQuotation);
+        const defaultServices = projectQueryService ? null : await getDefaultServices();
+        const queries = projectQueryService || defaultServices.projectQueryService;
+        const quotations = typeof queries.listQuotations === 'function'
+          ? await queries.listQuotations({ status, limit, platformId })
+          : (await (defaultServices || await getDefaultServices()).adapter.listQuotations({ status, limit }))
+              .filter((row) => !platformId || String(row.platform_id || '').toUpperCase() === platformId)
+              .map(publicQuotation);
         sendJson(res, 200, { success: true, data: quotations, count: quotations.length });
         return true;
       }
