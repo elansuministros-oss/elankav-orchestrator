@@ -72,10 +72,11 @@ function publicPurchaseOrder(row) {
 }
 
 class OperationalOrdersService {
-  constructor({ adapter } = {}) {
+  constructor({ adapter, paymentAdapter } = {}) {
     if (!adapter) throw new Error('OperationalOrdersService requiere adapter');
     if (!adapter.supabase || !adapter.tables) throw new Error('OperationalOrdersService requiere adapter Supabase oficial');
     this.adapter = adapter;
+    this.paymentAdapter = paymentAdapter || null;
   }
 
   async createWorkOrderRow({ projectId, quotationId, generatedBy, generatedByRole, payload }) {
@@ -139,6 +140,39 @@ class OperationalOrdersService {
     return unwrap(result, 'No se pudo actualizar la OC');
   }
 
+  async assertDepositCompleted(project) {
+    if (!this.paymentAdapter?.listCustomerPayments) {
+      const error = new Error('No existe adapter de pagos para validar el anticipo');
+      error.code = 'PAYMENT_GATE_UNAVAILABLE';
+      error.statusCode = 503;
+      throw error;
+    }
+    const payments = await this.paymentAdapter.listCustomerPayments({
+      projectId: project.id,
+      quotationId: project.quotation_id,
+      statuses: ['confirmed'],
+      limit: 100
+    });
+    const completed = payments.some((row) => Boolean(row.deposit_completed));
+    if (!completed) {
+      const error = new Error('El anticipo requerido no ha sido completado');
+      error.code = 'DEPOSIT_REQUIRED_FOR_WORK_ORDER';
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  async assertWorkOrderExists(projectId) {
+    const workOrders = await this.adapter.listWorkOrders({ projectId, limit: 1 });
+    if (!workOrders.length) {
+      const error = new Error('Debe existir una OT antes de crear una OC');
+      error.code = 'WORK_ORDER_REQUIRED_FOR_PURCHASE_ORDER';
+      error.statusCode = 409;
+      throw error;
+    }
+    return workOrders[0];
+  }
+
   async createWorkOrder(projectId, input = {}, actor = {}) {
     const project = await this.adapter.getProjectById(requiredText(projectId, 'projectId'));
     if (!project) {
@@ -156,6 +190,8 @@ class OperationalOrdersService {
 
     const existing = await this.adapter.listWorkOrders({ projectId: project.id, quotationId, limit: 1 });
     if (existing.length) return publicWorkOrder(existing[0]);
+
+    await this.assertDepositCompleted(project);
 
     const row = await this.createWorkOrderRow({
       projectId: project.id,
@@ -225,6 +261,7 @@ class OperationalOrdersService {
       throw error;
     }
 
+    const workOrder = await this.assertWorkOrderExists(project.id);
     const supplierId = requiredText(input.supplierId, 'supplierId');
     const row = await this.createPurchaseOrderRow({
       projectId: project.id,
@@ -232,6 +269,7 @@ class OperationalOrdersService {
       generatedBy: actor.userId || input.generatedBy || 'ELANVISUAL',
       payload: {
         projectNumber: project.project_number,
+        workOrderId: workOrder.id,
         title: project.title || '',
         ...(input.payload || {})
       }
@@ -246,7 +284,7 @@ class OperationalOrdersService {
       actor_role: actor.role || null,
       actor_executive_id: actor.executiveId || null,
       platform_id: project.platform_id || actor.platformId || null,
-      payload: { purchaseOrderId: row.id, purchaseOrderNumber: row.purchase_order_number, supplierId }
+      payload: { purchaseOrderId: row.id, purchaseOrderNumber: row.purchase_order_number, supplierId, workOrderId: workOrder.id }
     });
 
     return publicPurchaseOrder(row);
