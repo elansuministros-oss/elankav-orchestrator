@@ -14,6 +14,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://127.0.0.1:5173'
 ];
+const ELANVISUAL_VERCEL_PREVIEW_PATTERN = /^https:\/\/elanvisual-platform(?:-[a-z0-9-]+)?\.vercel\.app$/i;
 
 function getAllowedOrigins() {
   const configured = String(process.env.VQS_ALLOWED_ORIGINS || '')
@@ -22,6 +23,12 @@ function getAllowedOrigins() {
     .filter(Boolean);
 
   return new Set([...DEFAULT_ALLOWED_ORIGINS, ...configured]);
+}
+
+function isAllowedOrigin(origin, allowedOrigins = getAllowedOrigins()) {
+  return !origin
+    || allowedOrigins.has(origin)
+    || ELANVISUAL_VERCEL_PREVIEW_PATTERN.test(origin);
 }
 
 function isVqsRequest(req) {
@@ -34,7 +41,7 @@ function applyVqsCors(req, res) {
 
   const origin = String(req?.headers?.origin || '').trim();
   const allowedOrigins = getAllowedOrigins();
-  const allowed = !origin || allowedOrigins.has(origin);
+  const allowed = isAllowedOrigin(origin, allowedOrigins);
 
   res.setHeader?.('Vary', 'Origin');
   res.setHeader?.('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
@@ -106,5 +113,6 @@ module.exports = {
   handleMessageApi,
   applyVqsCors,
   getAllowedOrigins,
+  isAllowedOrigin,
   isVqsRequest
 };
