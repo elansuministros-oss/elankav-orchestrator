@@ -1,6 +1,7 @@
 const PAYMENT_STATUSES = Object.freeze(['draft', 'confirmed', 'cancelled', 'refunded']);
 const PAYMENT_METHODS = Object.freeze(['cash', 'transfer', 'deposit', 'card', 'other']);
 const PAYMENT_CURRENCIES = Object.freeze(['USD', 'NIO']);
+const OPERATION_TYPES = Object.freeze(['USD_TO_USD', 'NIO_TO_NIO', 'USD_TO_NIO', 'NIO_TO_USD']);
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -16,7 +17,32 @@ function percentage(value) {
   return Number.isFinite(number) ? Math.round((number + Number.EPSILON) * 10000) / 10000 : NaN;
 }
 
+function normalizeBankingMetadata(input = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const customerPayment = source.customerPayment && typeof source.customerPayment === 'object' ? source.customerPayment : {};
+  const bankCredit = source.bankCredit && typeof source.bankCredit === 'object' ? source.bankCredit : {};
+  return {
+    operationType: text(source.operationType).toUpperCase(),
+    customerPayment: {
+      currency: text(customerPayment.currency).toUpperCase(),
+      amount: money(customerPayment.amount)
+    },
+    bankCredit: {
+      currency: text(bankCredit.currency).toUpperCase(),
+      amount: money(bankCredit.amount)
+    },
+    effectiveExchangeRate: money(source.effectiveExchangeRate),
+    appliedAmountUsd: money(source.appliedAmountUsd),
+    bankFee: money(source.bankFee || 0),
+    bankFeeAbsorbedBy: 'ELANKAV'
+  };
+}
+
 export function normalizeCustomerPayment(input = {}) {
+  const metadata = input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
+    ? { ...input.metadata }
+    : {};
+  if (metadata.banking) metadata.banking = normalizeBankingMetadata(metadata.banking);
   return {
     paymentId: text(input.paymentId),
     receiptNumber: text(input.receiptNumber),
@@ -34,9 +60,7 @@ export function normalizeCustomerPayment(input = {}) {
     notes: text(input.notes),
     quotationTotal: money(input.quotationTotal),
     requiredDepositPercentage: percentage(input.requiredDepositPercentage),
-    metadata: input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
-      ? { ...input.metadata }
-      : {}
+    metadata
   };
 }
 
@@ -55,6 +79,38 @@ export function validateCustomerPayment(payment = {}) {
     errors.push('requiredDepositPercentage debe estar entre 0 y 100');
   }
   if (Number.isNaN(new Date(payment.paidAt).getTime())) errors.push('paidAt no es válido');
+
+  const banking = payment.metadata?.banking;
+  if (banking) {
+    const expectedCurrencies = {
+      USD_TO_USD: ['USD', 'USD'],
+      NIO_TO_NIO: ['NIO', 'NIO'],
+      USD_TO_NIO: ['USD', 'NIO'],
+      NIO_TO_USD: ['NIO', 'USD']
+    };
+    if (!OPERATION_TYPES.includes(banking.operationType)) errors.push('metadata.banking.operationType no es válido');
+    if (!PAYMENT_CURRENCIES.includes(banking.customerPayment.currency)) errors.push('moneda enviada no es válida');
+    if (!(banking.customerPayment.amount > 0)) errors.push('monto enviado debe ser mayor que cero');
+    if (!PAYMENT_CURRENCIES.includes(banking.bankCredit.currency)) errors.push('moneda acreditada no es válida');
+    if (!(banking.bankCredit.amount > 0)) errors.push('monto acreditado debe ser mayor que cero');
+    if (!(banking.appliedAmountUsd > 0)) errors.push('appliedAmountUsd debe ser mayor que cero');
+    if (Math.abs(banking.appliedAmountUsd - payment.amount) > 0.01) errors.push('amount debe coincidir con appliedAmountUsd');
+
+    const expected = expectedCurrencies[banking.operationType];
+    if (expected && (
+      banking.customerPayment.currency !== expected[0]
+      || banking.bankCredit.currency !== expected[1]
+    )) {
+      errors.push('las monedas no corresponden al tipo de operación');
+    }
+
+    const requiresExchangeRate = banking.operationType === 'NIO_TO_NIO'
+      || banking.customerPayment.currency !== banking.bankCredit.currency;
+    if (requiresExchangeRate && !(banking.effectiveExchangeRate > 0)) {
+      errors.push('effectiveExchangeRate es obligatorio para convertir el pago a USD');
+    }
+    if (banking.bankFeeAbsorbedBy !== 'ELANKAV') errors.push('la comisión bancaria debe ser absorbida por ELANKAV');
+  }
   return { ok: errors.length === 0, errors };
 }
 
@@ -86,5 +142,6 @@ export function calculatePaymentBalance({ quotationTotal, previousPaid = 0, curr
 export const CUSTOMER_PAYMENT_VALUES = Object.freeze({
   statuses: PAYMENT_STATUSES,
   methods: PAYMENT_METHODS,
-  currencies: PAYMENT_CURRENCIES
+  currencies: PAYMENT_CURRENCIES,
+  operationTypes: OPERATION_TYPES
 });
