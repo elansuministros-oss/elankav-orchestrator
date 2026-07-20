@@ -82,6 +82,12 @@ export function validateCustomerPayment(payment = {}) {
 
   const banking = payment.metadata?.banking;
   if (banking) {
+    const expectedCurrencies = {
+      USD_TO_USD: ['USD', 'USD'],
+      NIO_TO_NIO: ['NIO', 'NIO'],
+      USD_TO_NIO: ['USD', 'NIO'],
+      NIO_TO_USD: ['NIO', 'USD']
+    };
     if (!OPERATION_TYPES.includes(banking.operationType)) errors.push('metadata.banking.operationType no es válido');
     if (!PAYMENT_CURRENCIES.includes(banking.customerPayment.currency)) errors.push('moneda enviada no es válida');
     if (!(banking.customerPayment.amount > 0)) errors.push('monto enviado debe ser mayor que cero');
@@ -89,8 +95,19 @@ export function validateCustomerPayment(payment = {}) {
     if (!(banking.bankCredit.amount > 0)) errors.push('monto acreditado debe ser mayor que cero');
     if (!(banking.appliedAmountUsd > 0)) errors.push('appliedAmountUsd debe ser mayor que cero');
     if (Math.abs(banking.appliedAmountUsd - payment.amount) > 0.01) errors.push('amount debe coincidir con appliedAmountUsd');
-    if (banking.customerPayment.currency !== banking.bankCredit.currency && !(banking.effectiveExchangeRate > 0)) {
-      errors.push('effectiveExchangeRate es obligatorio cuando existe conversión');
+
+    const expected = expectedCurrencies[banking.operationType];
+    if (expected && (
+      banking.customerPayment.currency !== expected[0]
+      || banking.bankCredit.currency !== expected[1]
+    )) {
+      errors.push('las monedas no corresponden al tipo de operación');
+    }
+
+    const requiresExchangeRate = banking.operationType === 'NIO_TO_NIO'
+      || banking.customerPayment.currency !== banking.bankCredit.currency;
+    if (requiresExchangeRate && !(banking.effectiveExchangeRate > 0)) {
+      errors.push('effectiveExchangeRate es obligatorio para convertir el pago a USD');
     }
     if (banking.bankFeeAbsorbedBy !== 'ELANKAV') errors.push('la comisión bancaria debe ser absorbida por ELANKAV');
   }
