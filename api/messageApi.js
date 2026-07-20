@@ -1,4 +1,5 @@
 const { handleVqsProjectApi } = require('./vqsProjectApi');
+const { handleVqsQuotationSummaryApi } = require('./vqsQuotationSummaryApi');
 const { handleVqsOperationalOrdersApi } = require('./vqsOperationalOrdersApi');
 const { handleVqsCustomerPaymentsApi } = require('./vqsCustomerPaymentsApi');
 const { handleVqsQuotationAssetApi } = require('./vqsQuotationAssetApi');
@@ -91,6 +92,9 @@ async function handleMessageApi({ req, res, sendJson }) {
 
   const operationalOrdersHandled = await handleVqsOperationalOrdersApi({ req, res, sendJson });
   if (operationalOrdersHandled) return true;
+
+  const quotationSummaryHandled = await handleVqsQuotationSummaryApi({ req, res, sendJson });
+  if (quotationSummaryHandled) return true;
 
   const vqsProjectHandled = await handleVqsProjectApi({ req, res, sendJson });
   if (vqsProjectHandled) return true;
