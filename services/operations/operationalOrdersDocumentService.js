@@ -1,5 +1,9 @@
 const { WorkOrderDocumentBuilder } = require('../vqs/workOrderDocumentBuilder');
 
+function isPermissionError(error) {
+  return String(error?.code || error?.cause?.code || '').trim() === '42501';
+}
+
 class OperationalOrdersDocumentService {
   constructor({ ordersService, documentBuilder } = {}) {
     if (!ordersService) throw new Error('OperationalOrdersDocumentService requiere ordersService');
@@ -21,9 +25,25 @@ class OperationalOrdersDocumentService {
 
     if (workOrder.payload?.officialDocument) return workOrder;
 
-    return this.ordersService.updateWorkOrder(projectId, workOrder.id, {
-      payload: { officialDocument }
-    }, actor);
+    try {
+      return await this.ordersService.updateWorkOrder(projectId, workOrder.id, {
+        payload: { officialDocument }
+      }, actor);
+    } catch (error) {
+      if (!isPermissionError(error)) throw error;
+      console.warn('[operational-orders] documento oficial no persistido por permisos', {
+        code: error.code || error.cause?.code,
+        projectId,
+        workOrderId: workOrder.id
+      });
+      return {
+        ...workOrder,
+        payload: {
+          ...(workOrder.payload || {}),
+          officialDocument
+        }
+      };
+    }
   }
 
   getWorkOrder(...args) { return this.ordersService.getWorkOrder(...args); }
