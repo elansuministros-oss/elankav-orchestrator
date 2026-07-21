@@ -213,6 +213,55 @@ class SupabaseRestClient {
   from(table) {
     return new PostgrestQuery(this, table);
   }
+
+  async rpc(functionName, params = {}) {
+    const name = String(functionName || '').trim();
+    if (!name) {
+      return {
+        data: null,
+        error: {
+          message: 'El nombre de la función RPC es obligatorio',
+          code: 'RPC_FUNCTION_REQUIRED',
+          details: null,
+          hint: null
+        }
+      };
+    }
+
+    const response = await this.fetchImpl(
+      `${this.url}/rest/v1/rpc/${encodeURIComponent(name)}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: this.serviceRoleKey,
+          Authorization: `Bearer ${this.serviceRoleKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(
+          params && typeof params === 'object' && !Array.isArray(params)
+            ? params
+            : {}
+        )
+      }
+    );
+
+    const text = await response.text();
+    const data = text ? parseJson(text) : null;
+
+    if (!response.ok) {
+      return {
+        data: null,
+        error: {
+          message: data?.message || data?.error || `Supabase respondió ${response.status}`,
+          code: data?.code || String(response.status),
+          details: data?.details || null,
+          hint: data?.hint || null
+        }
+      };
+    }
+
+    return { data, error: null };
+  }
 }
 
 function getSupabaseClient({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
