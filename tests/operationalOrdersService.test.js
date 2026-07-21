@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const {
   OperationalOrdersService,
   WORK_ORDER_STATES,
-  PURCHASE_ORDER_STATES
+  PURCHASE_ORDER_STATES,
+  projectCreditAuthorization
 } = require('../services/operations/operationalOrdersService');
 
 const project = {
@@ -31,7 +32,10 @@ function makeAdapter({ project: projectRow, workOrders = [], purchaseOrders = []
     supabase: {
       rpc(name, params) {
         calls.rpc.push({ name, params });
-        return Promise.resolve({ data: [name.includes('work_order') ? workOrderRow : purchaseOrderRow], error: null });
+        const source = name.includes('work_order')
+          ? { ...workOrderRow, payload: params.target_payload }
+          : { ...purchaseOrderRow, payload: params.target_payload };
+        return Promise.resolve({ data: [source], error: null });
       },
       from(table) {
         let current = table === 'elankav_work_orders' ? workOrderRow : purchaseOrderRow;
@@ -68,13 +72,77 @@ test('crea OT con numeración transaccional y lineage correcto después del anti
   const result = await service.createWorkOrder(project.id, { quotationId: project.quotation_id }, { userId: 'user-1', role: 'ventas' });
   assert.equal(result.workOrderNumber, 'OT-2026-000001');
   assert.equal(calls.rpc[0].name, 'elankav_create_work_order');
+  assert.equal(calls.rpc[0].params.target_payload.financialAuthorization.type, 'deposit');
   assert.equal(calls.events[0].event_type, 'work_order.created');
 });
 
-test('rechaza OT cuando el anticipo no está completado', async () => {
+test('crea OT sin anticipo cuando existe crédito vigente y autorizado en el proyecto', async () => {
+  const creditProject = {
+    ...project,
+    metadata: {
+      creditAuthorization: {
+        id: 'credit-1',
+        status: 'approved',
+        approvedBy: 'finance-user',
+        approvedAt: '2026-07-21T10:00:00.000Z',
+        creditDays: 30,
+        dueAt: '2099-08-20T23:59:59.000Z'
+      }
+    }
+  };
+  const { adapter, calls } = makeAdapter({ project: creditProject });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter({ depositCompleted: false }) });
+  const result = await service.createWorkOrder(project.id, { quotationId: project.quotation_id });
+  assert.equal(result.payload.financialAuthorization.type, 'credit');
+  assert.equal(result.payload.financialAuthorization.authorizationId, 'credit-1');
+  assert.equal(calls.events[0].payload.financialAuthorization.approvedBy, 'finance-user');
+});
+
+test('rechaza OT cuando no existe anticipo ni crédito autorizado', async () => {
   const { adapter } = makeAdapter({ project });
   const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter({ depositCompleted: false }) });
-  await assert.rejects(service.createWorkOrder(project.id, { quotationId: project.quotation_id }), (error) => error.code === 'DEPOSIT_REQUIRED_FOR_WORK_ORDER');
+  await assert.rejects(
+    service.createWorkOrder(project.id, { quotationId: project.quotation_id }),
+    (error) => error.code === 'FINANCIAL_AUTHORIZATION_REQUIRED_FOR_WORK_ORDER'
+  );
+});
+
+test('rechaza OT cuando la autorización de crédito está vencida', async () => {
+  const creditProject = {
+    ...project,
+    credit_authorization: {
+      status: 'approved',
+      approved_by: 'finance-user',
+      due_at: '2020-01-01T00:00:00.000Z'
+    }
+  };
+  const { adapter } = makeAdapter({ project: creditProject });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter({ depositCompleted: false }) });
+  await assert.rejects(
+    service.createWorkOrder(project.id, { quotationId: project.quotation_id }),
+    (error) => error.code === 'CREDIT_AUTHORIZATION_EXPIRED'
+  );
+});
+
+test('no acepta una autorización de crédito enviada dentro del payload de creación', async () => {
+  const { adapter } = makeAdapter({ project });
+  const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter({ depositCompleted: false }) });
+  await assert.rejects(
+    service.createWorkOrder(project.id, {
+      quotationId: project.quotation_id,
+      payload: { financialAuthorization: { type: 'credit', status: 'approved' } }
+    }),
+    (error) => error.code === 'FINANCIAL_AUTHORIZATION_REQUIRED_FOR_WORK_ORDER'
+  );
+});
+
+test('normaliza únicamente crédito persistido y aprobado', () => {
+  assert.equal(projectCreditAuthorization({ metadata: { creditAuthorization: { status: 'pending' } } }), null);
+  const credit = projectCreditAuthorization({
+    payload: { credit_authorization: { approved: true, approved_by: 'finance', credit_days: 15 } }
+  });
+  assert.equal(credit.approvedBy, 'finance');
+  assert.equal(credit.creditDays, 15);
 });
 
 test('rechaza OT cuando quotation_id no corresponde al proyecto', async () => {
@@ -83,12 +151,18 @@ test('rechaza OT cuando quotation_id no corresponde al proyecto', async () => {
   await assert.rejects(service.createWorkOrder(project.id, { quotationId: 'quotation-other' }), (error) => error.code === 'WORK_ORDER_LINEAGE_INVALID');
 });
 
-test('crea OC vinculada a proyecto, OT y proveedor', async () => {
-  const { adapter, calls } = makeAdapter({ project, workOrders: [existingWorkOrder] });
+test('crea OC vinculada a proyecto, cotización, OT y proveedor', async () => {
+  const workOrder = {
+    ...existingWorkOrder,
+    payload: { financialAuthorization: { type: 'credit', status: 'approved', authorizationId: 'credit-1' } }
+  };
+  const { adapter, calls } = makeAdapter({ project, workOrders: [workOrder] });
   const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   const result = await service.createPurchaseOrder(project.id, { supplierId: 'supplier-1' }, { userId: 'user-1' });
   assert.equal(result.purchaseOrderNumber, 'OC-2026-000001');
   assert.equal(calls.rpc[0].params.target_payload.workOrderId, 'wo-1');
+  assert.equal(calls.rpc[0].params.target_payload.quotationId, 'quotation-1');
+  assert.equal(calls.rpc[0].params.target_payload.financialAuthorization.authorizationId, 'credit-1');
 });
 
 test('rechaza OC cuando no existe OT', async () => {
