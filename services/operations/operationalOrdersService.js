@@ -104,6 +104,10 @@ function projectCreditAuthorization(project = {}) {
   };
 }
 
+function isPermissionError(error) {
+  return String(error?.code || error?.cause?.code || '').trim() === '42501';
+}
+
 class OperationalOrdersService {
   constructor({ adapter, paymentAdapter } = {}) {
     if (!adapter) throw new Error('OperationalOrdersService requiere adapter');
@@ -224,6 +228,19 @@ class OperationalOrdersService {
     return workOrders[0];
   }
 
+  async appendEventBestEffort(event) {
+    try {
+      await this.adapter.appendEvent(event);
+    } catch (error) {
+      if (!isPermissionError(error)) throw error;
+      console.warn('[operational-orders] evento no persistido por permisos', {
+        code: error.code || error.cause?.code,
+        eventType: event.event_type,
+        projectId: event.project_id
+      });
+    }
+  }
+
   async createWorkOrder(projectId, input = {}, actor = {}) {
     const project = await this.adapter.getProjectById(requiredText(projectId, 'projectId'));
     if (!project) {
@@ -258,7 +275,7 @@ class OperationalOrdersService {
       }
     });
 
-    await this.adapter.appendEvent({
+    await this.appendEventBestEffort({
       quotation_id: quotationId,
       project_id: project.id,
       event_type: 'work_order.created',
@@ -329,7 +346,7 @@ class OperationalOrdersService {
       }
     });
 
-    await this.adapter.appendEvent({
+    await this.appendEventBestEffort({
       quotation_id: project.quotation_id,
       project_id: project.id,
       event_type: 'purchase_order.created',
