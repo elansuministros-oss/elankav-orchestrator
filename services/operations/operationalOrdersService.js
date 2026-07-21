@@ -71,6 +71,39 @@ function publicPurchaseOrder(row) {
   };
 }
 
+function projectCreditAuthorization(project = {}) {
+  const candidates = [
+    project.credit_authorization,
+    project.creditAuthorization,
+    project.metadata?.creditAuthorization,
+    project.metadata?.credit_authorization,
+    project.payload?.creditAuthorization,
+    project.payload?.credit_authorization,
+    project.commercial_terms?.creditAuthorization,
+    project.commercial_terms?.credit_authorization
+  ];
+  const credit = candidates.find((candidate) => candidate && typeof candidate === 'object' && !Array.isArray(candidate));
+  if (!credit) return null;
+
+  const status = String(credit.status || '').trim().toLowerCase();
+  const approved = credit.approved === true || status === 'approved' || status === 'active';
+  if (!approved) return null;
+
+  const dueAt = credit.dueAt || credit.due_at || credit.expiresAt || credit.expires_at || null;
+  const dueDate = dueAt ? new Date(dueAt) : null;
+  const approvedBy = String(credit.approvedBy || credit.approved_by || '').trim();
+  const creditDays = Number(credit.creditDays ?? credit.credit_days ?? 0);
+
+  return {
+    authorizationId: String(credit.id || credit.authorizationId || credit.authorization_id || '').trim() || null,
+    approvedBy: approvedBy || null,
+    approvedAt: credit.approvedAt || credit.approved_at || null,
+    creditDays: Number.isFinite(creditDays) && creditDays > 0 ? creditDays : null,
+    dueAt: dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate.toISOString() : null,
+    expired: Boolean(dueDate && !Number.isNaN(dueDate.getTime()) && dueDate.getTime() < Date.now())
+  };
+}
+
 class OperationalOrdersService {
   constructor({ adapter, paymentAdapter } = {}) {
     if (!adapter) throw new Error('OperationalOrdersService requiere adapter');
@@ -140,26 +173,44 @@ class OperationalOrdersService {
     return unwrap(result, 'No se pudo actualizar la OC');
   }
 
-  async assertDepositCompleted(project) {
-    if (!this.paymentAdapter?.listCustomerPayments) {
-      const error = new Error('No existe adapter de pagos para validar el anticipo');
-      error.code = 'PAYMENT_GATE_UNAVAILABLE';
-      error.statusCode = 503;
-      throw error;
-    }
+  async hasDepositCompleted(project) {
+    if (!this.paymentAdapter?.listCustomerPayments) return false;
     const payments = await this.paymentAdapter.listCustomerPayments({
       projectId: project.id,
       quotationId: project.quotation_id,
       statuses: ['confirmed'],
       limit: 100
     });
-    const completed = payments.some((row) => Boolean(row.deposit_completed));
-    if (!completed) {
-      const error = new Error('El anticipo requerido no ha sido completado');
-      error.code = 'DEPOSIT_REQUIRED_FOR_WORK_ORDER';
+    return payments.some((row) => Boolean(row.deposit_completed));
+  }
+
+  async assertFinancialAuthorization(project) {
+    if (await this.hasDepositCompleted(project)) {
+      return { type: 'deposit', status: 'confirmed' };
+    }
+
+    const credit = projectCreditAuthorization(project);
+    if (credit?.expired) {
+      const error = new Error('La autorización de crédito está vencida');
+      error.code = 'CREDIT_AUTHORIZATION_EXPIRED';
       error.statusCode = 409;
       throw error;
     }
+    if (credit) {
+      return { type: 'credit', status: 'approved', ...credit };
+    }
+
+    if (!this.paymentAdapter?.listCustomerPayments) {
+      const error = new Error('No existe adapter de pagos para validar la autorización financiera');
+      error.code = 'PAYMENT_GATE_UNAVAILABLE';
+      error.statusCode = 503;
+      throw error;
+    }
+
+    const error = new Error('Se requiere anticipo completado o crédito autorizado para generar la OT');
+    error.code = 'FINANCIAL_AUTHORIZATION_REQUIRED_FOR_WORK_ORDER';
+    error.statusCode = 409;
+    throw error;
   }
 
   async assertWorkOrderExists(projectId) {
@@ -191,7 +242,7 @@ class OperationalOrdersService {
     const existing = await this.adapter.listWorkOrders({ projectId: project.id, quotationId, limit: 1 });
     if (existing.length) return publicWorkOrder(existing[0]);
 
-    await this.assertDepositCompleted(project);
+    const financialAuthorization = await this.assertFinancialAuthorization(project);
 
     const row = await this.createWorkOrderRow({
       projectId: project.id,
@@ -202,7 +253,8 @@ class OperationalOrdersService {
         projectNumber: project.project_number,
         title: project.title || '',
         customer: project.customer_snapshot || {},
-        ...(input.payload || {})
+        ...(input.payload || {}),
+        financialAuthorization
       }
     });
 
@@ -215,7 +267,7 @@ class OperationalOrdersService {
       actor_role: actor.role || null,
       actor_executive_id: actor.executiveId || null,
       platform_id: project.platform_id || actor.platformId || null,
-      payload: { workOrderId: row.id, workOrderNumber: row.work_order_number }
+      payload: { workOrderId: row.id, workOrderNumber: row.work_order_number, financialAuthorization }
     });
 
     return publicWorkOrder(row);
@@ -270,6 +322,8 @@ class OperationalOrdersService {
       payload: {
         projectNumber: project.project_number,
         workOrderId: workOrder.id,
+        quotationId: project.quotation_id,
+        financialAuthorization: workOrder.payload?.financialAuthorization || null,
         title: project.title || '',
         ...(input.payload || {})
       }
@@ -330,5 +384,6 @@ module.exports = {
   WORK_ORDER_STATES,
   PURCHASE_ORDER_STATES,
   publicWorkOrder,
-  publicPurchaseOrder
+  publicPurchaseOrder,
+  projectCreditAuthorization
 };
