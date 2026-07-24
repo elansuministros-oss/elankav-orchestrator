@@ -1,4 +1,7 @@
 const { processMessage } = require('../services/messageService');
+const {
+  synchronizeInboundWhatsappLeadSafely
+} = require('../services/connectInboundLeadService');
 const { handleVscodeApi } = require('./vscodeApi');
 const { handleServiceRegistryApi } = require('./serviceRegistryApi');
 const { handleDesignAssetApi } = require('./designAssetApi');
@@ -64,7 +67,29 @@ async function handleMessageApi({ req, res, sendJson }) {
       phone: payload.phone,
       metadata: payload.metadata
     });
-    sendJson(res, 200, { success: true, result });
+
+    const connectSync = await synchronizeInboundWhatsappLeadSafely({
+      message: payload.message,
+      platform: result.context?.platform || payload.platform,
+      channel: result.context?.channel || payload.channel,
+      externalUserId: result.context?.externalUserId || payload.externalUserId,
+      phone: payload.phone,
+      ownerMode: result.context?.ownerMode === true,
+      metadata: payload.metadata
+    });
+
+    sendJson(res, 200, {
+      success: true,
+      result: {
+        ...result,
+        connectSync: {
+          synchronized: connectSync?.skipped === false,
+          reason: connectSync?.reason || null,
+          leadId: connectSync?.lead?.id || null,
+          opportunityId: connectSync?.opportunity?.id || null
+        }
+      }
+    });
   } catch (error) {
     if (error.message === 'PAYLOAD_TOO_LARGE') {
       sendJson(res, 413, { success: false, error: 'Solicitud demasiado grande' });
