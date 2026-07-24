@@ -189,12 +189,23 @@ test('controlled ejecuta solo para Owner Mode y nunca entrega a WhatsApp', async
             operation: 'quotes.list',
             status: 'SUCCESS'
           }]
+        },
+        output: {
+          text: [
+            'Cotizaciones: 1.',
+            '1. COT-2026-001 — enviada · USD 1,250.00'
+          ].join('\n'),
+          deliverable: false
         }
       };
     }
   });
 
   assert.equal(receivedRequest.mode, 'active');
+  assert.equal(
+    receivedRequest.context.metadata.deliveryEnabled,
+    false
+  );
   assert.ok(
     receivedRequest.context.permissions.includes('connect:quotes:read')
   );
@@ -206,6 +217,14 @@ test('controlled ejecuta solo para Owner Mode y nunca entrega a WhatsApp', async
   );
   assert.equal(result.status, 'CONTROLLED');
   assert.equal(result.audit.toolsExecuted, true);
+  assert.equal(
+    result.output.text,
+    [
+      'Cotizaciones: 1.',
+      '1. COT-2026-001 — enviada · USD 1,250.00'
+    ].join('\n')
+  );
+  assert.equal(result.output.deliverable, false);
   assert.equal(result.deliverable, false);
 });
 
@@ -245,4 +264,6 @@ test('controlled no ejecuta herramientas para clientes', async () => {
   );
   assert.equal(result.status, 'OBSERVED');
   assert.equal(result.audit.toolsExecuted, false);
+  assert.equal(result.output.text, null);
+  assert.equal(result.output.deliverable, false);
 });

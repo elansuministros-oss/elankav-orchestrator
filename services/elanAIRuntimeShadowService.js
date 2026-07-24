@@ -68,13 +68,20 @@ async function observeWithElanAI({
         : [],
       metadata: {
         source: 'elankav-orchestrator',
-        contextVersion: context.version || null
+        contextVersion: context.version || null,
+        deliveryEnabled: false
       }
     }
   };
 
   try {
     const result = await invokeRuntime({ request });
+    const controlledPreview =
+      access.toolsAllowed &&
+      typeof result.output?.text === 'string' &&
+      result.output.text.trim()
+        ? result.output.text.trim()
+        : null;
 
     return Object.freeze({
       enabled: true,
@@ -94,6 +101,10 @@ async function observeWithElanAI({
         toolCalls: Array.isArray(result.audit?.toolCalls)
           ? result.audit.toolCalls
           : []
+      }),
+      output: Object.freeze({
+        text: controlledPreview,
+        deliverable: false
       }),
       deliverable: false,
       fallback: 'current-message-service'
