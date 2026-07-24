@@ -117,7 +117,8 @@ async function refreshPublicImageUrl(asset, storageClient) {
 
 function collectItemImageCandidates(item = {}) {
   const source = safeObject(item);
-  const candidates = [source.imageUrl, source.image_url];
+  const directCandidates = [source.imageUrl, source.image_url];
+  const assetCandidates = [];
   const arrayFields = [
     'images',
     'imagenes',
@@ -132,11 +133,11 @@ function collectItemImageCandidates(item = {}) {
 
   for (const field of arrayFields) {
     const value = source[field];
-    if (Array.isArray(value)) candidates.push(...value);
-    else if (value) candidates.push(value);
+    if (Array.isArray(value)) assetCandidates.push(...value);
+    else if (value) assetCandidates.push(value);
   }
 
-  return candidates.filter(Boolean);
+  return [...assetCandidates, ...directCandidates].filter(Boolean);
 }
 
 function imageCandidateKey(candidate) {
