@@ -30,6 +30,9 @@ const {
 const {
   processDesignFollowup
 } = require('./designFollowupService');
+const {
+  observeWithElanAI
+} = require('./elanAIRuntimeShadowService');
 
 const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno/whatsapp';
 
@@ -264,7 +267,8 @@ async function processMessage({
   channel,
   externalUserId,
   phone,
-  metadata
+  metadata,
+  dependencies = {}
 }) {
   const hasDesignMedia =
     (Array.isArray(metadata?.references) && metadata.references.length > 0) ||
@@ -281,6 +285,9 @@ async function processMessage({
 
   const normalizedInstructions = normalizeMessage(instructions);
   let resolvedContext = null;
+  let elanAiObservation = null;
+  const observeWithElanAIImpl =
+    dependencies.observeWithElanAI || observeWithElanAI;
 
   const response = await routeContext(
     {
@@ -298,6 +305,13 @@ async function processMessage({
     async context => {
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
+      elanAiObservation = await observeWithElanAIImpl({
+        message: normalizedMessage,
+        context,
+        metadata: metadata && typeof metadata === 'object'
+          ? metadata
+          : {}
+      });
 
       const ownerCommand = ownerMode
         ? detectOwnerCommand(normalizedMessage)
@@ -443,6 +457,9 @@ async function processMessage({
       channel: resolvedContext?.channel || null,
       externalUserId: resolvedContext?.externalUserId || null,
       ownerMode: Boolean(resolvedContext?.owner?.isOwner)
+    },
+    integration: {
+      elanAi: elanAiObservation
     },
     createdAt: new Date().toISOString()
   };
