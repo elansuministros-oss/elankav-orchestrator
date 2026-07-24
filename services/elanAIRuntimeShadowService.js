@@ -5,6 +5,9 @@ const {
   CONTRACT_VERSION,
   invokeElanAIRuntime
 } = require('../adapters/elanAIRuntimeAdapter');
+const {
+  resolveElanAIRuntimeAccess
+} = require('./elanAIRuntimeAccessService');
 
 function normalizeMode(value = process.env.ELAN_AI_RUNTIME_MODE) {
   return String(value || 'off').trim().toLowerCase();
@@ -32,8 +35,8 @@ async function observeWithElanAI({
     return createSkippedObservation('RUNTIME_MODE_OFF');
   }
 
-  if (normalizedMode !== 'shadow') {
-    return createSkippedObservation('RUNTIME_MODE_NOT_SHADOW');
+  if (!['shadow', 'controlled'].includes(normalizedMode)) {
+    return createSkippedObservation('RUNTIME_MODE_UNSUPPORTED');
   }
 
   const requestId =
@@ -41,11 +44,15 @@ async function observeWithElanAI({
     metadata.requestId ||
     randomUUID();
   const ownerMode = context.owner?.isOwner === true;
+  const access = resolveElanAIRuntimeAccess({
+    context,
+    requestedMode: normalizedMode
+  });
 
   const request = {
     version: CONTRACT_VERSION,
     requestId,
-    mode: 'shadow',
+    mode: access.runtimeMode,
     channel: context.channel || 'internal',
     message,
     identity: {
@@ -55,9 +62,7 @@ async function observeWithElanAI({
     },
     context: {
       platform: context.platform || null,
-      permissions: ownerMode
-        ? ['owner:observe']
-        : ['customer:observe'],
+      permissions: access.permissions,
       conversationHistory: Array.isArray(metadata.conversationHistory)
         ? metadata.conversationHistory
         : [],
@@ -73,8 +78,8 @@ async function observeWithElanAI({
 
     return Object.freeze({
       enabled: true,
-      mode: 'shadow',
-      status: 'OBSERVED',
+      mode: access.executionMode,
+      status: access.toolsAllowed ? 'CONTROLLED' : 'OBSERVED',
       requestId,
       runtimeRequestId: result.runtimeRequestId || null,
       decision: Object.freeze({
@@ -82,6 +87,13 @@ async function observeWithElanAI({
         operator: result.decision?.operator || null,
         allowed: result.decision?.allowed === true,
         cancelled: result.decision?.cancelled === true
+      }),
+      audit: Object.freeze({
+        toolsAllowed: access.toolsAllowed,
+        toolsExecuted: result.audit?.toolsExecuted === true,
+        toolCalls: Array.isArray(result.audit?.toolCalls)
+          ? result.audit.toolCalls
+          : []
       }),
       deliverable: false,
       fallback: 'current-message-service'

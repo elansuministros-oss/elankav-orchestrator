@@ -157,3 +157,92 @@ test('fallo del runtime no interrumpe el fallback actual', async () => {
     console.warn = originalWarn;
   }
 });
+
+test('controlled ejecuta solo para Owner Mode y nunca entrega a WhatsApp', async () => {
+  let receivedRequest = null;
+  const result = await observeWithElanAI({
+    message: 'Revisá mis cotizaciones',
+    context: {
+      channel: 'whatsapp',
+      externalUserId: '50588388940',
+      owner: {
+        isOwner: true,
+        phone: '50588388940'
+      }
+    },
+    mode: 'controlled',
+    invokeRuntime: async ({ request }) => {
+      receivedRequest = request;
+      return {
+        version: CONTRACT_VERSION,
+        requestId: request.requestId,
+        decision: {
+          intent: 'quote',
+          operator: 'sales',
+          allowed: true,
+          cancelled: false
+        },
+        audit: {
+          toolsExecuted: true,
+          toolCalls: [{
+            toolName: 'connect',
+            operation: 'quotes.list',
+            status: 'SUCCESS'
+          }]
+        }
+      };
+    }
+  });
+
+  assert.equal(receivedRequest.mode, 'active');
+  assert.ok(
+    receivedRequest.context.permissions.includes('connect:quotes:read')
+  );
+  assert.equal(
+    receivedRequest.context.permissions.some(
+      permission => permission.endsWith(':write')
+    ),
+    false
+  );
+  assert.equal(result.status, 'CONTROLLED');
+  assert.equal(result.audit.toolsExecuted, true);
+  assert.equal(result.deliverable, false);
+});
+
+test('controlled no ejecuta herramientas para clientes', async () => {
+  let receivedRequest = null;
+  const result = await observeWithElanAI({
+    message: 'Mostrame los clientes',
+    context: {
+      channel: 'whatsapp',
+      externalUserId: '50588888888',
+      owner: {
+        isOwner: false,
+        phone: '50588888888'
+      }
+    },
+    mode: 'controlled',
+    invokeRuntime: async ({ request }) => {
+      receivedRequest = request;
+      return {
+        version: CONTRACT_VERSION,
+        requestId: request.requestId,
+        decision: {
+          intent: 'crm',
+          operator: 'crm',
+          allowed: true,
+          cancelled: false
+        },
+        audit: { toolsExecuted: false, toolCalls: [] }
+      };
+    }
+  });
+
+  assert.equal(receivedRequest.mode, 'shadow');
+  assert.deepEqual(
+    receivedRequest.context.permissions,
+    ['customer:observe']
+  );
+  assert.equal(result.status, 'OBSERVED');
+  assert.equal(result.audit.toolsExecuted, false);
+});
