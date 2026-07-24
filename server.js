@@ -10,6 +10,7 @@ const { getDashboardStatus } = require('./adapters/dashboardAdapter');
 const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
 const { handleMessageApi } = require('./api/messageApi');
+const { handleConnectToolApi } = require('./api/connectToolApi');
 const {
   getJobPersistenceState,
   initializeJobQueue
@@ -482,6 +483,17 @@ function renderDashboard() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const connectToolApiHandled =
+    await handleConnectToolApi({
+      req,
+      res,
+      sendJson
+    });
+
+  if (connectToolApiHandled) {
+    return;
+  }
+
   const messageApiHandled =
     await handleMessageApi({
       req,
