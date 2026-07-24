@@ -6,6 +6,7 @@ const { handleVqsQuotationAssetApi } = require('./vqsQuotationAssetApi');
 const { handleVqsPublicQuotationApi } = require('./vqsPublicQuotationApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
+const { handleWahaWebhookApi } = require('./wahaWebhookApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
 
 const VQS_ROUTE_PREFIX = '/api/vqs/';
@@ -70,6 +71,9 @@ function applyVqsCors(req, res) {
 }
 
 async function handleMessageApi({ req, res, sendJson }) {
+  const wahaWebhookHandled = await handleWahaWebhookApi({ req, res, sendJson });
+  if (wahaWebhookHandled) return true;
+
   const cors = applyVqsCors(req, res);
   if (cors.handled) return true;
 
