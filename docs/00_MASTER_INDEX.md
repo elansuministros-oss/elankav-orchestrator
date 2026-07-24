@@ -8,10 +8,10 @@ Establecer una fuente documental única, auditable y separada del código funcio
 
 | Documento | Propósito | Estado |
 |---|---|---|
-| `README.md` | Entrada oficial del repositorio | VERIFICADO |
+| `README.md` | Entrada oficial del repositorio | ACTUALIZADO |
 | `01_AUDITORIA_MAESTRA.md` | Inventario, evidencia y calidad documental | VERIFICADO |
 | `02_ARQUITECTURA_Y_ACCESOS.md` | Centro de Control, componentes, Servicios Autorizados, VS Code Web y límites de acceso | ACTUALIZADO |
-| `03_CRM_CONTACTOS.md` | Contrato CRM-042 y causa técnica del incidente | VERIFICADO |
+| `03_CRM_CONTACTOS.md` | Identidad maestra, roles, relaciones, contactos y contrato CRM-101A | ACTUALIZADO 2026-07-21 |
 | `04_RIESGOS_Y_QA.md` | Riesgos, pruebas, seguridad y operación | VERIFICADO/PROPUESTA |
 | `05_ROADMAP_PROPUESTO.md` | Orden recomendado, VSC-001, IAM, Knowledge Base y movimientos de voz | ACTUALIZADO |
 | `06_LINEA_BASE_ECOSISTEMA.md` | Estado consolidado para evitar repetir auditorías | VERIFICADO/EVOLUCIÓN |
@@ -31,6 +31,12 @@ Para conocer la gobernanza documental y localizar documentos vigentes debe leers
 
 ```text
 docs/00_MASTER_INDEX.md
+```
+
+Para CRM, clientes, proveedores, identidad, roles, relaciones, plataformas o contactos debe leerse:
+
+```text
+docs/03_CRM_CONTACTOS.md
 ```
 
 Para usuarios, permisos, Owner Mode o delegación debe leerse también:
@@ -108,6 +114,8 @@ Cada cambio documental debe indicar fecha, evidencia, commit o migración, clasi
 
 La línea base debe actualizarse cuando cambie un contrato, servicio, rol, permiso, integración, rama, migración o estado certificado.
 
+Toda auditoría cerrada debe producir una actualización del documento maestro correspondiente antes de iniciar una implementación asociada.
+
 ## Regla permanente contra duplicación
 
 - Nunca crear documentación duplicada.
@@ -131,6 +139,7 @@ Reglas obligatorias:
 6. Los nuevos chats deben identificar el estado mediante este índice y la línea base, no mediante memoria conversacional.
 7. Una propuesta de reorganización no se considera implementada hasta comprobar que no contradice gobernanza previa.
 8. Esta gobernanza no se modifica informalmente. Cualquier cambio material requiere movimiento de arquitectura o documentación, evidencia y actualización trazable.
+9. Las conversaciones no son la fuente maestra de relaciones CRM; se debe consultar el contrato documentado en `03_CRM_CONTACTOS.md`.
 
 Esta sección consolida reglas ya presentes en la Base Oficial de Conocimiento; no crea una jerarquía documental paralela.
 
@@ -144,7 +153,16 @@ Esta sección consolida reglas ya presentes en la Base Oficial de Conocimiento; 
 | `ECS-001` | Auditoría ejecutable de ELAN Creative Studio y fases de diseño/video | CERRADO DOCUMENTALMENTE |
 | `DESIGN-001A` | Fundación de `elankav-design-engine`, PR #1, merge `161768d`, QA 28/28 | CERRADO |
 | `STT-001A` | Reconocimiento de audio desacoplado | PENDIENTE EN SU LÍNEA |
+| `ELANKAV-DOCS-01` | Consolidación de identidad, roles, relaciones y contrato CRM-101A en documentación oficial | EN REVISIÓN |
+| `CRM-101A` | Ampliar lectura CRM para devolver identity, roles y relationships | PROPUESTO / NO IMPLEMENTADO |
 
 ## Criterio de cierre documental
 
 Un bloque se considera documentado cuando registra objetivo, dependencias, flujo, contratos, errores, pruebas, riesgos, estado de producción, rollback o límite de cambio y evidencia trazable.
+
+## Última actualización
+
+- Fecha: 21 de julio de 2026.
+- Movimiento: `ELANKAV-DOCS-01`.
+- Alcance: integración de la auditoría del modelo maestro de identidad en la Base Oficial de Conocimiento.
+- Código funcional modificado: ninguno.
