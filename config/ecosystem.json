@@ -14,10 +14,10 @@
     "category": "Producción"
   },
   {
-    "id": "elankav-core",
-    "name": "ELANKAV CORE",
-    "url": "https://elankav-core.vercel.app",
-    "category": "Core / IA"
+    "id": "elankav-connect",
+    "name": "ELANKAV CONNECT",
+    "url": "https://elankav-connect.vercel.app/console",
+    "category": "CRM maestro comercial"
   },
   {
     "id": "elankav-platform",
