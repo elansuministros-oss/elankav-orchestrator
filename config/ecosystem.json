@@ -8,6 +8,12 @@
     "businessLocation": "Managua, Nicaragua"
   },
   {
+    "id": "elanhome",
+    "name": "ELANHOME",
+    "url": "https://home.elankav.com",
+    "category": "Producción"
+  },
+  {
     "id": "elanpet",
     "name": "ELANPET",
     "url": "https://pet.elankav.com",
