@@ -2,6 +2,7 @@
 
 const http = require('node:http');
 const { handleWorkspaceIntelligenceApi } = require('./api/workspaceIntelligenceApi');
+const { handleElanAIWorkspaceBridgeApi } = require('./api/elanAIWorkspaceBridgeApi');
 
 const originalCreateServer = http.createServer.bind(http);
 
@@ -18,6 +19,9 @@ http.createServer = function createServerWithWorkspaceTools(listener) {
     };
 
     try {
+      const bridgeHandled = await handleElanAIWorkspaceBridgeApi({ req, res, sendJson });
+      if (bridgeHandled) return;
+
       const handled = await handleWorkspaceIntelligenceApi({ req, res, sendJson });
       if (handled) return;
     } catch (error) {
