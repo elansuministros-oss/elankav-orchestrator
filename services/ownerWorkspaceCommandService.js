@@ -53,7 +53,7 @@ function extractSearchQuery(message) {
 function extractPath(message) {
   const explicit = String(message || '').match(/(?:archivo|file)\s+[`'\"]?([^`'\"\s]+)[`'\"]?/i);
   if (explicit) return explicit[1].replace(/[.,;:!?]+$/, '');
-  const generic = String(message || '').match(/[`'\"]?([\w./-]+\.(?:js|cjs|mjs|ts|tsx|jsx|json|md|txt|yml|yaml|css|html|sql))[`'\"]?/i);
+  const generic = String(message || '').match(/[`'\"]?([\w./-]+\.(?:json|yaml|html|cjs|mjs|tsx|jsx|txt|yml|css|sql|md|ts|js))(?![\w.])[`'\"]?/i);
   return generic ? generic[1].replace(/[.,;:!?]+$/, '') : null;
 }
 
