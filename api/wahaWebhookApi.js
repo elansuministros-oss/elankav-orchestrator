@@ -99,6 +99,52 @@ function extractText(payload = {}) {
   ).trim();
 }
 
+function extractMediaReference(payload = {}) {
+  const media = payload.media && typeof payload.media === 'object'
+    ? payload.media
+    : null;
+  const url = String(
+    media?.url ||
+    payload.mediaUrl ||
+    payload._data?.media?.url ||
+    ''
+  ).trim();
+  const mimetype = String(
+    media?.mimetype ||
+    payload.mimetype ||
+    payload._data?.mimetype ||
+    ''
+  ).trim();
+  const filename = String(
+    media?.filename ||
+    payload.filename ||
+    payload._data?.filename ||
+    ''
+  ).trim();
+  const hasMedia = Boolean(
+    payload.hasMedia ||
+    media ||
+    url ||
+    mimetype
+  );
+
+  if (!hasMedia) return null;
+
+  return Object.freeze({
+    type: mimetype.startsWith('image/')
+      ? 'image'
+      : mimetype === 'application/pdf'
+        ? 'document'
+        : 'media',
+    url: url || null,
+    mimetype: mimetype || null,
+    filename: filename || null,
+    source: 'waha',
+    available: Boolean(url),
+    error: media?.error || null
+  });
+}
+
 function extractIncoming(body = {}) {
   const payload = extractPayload(body);
   const senderRaw = extractSenderRaw(payload);
@@ -118,6 +164,7 @@ function extractIncoming(body = {}) {
     senderRaw ||
     ''
   );
+  const media = extractMediaReference(payload);
 
   return {
     event,
@@ -126,6 +173,8 @@ function extractIncoming(body = {}) {
     phone: normalizePhone(senderRaw),
     chatId,
     text: extractText(payload),
+    media,
+    hasMedia: Boolean(media),
     fromMe,
     isGroup: chatId.includes('@g.us'),
     isBroadcast: chatId.includes('status@broadcast')
@@ -168,7 +217,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       ok: true,
       service: 'ELANKAV WAHA Inbound Bridge',
       status: 'READY',
-      version: 'ORCH-WAHA-INBOUND-01'
+      version: 'ORCH-WAHA-INBOUND-02'
     });
     return true;
   }
@@ -205,8 +254,18 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       return true;
     }
 
-    if (!incoming.chatId || !incoming.senderRaw || !incoming.text) {
+    if (!incoming.chatId || !incoming.senderRaw || (!incoming.text && !incoming.hasMedia)) {
       sendJson(res, 200, { ok: true, ignored: true, reason: 'MESSAGE_INCOMPLETE' });
+      return true;
+    }
+
+    if (incoming.hasMedia && !incoming.media?.available) {
+      sendJson(res, 200, {
+        ok: false,
+        processed: false,
+        error: 'WAHA detectó el archivo, pero no entregó una URL descargable.',
+        code: 'WAHA_MEDIA_NOT_AVAILABLE'
+      });
       return true;
     }
 
@@ -214,11 +273,20 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       event: incoming.event || 'message',
       session: incoming.session,
       senderRaw: incoming.senderRaw,
-      phone: incoming.phone
+      phone: incoming.phone,
+      hasMedia: incoming.hasMedia,
+      mediaType: incoming.media?.mimetype || null
     });
 
+    const references = incoming.media ? [incoming.media] : [];
+    const message = incoming.text || (
+      incoming.media?.type === 'image'
+        ? 'Analizá esta imagen y ayudame con la solicitud asociada.'
+        : 'Analizá este archivo y ayudame con la solicitud asociada.'
+    );
+
     const result = await processMessageImpl({
-      message: incoming.text,
+      message,
       platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
       channel: 'whatsapp',
       externalUserId: incoming.senderRaw,
@@ -227,7 +295,10 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         source: 'waha',
         session: incoming.session,
         event: incoming.event || 'message',
-        senderRaw: incoming.senderRaw
+        senderRaw: incoming.senderRaw,
+        references,
+        media: incoming.media,
+        hasMedia: incoming.hasMedia
       }
     });
 
@@ -244,13 +315,15 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       session: incoming.session,
       chatId: incoming.chatId,
       ownerMode: Boolean(result?.context?.ownerMode),
-      model: result?.model || null
+      model: result?.model || null,
+      references: references.length
     });
 
     sendJson(res, 200, {
       ok: true,
       processed: true,
       replySent: true,
+      mediaAccepted: incoming.hasMedia,
       ownerMode: Boolean(result?.context?.ownerMode),
       platform: result?.context?.platform || null
     });
@@ -274,6 +347,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 
 module.exports = {
   extractIncoming,
+  extractMediaReference,
   handleWahaWebhookApi,
   normalizePhone,
   sendWahaText
