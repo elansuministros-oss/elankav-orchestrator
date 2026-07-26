@@ -1,0 +1,20 @@
+{
+  "root": "/opt/elankav/workspaces",
+  "maxFileBytes": 262144,
+  "maxResponseBytes": 131072,
+  "maxSearchResults": 100,
+  "maxSearchPaths": 10,
+  "maxReadLines": 300,
+  "timeoutMs": 5000,
+  "allowedExtensions": [
+    ".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx", ".json", ".md",
+    ".yml", ".yaml", ".css", ".scss", ".html", ".txt", ".sql", ".sh"
+  ],
+  "blockedNames": [
+    ".env", ".git/config", ".git/credentials", "npm-debug.log", "yarn-error.log"
+  ],
+  "blockedPatterns": [
+    "^\\.env\\.", "\\.(pem|key|p12|pfx|crt|sqlite|db|dump|zip|tar)$",
+    "(^|/)\\.ssh(/|$)", "(^|/)node_modules(/|$)", "(^|/)(credentials|secrets)[^/]*$"
+  ]
+}
