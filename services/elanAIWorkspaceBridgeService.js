@@ -31,15 +31,19 @@ function normalizeRequest(input = {}) {
     throw error;
   }
 
-  return {
-    capability,
+  const toolInput = {
     workspaceId: input.workspaceId ? String(input.workspaceId).trim() : undefined,
     path: input.path ? String(input.path).trim() : undefined,
     query: input.query ? String(input.query).trim() : undefined,
     paths: Array.isArray(input.paths) ? input.paths.map(value => String(value).trim()).filter(Boolean) : undefined,
     startLine: input.startLine,
     endLine: input.endLine,
-    limit: input.limit,
+    limit: input.limit
+  };
+
+  return {
+    capability,
+    input: toolInput,
     actor: {
       id: String(input.actor?.id || 'elan-ai').trim(),
       type: String(input.actor?.type || 'service').trim(),
