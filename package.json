@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Centro de control remoto del ecosistema ELANKAV",
-  "main": "server.js",
+  "main": "workspaceServerBootstrap.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node workspaceServerBootstrap.js",
     "test": "node --test"
   },
   "dependencies": {
