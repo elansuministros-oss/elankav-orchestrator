@@ -20,6 +20,8 @@ const WORKSPACE_ALIASES = Object.freeze([
   { id: 'elankav-core', aliases: ['elankav core', 'elan core'] }
 ]);
 
+const MUTATION_INTENT_PATTERN = /\b(modifica|modificar|cambia|cambiar|actualiza|actualizar|edita|editar|elimina|eliminar|borra|borrar|crea|crear|escribe|escribir|reemplaza|reemplazar|corrige|corregir|implementa|implementar)\b/;
+
 function normalize(value) {
   return String(value || '')
     .trim()
@@ -46,6 +48,8 @@ function cleanSearchQuery(value) {
 }
 
 function extractSearchQuery(message) {
+  const normalized = normalize(message);
+  if (MUTATION_INTENT_PATTERN.test(normalized)) return null;
   const match = String(message || '').match(/\b(?:busca|buscar|buscame|búscame|encuentra|encontrar|localiza|localizar)\b\s+(?:el\s+texto\s+|la\s+funcion\s+|la\s+función\s+|el\s+simbolo\s+|el\s+símbolo\s+)?(.+)/i);
   return match ? cleanSearchQuery(match[1]) : null;
 }
@@ -53,12 +57,14 @@ function extractSearchQuery(message) {
 function extractPath(message) {
   const explicit = String(message || '').match(/(?:archivo|file)\s+[`'\"]?([^`'\"\s]+)[`'\"]?/i);
   if (explicit) return explicit[1].replace(/[.,;:!?]+$/, '');
-  const generic = String(message || '').match(/[`'\"]?([\w./-]+\.(?:json|yaml|html|cjs|mjs|tsx|jsx|txt|yml|css|sql|md|ts|js))(?![\w.])[`'\"]?/i);
+  const generic = String(message || '').match(/[`'\"]?([\w./-]+\.(?:json|cjs|mjs|tsx|jsx|yaml|html|js|ts|md|txt|yml|css|sql))[`'\"]?/i);
   return generic ? generic[1].replace(/[.,;:!?]+$/, '') : null;
 }
 
 function detectWorkspaceOwnerCommand(message) {
   const normalized = normalize(message);
+  if (MUTATION_INTENT_PATTERN.test(normalized)) return null;
+
   const workspaceId = resolveWorkspaceId(message);
 
   const searchQuery = extractSearchQuery(message);
