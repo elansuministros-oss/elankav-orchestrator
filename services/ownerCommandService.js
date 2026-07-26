@@ -15,6 +15,13 @@ const {
   getRecentJobs,
   readWahaSession
 } = require('./ownerOperationalReadService');
+const {
+  INTENT_TYPES,
+  OPERATION_STATUSES
+} = require('./autonomousOperations');
+const {
+  getAutonomousOperationService
+} = require('./autonomousOperations/runtime');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -146,14 +153,16 @@ function formatContextSyncResult(job) {
   ].join('\n');
 }
 
-function formatCodeJobAccepted(job) {
+function formatCodeJobAccepted(job, operation) {
   return [
     'Orden de programación aceptada.', '',
+    `Operación: ${operation?.id || 'No disponible'}`,
+    `Riesgo: ${operation?.risk?.level || 'No disponible'}`,
     `Job: ${job.id}`,
     `Plataforma: ${job.platform}`,
     `Rama temporal: ${job.branch}`,
     `Estado: ${job.status}`, '',
-    'Codex trabajará en un workspace aislado. El flujo puede crear una rama y un Pull Request, pero no hará merge ni despliegue automático.'
+    'El Orchestrator registrará la operación, ejecutará el workspace aislado y validará el resultado. No hará merge ni despliegue automático.'
   ].join('\n');
 }
 
@@ -177,6 +186,71 @@ function formatJobStatusResult(job) {
     `Creado: ${job.createdAt || 'No disponible'}`,
     `Finalizado: ${job.finishedAt || 'Todavía no finalizado'}`
   ].join('\n');
+}
+
+async function createGovernedCodeOperation(command) {
+  const service = getAutonomousOperationService();
+  const operation = await service.createOperation({
+    originalMessage: command.task,
+    actor: {
+      type: 'OWNER',
+      identityId: 'owner-router',
+      channel: 'whatsapp',
+      verified: true
+    },
+    source: {
+      type: 'OWNER_COMMAND',
+      command: OWNER_COMMANDS.CODE_JOB
+    },
+    intent: {
+      type: INTENT_TYPES.CODE_CHANGE,
+      objective: command.task,
+      requestedActions: ['CREATE_CODE_JOB'],
+      deployRequested: false,
+      mergeRequested: false
+    },
+    target: {
+      workspaceId: command.platform,
+      environment: 'isolated-workspace',
+      destructive: false
+    }
+  });
+
+  await service.transition(operation.id, OPERATION_STATUSES.RESOLVING);
+  await service.transition(operation.id, OPERATION_STATUSES.PLANNING, {
+    plan: {
+      summary: command.task,
+      actions: ['CREATE_CODE_JOB', 'EXECUTE_ISOLATED_JOB', 'VALIDATE_RESULT'],
+      constraints: ['NO_MERGE', 'NO_DEPLOY']
+    }
+  });
+  await service.transition(operation.id, OPERATION_STATUSES.POLICY_REVIEW);
+  return service.transition(operation.id, OPERATION_STATUSES.EXECUTING);
+}
+
+async function completeGovernedCodeOperation(operationId, jobPromise) {
+  const service = getAutonomousOperationService();
+  try {
+    const completedJob = await jobPromise;
+    await service.transition(operationId, OPERATION_STATUSES.VALIDATING, {
+      actionResults: [{ type: 'CODE_JOB', jobId: completedJob.id, status: completedJob.status }]
+    });
+    await service.transition(operationId, OPERATION_STATUSES.READY_TO_PUBLISH, {
+      validations: [{ type: 'JOB_RESULT', status: completedJob.status }]
+    });
+    await service.transition(operationId, OPERATION_STATUSES.COMPLETED, {
+      evidence: [{ type: 'JOB_REFERENCE', reference: completedJob.id }]
+    });
+  } catch (error) {
+    try {
+      await service.transition(operationId, OPERATION_STATUSES.FAILED, {
+        failure: { code: error.code || 'CODE_JOB_FAILED', message: error.message }
+      });
+    } catch (transitionError) {
+      console.error(`[AUTONOMOUS_OPERATION_ERROR] ${operationId}: ${transitionError.message}`);
+    }
+    console.error(`[OWNER_CODE_JOB_ERROR] ${operationId}: ${error.message}`);
+  }
 }
 
 async function executeOwnerCommand({ command, platform }) {
@@ -205,9 +279,16 @@ async function executeOwnerCommand({ command, platform }) {
     return { command: type, job, outputText: formatJobStatusResult(job) };
   }
   if (type === OWNER_COMMANDS.CODE_JOB) {
+    const operation = await createGovernedCodeOperation(command);
     const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE, task: command.task });
-    executeJob(job.id).catch(error => console.error(`[OWNER_CODE_JOB_ERROR] ${job.id}: ${error.message}`));
-    return { command: type, job, outputText: formatCodeJobAccepted(job) };
+    completeGovernedCodeOperation(operation.id, executeJob(job.id));
+    return {
+      command: type,
+      job,
+      operation,
+      operationId: operation.id,
+      outputText: formatCodeJobAccepted(job, operation)
+    };
   }
   if (type === OWNER_COMMANDS.QUOTE_QUERY) {
     const result = await processQuoteRuntimeCommand({ message: command.message, actor: { role: 'owner' } });
@@ -238,6 +319,7 @@ async function executeOwnerCommand({ command, platform }) {
 
 module.exports = {
   OWNER_COMMANDS,
+  createGovernedCodeOperation,
   detectJobStatusCommand,
   detectOwnerCommand,
   detectSendDesignLinkCommand,
