@@ -8,6 +8,7 @@ const repositories = require('../config/github.json');
 const {
   policy,
   workspaceError,
+  normalizeRelativePath,
   assertAllowedTextPath,
   resolveInside,
   assertTextBuffer,
@@ -94,7 +95,12 @@ async function searchText(workspaceId, query, searchPaths = ['.'], limit = polic
   const workspace = await resolveWorkspace(workspaceId);
   const term = String(query || '').trim();
   if (!term || term.length > 200) throw workspaceError('WORKSPACE_QUERY_INVALID', 'Consulta de búsqueda inválida');
-  const paths = searchPaths.slice(0, policy.maxSearchPaths).map(value => value === '.' ? '.' : assertAllowedTextPath(value));
+  const paths = searchPaths.slice(0, policy.maxSearchPaths).map(value => {
+    if (value === '.') return '.';
+    const safe = normalizeRelativePath(value);
+    if (isBlocked(safe)) throw workspaceError('WORKSPACE_RESOURCE_BLOCKED', 'Ruta de búsqueda bloqueada');
+    return safe;
+  });
   const args = ['grep', '-n', '-I', '--no-color', '--', term, ...paths];
   let stdout = '';
   try { stdout = (await runGit(args, workspace.workspacePath)).stdout; } catch (error) {
