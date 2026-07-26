@@ -6,6 +6,7 @@ const WORKSPACE_OWNER_COMMANDS = Object.freeze({
   SEARCH: 'workspace_search',
   READ: 'workspace_read',
   DIFF: 'workspace_diff',
+  GIT_STATUS: 'workspace_git_status',
   PACKAGE: 'workspace_package_manifest'
 });
 
@@ -81,6 +82,10 @@ function detectWorkspaceOwnerCommand(message) {
     return Object.freeze({ type: WORKSPACE_OWNER_COMMANDS.READ, workspaceId, path });
   }
 
+  if (/\b(?:estado|status)\s+(?:de\s+)?git\b|\bgit\s+(?:status|estado)\b|\brama\s+(?:actual\s+)?(?:de|del)\b/.test(normalized)) {
+    return Object.freeze({ type: WORKSPACE_OWNER_COMMANDS.GIT_STATUS, workspaceId });
+  }
+
   if (/\b(diff|diferencias|cambios locales|cambios pendientes)\b/.test(normalized)) {
     return Object.freeze({ type: WORKSPACE_OWNER_COMMANDS.DIFF, workspaceId, path: path || undefined });
   }
@@ -151,6 +156,7 @@ async function executeWorkspaceOwnerCommand(command) {
   const intentByType = {
     [WORKSPACE_OWNER_COMMANDS.READ]: 'read_file',
     [WORKSPACE_OWNER_COMMANDS.DIFF]: 'workspace_diff',
+    [WORKSPACE_OWNER_COMMANDS.GIT_STATUS]: 'git_status',
     [WORKSPACE_OWNER_COMMANDS.PACKAGE]: 'package_manifest'
   };
   const result = await executeElanAIWorkspaceQuery({
@@ -170,6 +176,23 @@ async function executeWorkspaceOwnerCommand(command) {
   }
   if (command.type === WORKSPACE_OWNER_COMMANDS.DIFF) {
     return { command: command.type, job: null, outputText: result.data?.content || 'El workspace no tiene diferencias locales.', workspaceQuery: result };
+  }
+  if (command.type === WORKSPACE_OWNER_COMMANDS.GIT_STATUS) {
+    const data = result.data || {};
+    const statusLines = Array.isArray(data.status) ? data.status : [];
+    return {
+      command: command.type,
+      job: null,
+      outputText: [
+        `Workspace: ${command.workspaceId}`,
+        `Repositorio: ${data.repository || 'No definido'}`,
+        `Rama: ${data.branch || 'No definida'}`,
+        `Commit: ${data.headSha || 'No definido'}`,
+        `Estado: ${data.clean ? 'limpio' : 'con cambios locales'}`,
+        ...(statusLines.length ? ['', ...statusLines] : [])
+      ].join('\n'),
+      workspaceQuery: result
+    };
   }
 
   const manifest = result.data || {};
