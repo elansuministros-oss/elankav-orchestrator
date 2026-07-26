@@ -15,6 +15,10 @@ const {
   getRecentJobs,
   readWahaSession
 } = require('./ownerOperationalReadService');
+const {
+  detectWorkspaceOwnerCommand,
+  executeWorkspaceOwnerCommand
+} = require('./ownerWorkspaceCommandService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -87,6 +91,9 @@ function detectOwnerCommand(message) {
 
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
+
+  const workspaceCommand = detectWorkspaceOwnerCommand(message);
+  if (workspaceCommand) return workspaceCommand;
 
   if (CAPABILITY_PATTERN.test(normalized)) {
     return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
@@ -182,6 +189,9 @@ function formatJobStatusResult(job) {
 async function executeOwnerCommand({ command, platform }) {
   const type = typeof command === 'string' ? command : command?.type;
 
+  if (String(type || '').startsWith('workspace_')) {
+    return executeWorkspaceOwnerCommand(command);
+  }
   if (type === OWNER_COMMANDS.CANCEL_FLOW) {
     return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
   }
