@@ -70,56 +70,71 @@ async function downloadWahaMedia({ url, fetchImpl = fetch }) {
   };
 }
 
-async function connectRequest(path, options = {}, fetchImpl = fetch) {
-  const { baseUrl, token } = getConnectConfig();
+function buildConnectHeaders(extraHeaders = {}) {
+  const { token } = getConnectConfig();
   if (!token) throw createHttpError('CONNECT_VOICE_TOKEN_REQUIRED', 503);
+  return {
+    'X-Connect-Voice-Token': token,
+    ...extraHeaders
+  };
+}
 
-  const response = await fetchImpl(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      'X-Elankav-Voice-Token': token,
-      ...(options.headers || {})
-    },
-    signal: options.signal || AbortSignal.timeout(60_000)
-  });
+async function readConnectError(response) {
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw createHttpError(
-      payload?.error?.code || 'CONNECT_VOICE_REQUEST_FAILED',
-      response.status,
-      payload?.error?.message || `CONNECT voice HTTP ${response.status}`
-    );
-  }
-  return payload;
+  return createHttpError(
+    payload?.error?.code || 'CONNECT_VOICE_REQUEST_FAILED',
+    response.status,
+    payload?.error?.message || `CONNECT voice HTTP ${response.status}`
+  );
 }
 
 async function transcribeAudio({ audio, mimeType, filename, fetchImpl = fetch }) {
-  const payload = await connectRequest('/api/v1/voice/transcriptions', {
+  if (!audio?.length) throw createHttpError('CONNECT_AUDIO_REQUIRED', 400);
+
+  const { baseUrl } = getConnectConfig();
+  const form = new FormData();
+  const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
+  form.append('file', new Blob([bytes], { type: mimeType || 'audio/ogg' }), filename || 'voice.ogg');
+  form.append('language', 'es');
+
+  const response = await fetchImpl(`${baseUrl}/api/v1/voice/transcriptions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': mimeType || 'audio/ogg',
-      'X-File-Name': filename || 'voice.ogg',
-      'X-Audio-Language': 'es'
-    },
-    body: audio
-  }, fetchImpl);
+    headers: buildConnectHeaders({ Accept: 'application/json' }),
+    body: form,
+    signal: AbortSignal.timeout(60_000)
+  });
+
+  if (!response.ok) throw await readConnectError(response);
+
+  const payload = await response.json().catch(() => ({}));
   const text = String(payload?.text || '').trim();
   if (!text) throw createHttpError('CONNECT_TRANSCRIPTION_EMPTY', 502);
   return text;
 }
 
 async function synthesizeSpeech({ text, fetchImpl = fetch }) {
-  const payload = await connectRequest('/api/v1/voice/speech', {
+  const normalizedText = String(text || '').trim();
+  if (!normalizedText) throw createHttpError('CONNECT_SPEECH_TEXT_REQUIRED', 400);
+
+  const { baseUrl } = getConnectConfig();
+  const response = await fetchImpl(`${baseUrl}/api/v1/voice/speech`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text })
-  }, fetchImpl);
-  const data = String(payload?.data || '').trim();
-  if (!data) throw createHttpError('CONNECT_SPEECH_EMPTY', 502);
+    headers: buildConnectHeaders({
+      Accept: 'audio/opus, audio/mpeg, audio/wav',
+      'Content-Type': 'application/json'
+    }),
+    body: JSON.stringify({ text: normalizedText, format: 'opus' }),
+    signal: AbortSignal.timeout(60_000)
+  });
+
+  if (!response.ok) throw await readConnectError(response);
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) throw createHttpError('CONNECT_SPEECH_EMPTY', 502);
+
   return {
-    data,
-    mimeType: String(payload?.mimeType || 'audio/ogg; codecs=opus')
+    data: buffer.toString('base64'),
+    mimeType: String(response.headers.get('content-type') || 'audio/opus')
   };
 }
 
