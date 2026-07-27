@@ -1,4 +1,8 @@
 const { getDashboardData } = require('./dashboardService');
+const {
+  loadPlatformKnowledgeSafely,
+  normalizePlatform
+} = require('./connectPlatformKnowledgeService');
 
 function compactService(service = {}) {
   return {
@@ -35,11 +39,32 @@ function compactContainer(container = {}) {
   };
 }
 
+function resolveOwnerKnowledgePlatform(value) {
+  return normalizePlatform(
+    value ||
+    process.env.WAHA_DEFAULT_PLATFORM ||
+    process.env.ELAN_AI_DEFAULT_PLATFORM ||
+    'ELANVISUAL'
+  );
+}
+
 async function loadEcosystemContext({
-  getDashboardDataImpl = getDashboardData
+  getDashboardDataImpl = getDashboardData,
+  loadKnowledgeImpl = loadPlatformKnowledgeSafely,
+  platform,
+  query = ''
 } = {}) {
   try {
-    const dashboard = await getDashboardDataImpl();
+    const resolvedPlatform = resolveOwnerKnowledgePlatform(platform);
+    const [dashboard, approvedCommercialKnowledge] = await Promise.all([
+      getDashboardDataImpl(),
+      Promise.resolve()
+        .then(() => loadKnowledgeImpl({
+          platform: resolvedPlatform,
+          query
+        }))
+        .catch(() => null)
+    ]);
     const summary = dashboard?.summary || {};
     const ecosystem = dashboard?.data?.ecosystem || {};
     const github = dashboard?.data?.github || {};
@@ -62,6 +87,16 @@ async function loadEcosystemContext({
       containers: Array.isArray(docker.containers)
         ? docker.containers.map(compactContainer)
         : [],
+      approvedCommercialKnowledge:
+        approvedCommercialKnowledge?.available === true
+          ? {
+              available: true,
+              source: approvedCommercialKnowledge.source || 'ELANKAV_CONNECT',
+              policy: approvedCommercialKnowledge.policy || 'approved-commercial-catalogs-only',
+              platformId: approvedCommercialKnowledge.platformId || resolvedPlatform,
+              payload: approvedCommercialKnowledge.payload || null
+            }
+          : null,
       checkedAt: dashboard?.checked_at || new Date().toISOString()
     };
   } catch (error) {
@@ -80,5 +115,6 @@ module.exports = {
   compactService,
   compactRepository,
   compactContainer,
+  resolveOwnerKnowledgePlatform,
   loadEcosystemContext
 };
