@@ -83,12 +83,15 @@ test('SALES-01 adapter devuelve null para producto desconocido', async () => {
   assert.equal(result, null);
 });
 
-test('SALES-01 contexto degrada sin romper WhatsApp', async () => {
+test('SALES-01 contexto degrada sin romper WhatsApp cuando fallan ambas fuentes', async () => {
   const context = await loadCommercialContext(
     { message: 'Quiero una fascia' },
     {
       fetchOffer: async () => {
         throw new Error('sin conexión');
+      },
+      loadKnowledge: async () => {
+        throw new Error('connect no disponible');
       }
     }
   );
@@ -113,7 +116,10 @@ test('SALES-01 conserva el producto durante respuestas cortas', () => {
 test('SALES-01 entrega precios verificados a OpenAI', async () => {
   const commercial = await loadCommercialContext(
     { message: 'Quiero una cajuela' },
-    { fetchOffer: async () => VERIFIED_OFFER }
+    {
+      fetchOffer: async () => VERIFIED_OFFER,
+      loadKnowledge: async () => null
+    }
   );
   const instructions = buildContextInstructions({ commercial });
 
