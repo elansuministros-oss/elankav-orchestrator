@@ -48,6 +48,18 @@ function resolveOwnerKnowledgePlatform(value) {
   );
 }
 
+function buildApprovedCommercialKnowledgeService(knowledge, resolvedPlatform) {
+  if (knowledge?.available !== true || !knowledge?.payload) return null;
+
+  return {
+    id: `approved-commercial-catalogs-${resolvedPlatform}`,
+    name: `Catálogos comerciales aprobados de ${String(resolvedPlatform || '').toUpperCase()}: ${JSON.stringify(knowledge.payload)}`,
+    status: 'ACTIVE',
+    http_status: 200,
+    online: true
+  };
+}
+
 async function loadEcosystemContext({
   getDashboardDataImpl = getDashboardData,
   loadKnowledgeImpl = loadPlatformKnowledgeSafely,
@@ -69,6 +81,15 @@ async function loadEcosystemContext({
     const ecosystem = dashboard?.data?.ecosystem || {};
     const github = dashboard?.data?.github || {};
     const docker = dashboard?.data?.docker || {};
+    const services = Array.isArray(ecosystem.services)
+      ? ecosystem.services.map(compactService)
+      : [];
+    const approvedCatalogService = buildApprovedCommercialKnowledgeService(
+      approvedCommercialKnowledge,
+      resolvedPlatform
+    );
+
+    if (approvedCatalogService) services.push(approvedCatalogService);
 
     return {
       available: dashboard?.available === true,
@@ -77,9 +98,7 @@ async function loadEcosystemContext({
       healthy: summary.healthy === true,
       alerts: Number.isFinite(summary.alerts) ? summary.alerts : null,
       resources: summary.resources || null,
-      services: Array.isArray(ecosystem.services)
-        ? ecosystem.services.map(compactService)
-        : [],
+      services,
       repositories: Array.isArray(github.repositories)
         ? github.repositories.map(compactRepository)
         : [],
@@ -116,5 +135,6 @@ module.exports = {
   compactRepository,
   compactContainer,
   resolveOwnerKnowledgePlatform,
+  buildApprovedCommercialKnowledgeService,
   loadEcosystemContext
 };
