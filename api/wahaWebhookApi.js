@@ -3,13 +3,19 @@
 const { processMessage } = require('../services/messageService');
 const {
   downloadWahaMedia,
+  resolveAudioMimeType,
   synthesizeSpeech,
   transcribeAudio
 } = require('../services/connectVoiceService');
+const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_OWNER_PHONE = '50588388940';
+const DEDUPE_TTL_MS = 10 * 60 * 1000;
+const processedMessageIds = new Map();
+const TRANSCRIPTION_FAILURE_TEXT = 'No pude escuchar correctamente la nota de voz. Podés enviarla nuevamente o escribirme el mensaje.';
+const INTERNAL_AUDIO_FAILURE_TEXT = 'Tuve un problema procesando el audio. Podés escribirme el mensaje mientras lo intento nuevamente.';
 const PRESENTATION_TEXT = process.env.ELAN_AI_PRESENTATION_TEXT || [
   'Hola, soy ELAN IA, el asistente inteligente del ecosistema ELANKAV.',
   'Puedo ayudarte con información, cotizaciones, diseño, seguimiento de proyectos y servicios disponibles en ELANVISUAL, ELANHOME y ELANPET.',
@@ -91,6 +97,60 @@ function extractPayload(body = {}) {
   return body.payload && typeof body.payload === 'object' ? body.payload : body;
 }
 
+function maskChatId(chatId = '') {
+  const value = String(chatId || '');
+  if (value.length <= 8) return value ? '***' : '';
+  return `${value.slice(0, 4)}***${value.slice(-8)}`;
+}
+
+function logVoiceEvent(event, data = {}) {
+  console.log(`[${event}]`, {
+    eventId: data.eventId || null,
+    messageId: data.messageId || null,
+    session: data.session || null,
+    chatId: data.chatId ? maskChatId(data.chatId) : null,
+    messageType: data.messageType || null,
+    mimeType: data.mimeType || null,
+    status: data.status || null,
+    durationMs: data.durationMs || null,
+    errorCode: data.errorCode || null
+  });
+}
+
+function cleanupDedupe(now = Date.now()) {
+  for (const [key, expiresAt] of processedMessageIds.entries()) {
+    if (expiresAt <= now) processedMessageIds.delete(key);
+  }
+}
+
+function markMessageOnce(messageId, now = Date.now()) {
+  const key = String(messageId || '').trim();
+  if (!key) return true;
+  cleanupDedupe(now);
+  if (processedMessageIds.has(key)) return false;
+  processedMessageIds.set(key, now + DEDUPE_TTL_MS);
+  return true;
+}
+
+function clearWahaInboundDedupe() {
+  processedMessageIds.clear();
+}
+
+function extractMessageId(payload = {}, body = {}) {
+  return String(
+    body.id ||
+    body.eventId ||
+    body.messageId ||
+    payload.id?.id ||
+    payload.id ||
+    payload.messageId ||
+    payload.key?.id ||
+    payload._data?.id?.id ||
+    payload.message?.key?.id ||
+    ''
+  ).trim();
+}
+
 function extractSenderRaw(payload = {}) {
   const candidates = [
     payload.from,
@@ -146,13 +206,34 @@ function extractMessageType(payload = {}) {
 
 function extractMedia(payload = {}) {
   const media = payload.media || payload._data?.media || null;
-  if (!media || typeof media !== 'object') return null;
-  const url = String(media.url || '').trim();
+  const url = String(
+    payload.mediaUrl ||
+    payload.downloadUrl ||
+    payload.url ||
+    payload.message?.mediaUrl ||
+    payload._data?.mediaUrl ||
+    (media && typeof media === 'object' ? media.url : '') ||
+    ''
+  ).trim();
   if (!url) return null;
   return {
     url,
-    mimeType: String(media.mimetype || media.mimeType || 'audio/ogg'),
-    filename: String(media.filename || 'voice.ogg')
+    mimeType: String(
+      payload.mimetype ||
+      payload.mimeType ||
+      payload.message?.mimetype ||
+      payload.message?.mimeType ||
+      payload._data?.mimetype ||
+      payload._data?.mimeType ||
+      (media && typeof media === 'object' ? media.mimetype || media.mimeType : '') ||
+      'audio/ogg'
+    ),
+    filename: String(
+      payload.filename ||
+      payload.message?.filename ||
+      (media && typeof media === 'object' ? media.filename : '') ||
+      'voice.ogg'
+    )
   };
 }
 
@@ -178,6 +259,7 @@ function extractIncoming(body = {}) {
 
   return {
     event,
+    messageId: extractMessageId(payload, body),
     session: body.session || payload.session || process.env.WAHA_SESSION || 'default',
     senderRaw,
     phone: normalizePhone(senderRaw),
@@ -213,19 +295,19 @@ async function sendWahaRequest(path, body, fetchImpl = fetch) {
 }
 
 async function sendWahaText({ session, chatId, text, fetchImpl = fetch }) {
-  return sendWahaRequest('/api/sendText', { session, chatId, text }, fetchImpl);
+  const delivery = createWahaDeliveryAdapter({
+    env: { ...process.env, WAHA_SESSION: session || process.env.WAHA_SESSION },
+    fetchImpl
+  });
+  return delivery.sendText({ chatId, text });
 }
 
 async function sendWahaVoice({ session, chatId, data, mimeType, fetchImpl = fetch }) {
-  return sendWahaRequest('/api/sendVoice', {
-    session,
-    chatId,
-    file: {
-      mimetype: mimeType || 'audio/ogg; codecs=opus',
-      data
-    },
-    convert: false
-  }, fetchImpl);
+  const delivery = createWahaDeliveryAdapter({
+    env: { ...process.env, WAHA_SESSION: session || process.env.WAHA_SESSION },
+    fetchImpl
+  });
+  return delivery.sendVoice({ chatId, data, mimeType: mimeType || 'audio/ogg' });
 }
 
 async function resolveIncomingMessage(incoming, dependencies = {}) {
@@ -238,12 +320,32 @@ async function resolveIncomingMessage(incoming, dependencies = {}) {
 
   const downloadMediaImpl = dependencies.downloadWahaMedia || downloadWahaMedia;
   const transcribeImpl = dependencies.transcribeAudio || transcribeAudio;
+  logVoiceEvent('VOICE_MEDIA_DOWNLOAD_STARTED', incoming);
   const media = await downloadMediaImpl({ url: incoming.media.url });
-  return transcribeImpl({
+  logVoiceEvent('VOICE_MEDIA_DOWNLOADED', {
+    ...incoming,
+    mimeType: media.mimeType,
+    status: 'OK'
+  });
+  const mimeType = resolveAudioMimeType({
+    downloadedMimeType: media.mimeType,
+    webhookMimeType: incoming.media.mimeType
+  });
+  logVoiceEvent('VOICE_MIME_NORMALIZED', {
+    ...incoming,
+    mimeType
+  });
+  logVoiceEvent('VOICE_TRANSCRIPTION_STARTED', {
+    ...incoming,
+    mimeType
+  });
+  const text = await transcribeImpl({
     audio: media.buffer,
-    mimeType: incoming.media.mimeType || media.mimeType,
+    mimeType,
     filename: incoming.media.filename
   });
+  logVoiceEvent('VOICE_TRANSCRIPTION_COMPLETED', incoming);
+  return text;
 }
 
 async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
@@ -270,10 +372,11 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const sendWahaTextImpl = dependencies.sendWahaText || sendWahaText;
   const sendWahaVoiceImpl = dependencies.sendWahaVoice || sendWahaVoice;
   const synthesizeImpl = dependencies.synthesizeSpeech || synthesizeSpeech;
+  let incoming = null;
 
   try {
     const body = await readJsonBody(req);
-    const incoming = extractIncoming(body);
+    incoming = extractIncoming(body);
 
     if (incoming.event && !['message', 'message.any'].includes(incoming.event)) {
       sendJson(res, 200, { ok: true, ignored: true, reason: 'EVENT_NOT_MESSAGE' });
@@ -295,17 +398,29 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       sendJson(res, 200, { ok: true, ignored: true, reason: 'MESSAGE_INCOMPLETE' });
       return true;
     }
+    if (!markMessageOnce(incoming.messageId || `${incoming.session}:${incoming.chatId}:${incoming.messageType}:${incoming.media?.url || incoming.text}`)) {
+      logVoiceEvent('VOICE_DUPLICATE_SKIPPED', incoming);
+      sendJson(res, 200, { ok: true, ignored: true, reason: 'DUPLICATE_MESSAGE' });
+      return true;
+    }
 
+    if (incoming.messageType === 'audio') {
+      logVoiceEvent('VOICE_INBOUND_RECEIVED', {
+        ...incoming,
+        mimeType: incoming.media?.mimeType || null
+      });
+    }
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
 
-    console.log('[WAHA_INBOUND_RECEIVED]', {
+    console.log('[WAHA_INBOUND_ACCEPTED]', {
       event: incoming.event || 'message',
       session: incoming.session,
-      senderRaw: incoming.senderRaw,
-      phone: incoming.phone,
+      chatId: maskChatId(incoming.chatId),
       messageType: incoming.messageType,
-      transcribed: incoming.messageType === 'audio'
+      transcribed: incoming.messageType === 'audio',
+      mediaUrlPresent: Boolean(incoming.media?.url),
+      mimeType: incoming.media?.mimeType || null
     });
 
     if (isOwnerPhone(incoming.phone) && isPresentationAudioRequest(resolvedMessage)) {
@@ -327,6 +442,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       return true;
     }
 
+    logVoiceEvent('VOICE_AI_STARTED', incoming);
     const result = await processMessageImpl({
       message: resolvedMessage,
       platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
@@ -336,6 +452,8 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       metadata: {
         source: 'waha',
         session: incoming.session,
+        messageId: incoming.messageId || null,
+        chatId: incoming.chatId,
         event: incoming.event || 'message',
         senderRaw: incoming.senderRaw,
         messageType: incoming.messageType,
@@ -343,6 +461,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null
       }
     });
+    logVoiceEvent('VOICE_AI_COMPLETED', incoming);
 
     const reply = String(result?.reply || '').trim();
     if (!reply) throw new Error('Orchestrator respondió sin texto');
@@ -350,7 +469,12 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     let replyType = 'text';
     if (incoming.messageType === 'audio') {
       try {
+        logVoiceEvent('VOICE_SPEECH_STARTED', incoming);
         const speech = await synthesizeImpl({ text: reply });
+        logVoiceEvent('VOICE_SPEECH_COMPLETED', {
+          ...incoming,
+          mimeType: speech.mimeType
+        });
         await sendWahaVoiceImpl({
           session: incoming.session,
           chatId: incoming.chatId,
@@ -358,6 +482,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           mimeType: speech.mimeType
         });
         replyType = 'voice';
+        logVoiceEvent('VOICE_REPLY_SENT', incoming);
       } catch (voiceError) {
         console.error('[WAHA_VOICE_REPLY_FALLBACK]', {
           message: voiceError.message,
@@ -365,6 +490,11 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           status: voiceError.status || null
         });
         await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        logVoiceEvent('VOICE_TEXT_FALLBACK_SENT', {
+          ...incoming,
+          errorCode: voiceError.code || 'VOICE_SPEECH_FAILED',
+          status: voiceError.status || null
+        });
       }
     } else {
       await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
@@ -372,7 +502,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 
     console.log('[WAHA_REPLY_SENT]', {
       session: incoming.session,
-      chatId: incoming.chatId,
+      chatId: maskChatId(incoming.chatId),
       ownerMode: Boolean(result?.context?.ownerMode),
       model: result?.model || null,
       replyType
@@ -393,6 +523,32 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       code: error.code || null,
       status: error.status || null
     });
+    try {
+      if (incoming?.messageType === 'audio' && incoming.chatId) {
+        const isTranscriptionFailure = [
+          'VOICE_TRANSCRIPTION_EMPTY',
+          'CONNECT_TRANSCRIPTION_EMPTY',
+          'CONNECT_VOICE_REQUEST_FAILED',
+          'VOICE_MIME_UNSUPPORTED',
+          'CONNECT_AUDIO_REQUIRED'
+        ].includes(error.code);
+        await sendWahaTextImpl({
+          session: incoming.session,
+          chatId: incoming.chatId,
+          text: isTranscriptionFailure ? TRANSCRIPTION_FAILURE_TEXT : INTERNAL_AUDIO_FAILURE_TEXT
+        });
+        logVoiceEvent('VOICE_TEXT_FALLBACK_SENT', {
+          ...incoming,
+          errorCode: error.code || 'VOICE_PIPELINE_ERROR',
+          status: error.status || null
+        });
+      }
+    } catch (fallbackError) {
+      logVoiceEvent('VOICE_PIPELINE_ERROR', {
+        errorCode: fallbackError.code || 'VOICE_DELIVERY_FAILED',
+        status: fallbackError.status || null
+      });
+    }
     sendJson(res, 200, {
       ok: false,
       processed: false,
@@ -408,6 +564,7 @@ module.exports = {
   extractIncoming,
   extractMedia,
   extractMessageType,
+  clearWahaInboundDedupe,
   handleWahaWebhookApi,
   isPresentationAudioRequest,
   normalizePhone,

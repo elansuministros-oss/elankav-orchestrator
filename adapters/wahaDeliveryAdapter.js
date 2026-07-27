@@ -10,6 +10,18 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
 const SUPPORTED_FILE_MIME_TYPES = new Set([
   'application/pdf'
 ]);
+const SUPPORTED_VOICE_MIME_TYPES = new Set([
+  'audio/ogg',
+  'audio/opus',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/webm',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/x-m4a'
+]);
 
 function normalizePhone(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -98,6 +110,21 @@ function assertFileDeliveryInput({ fileUrl, fileName, mimeType }) {
   if (!SUPPORTED_FILE_MIME_TYPES.has(normalizedMimeType)) {
     const error = new Error('WAHA_FILE_MIME_UNSUPPORTED');
     error.code = 'WAHA_FILE_MIME_UNSUPPORTED';
+    throw error;
+  }
+}
+
+function assertVoiceDeliveryInput({ data, mimeType }) {
+  if (!String(data || '').trim()) {
+    const error = new Error('WAHA_VOICE_DATA_REQUIRED');
+    error.code = 'WAHA_VOICE_DATA_REQUIRED';
+    throw error;
+  }
+
+  const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  if (!SUPPORTED_VOICE_MIME_TYPES.has(normalizedMimeType)) {
+    const error = new Error('WAHA_VOICE_MIME_UNSUPPORTED');
+    error.code = 'WAHA_VOICE_MIME_UNSUPPORTED';
     throw error;
   }
 }
@@ -213,7 +240,29 @@ function createWahaDeliveryAdapter({
     });
   }
 
-  return Object.freeze({ sendFile, sendImage, sendText });
+  async function sendVoice({ phone, chatId, data, mimeType }) {
+    const resolvedChatId = resolveChatId({ phone, chatId });
+    assertVoiceDeliveryInput({ data, mimeType });
+    const normalizedMimeType = String(mimeType).split(';')[0].trim().toLowerCase();
+
+    const response = await requestWaha('/api/sendVoice', {
+      session,
+      chatId: resolvedChatId,
+      file: {
+        mimetype: normalizedMimeType,
+        data: String(data).trim()
+      },
+      convert: false
+    });
+
+    return Object.freeze({
+      chatId: resolvedChatId,
+      messageId: extractMessageId(response),
+      response
+    });
+  }
+
+  return Object.freeze({ sendFile, sendImage, sendText, sendVoice });
 }
 
 module.exports = {
@@ -221,6 +270,7 @@ module.exports = {
   DEFAULT_WAHA_SESSION,
   assertFileDeliveryInput,
   assertImageDeliveryInput,
+  assertVoiceDeliveryInput,
   buildChatId,
   buildDesignFollowupInstructions,
   buildDesignReadyCaption,

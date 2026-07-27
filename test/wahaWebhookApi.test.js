@@ -3,11 +3,16 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 
 const {
+  clearWahaInboundDedupe,
   extractIncoming,
   handleWahaWebhookApi,
   isPresentationAudioRequest,
   normalizePhone
 } = require('../api/wahaWebhookApi');
+
+test.afterEach(() => {
+  clearWahaInboundDedupe();
+});
 
 function createRequest({ method = 'POST', url = '/webhook/inbound', body = null } = {}) {
   const req = new EventEmitter();
@@ -279,4 +284,235 @@ test('POST /webhook/inbound ignores messages sent by the bot', async () => {
 
   assert.equal(recorder.calls[0].payload.ignored, true);
   assert.equal(recorder.calls[0].payload.reason, 'FROM_ME');
+});
+
+test('POST /webhook/inbound ignora eventos session.status', async () => {
+  const req = createRequest({
+    body: {
+      event: 'session.status',
+      session: 'ELANKAV',
+      payload: { status: 'WORKING' }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      processMessage: async () => { throw new Error('should not run'); }
+    }
+  });
+
+  assert.equal(recorder.calls[0].payload.ignored, true);
+  assert.equal(recorder.calls[0].payload.reason, 'EVENT_NOT_MESSAGE');
+});
+
+test('POST /webhook/inbound ignora grupos', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      payload: {
+        from: '120363000000@g.us',
+        body: 'hola',
+        fromMe: false
+      }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      processMessage: async () => { throw new Error('should not run'); }
+    }
+  });
+
+  assert.equal(recorder.calls[0].payload.ignored, true);
+  assert.equal(recorder.calls[0].payload.reason, 'GROUP_MESSAGE');
+});
+
+test('POST /webhook/inbound deduplica eventos repetidos', async () => {
+  const body = {
+    event: 'message',
+    id: 'event-dupe-1',
+    session: 'ELANKAV',
+    payload: {
+      from: '50584817885@c.us',
+      body: 'hola',
+      fromMe: false
+    }
+  };
+  const recorder = createSendJsonRecorder();
+  let processed = 0;
+  const dependencies = {
+    async processMessage() {
+      processed += 1;
+      return { reply: 'respuesta', context: {} };
+    },
+    async sendWahaText() {}
+  };
+
+  await handleWahaWebhookApi({
+    req: createRequest({ body }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies
+  });
+  await handleWahaWebhookApi({
+    req: createRequest({ body }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies
+  });
+
+  assert.equal(processed, 1);
+  assert.equal(recorder.calls[1].payload.reason, 'DUPLICATE_MESSAGE');
+});
+
+test('POST /webhook/inbound conserva chatId @lid al responder voz', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'event-lid-voice',
+      session: 'ELANKAV',
+      payload: {
+        from: '168534952960065@lid',
+        type: 'audio',
+        fromMe: false,
+        mediaUrl: '/api/files/voice-lid.ogg',
+        mimetype: 'audio/ogg; codecs=opus'
+      }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const voices = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async downloadWahaMedia() {
+        return { buffer: Buffer.from('audio'), mimeType: 'application/octet-stream' };
+      },
+      async transcribeAudio(input) {
+        assert.equal(input.mimeType, 'audio/ogg');
+        return 'Necesito precio';
+      },
+      async processMessage(input) {
+        assert.equal(input.metadata.chatId, '168534952960065@lid');
+        assert.equal(input.metadata.messageId, 'event-lid-voice');
+        return { reply: 'Claro.', context: {} };
+      },
+      async synthesizeSpeech() {
+        return { data: 'b3B1cw==', mimeType: 'audio/ogg' };
+      },
+      async sendWahaVoice(input) {
+        voices.push(input);
+      }
+    }
+  });
+
+  assert.equal(voices[0].chatId, '168534952960065@lid');
+  assert.equal(recorder.calls[0].payload.replyType, 'voice');
+});
+
+test('POST /webhook/inbound falla síntesis y responde el mismo texto', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'event-speech-fallback',
+      payload: {
+        from: '50584817885@c.us',
+        type: 'ptt',
+        fromMe: false,
+        mediaUrl: '/api/files/voice.ogg',
+        mimetype: 'audio/ogg; codecs=opus'
+      }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const texts = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async downloadWahaMedia() {
+        return { buffer: Buffer.from('audio'), mimeType: 'audio/ogg' };
+      },
+      async transcribeAudio() {
+        return 'Mensaje de voz';
+      },
+      async processMessage() {
+        return { reply: 'Respuesta final sin regenerar.', context: {} };
+      },
+      async synthesizeSpeech() {
+        const error = new Error('TTS down');
+        error.code = 'VOICE_SPEECH_FAILED';
+        throw error;
+      },
+      async sendWahaText(input) {
+        texts.push(input);
+      }
+    }
+  });
+
+  assert.equal(texts[0].text, 'Respuesta final sin regenerar.');
+  assert.equal(recorder.calls[0].payload.replyType, 'text');
+});
+
+test('POST /webhook/inbound falla transcripción y envía mensaje visible', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'event-transcription-fallback',
+      session: 'ELANKAV',
+      payload: {
+        from: '50584817885@c.us',
+        type: 'audio',
+        fromMe: false,
+        mediaUrl: '/api/files/bad.ogg',
+        mimetype: 'audio/ogg; codecs=opus'
+      }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const texts = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async downloadWahaMedia() {
+        return { buffer: Buffer.from('audio'), mimeType: 'audio/ogg' };
+      },
+      async transcribeAudio() {
+        const error = new Error('No audio');
+        error.code = 'VOICE_TRANSCRIPTION_EMPTY';
+        throw error;
+      },
+      async processMessage() {
+        throw new Error('runtime should not run');
+      },
+      async sendWahaText(input) {
+        texts.push(input);
+      }
+    }
+  });
+
+  assert.equal(texts[0].chatId, '50584817885@c.us');
+  assert.equal(texts[0].text, 'No pude escuchar correctamente la nota de voz. Podés enviarla nuevamente o escribirme el mensaje.');
+  assert.equal(recorder.calls[0].payload.ok, false);
 });

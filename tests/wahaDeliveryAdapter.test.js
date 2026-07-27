@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   buildDesignReadyCaption,
   createWahaDeliveryAdapter,
+  assertVoiceDeliveryInput,
   assertImageDeliveryInput
 } = require('../adapters/wahaDeliveryAdapter');
 
@@ -61,5 +62,49 @@ test('DESIGN-DELIVERY-CLOSE-02 sendImage exige URL y MIME de imagen', () => {
   assert.throws(
     () => assertImageDeliveryInput({ imageUrl: 'https://storage.test/file.pdf', mimeType: 'application/pdf' }),
     /WAHA_IMAGE_MIME_UNSUPPORTED/
+  );
+});
+
+test('sendVoice preserva chatId @lid y usa endpoint WAHA oficial', async () => {
+  const calls = [];
+  const adapter = createWahaDeliveryAdapter({
+    env: {
+      WAHA_BASE_URL: 'https://waha.test',
+      WAHA_API_KEY: 'api-key',
+      WAHA_SESSION: 'ELANKAV'
+    },
+    async fetchImpl(url, options) {
+      calls.push({ url, options });
+      return jsonResponse({ id: { id: 'voice-message-1' } });
+    }
+  });
+
+  const result = await adapter.sendVoice({
+    chatId: '168534952960065@lid',
+    data: 'b3B1cw==',
+    mimeType: 'audio/ogg; codecs=opus'
+  });
+
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(calls[0].url, 'https://waha.test/api/sendVoice');
+  assert.equal(body.chatId, '168534952960065@lid');
+  assert.equal(body.file.mimetype, 'audio/ogg');
+  assert.equal(body.file.data, 'b3B1cw==');
+  assert.equal(result.chatId, '168534952960065@lid');
+  assert.equal(result.messageId, 'voice-message-1');
+});
+
+test('sendVoice valida audio compatible', () => {
+  assert.doesNotThrow(() => assertVoiceDeliveryInput({
+    data: 'b3B1cw==',
+    mimeType: 'audio/ogg; codecs=opus'
+  }));
+  assert.throws(
+    () => assertVoiceDeliveryInput({ data: '', mimeType: 'audio/ogg' }),
+    /WAHA_VOICE_DATA_REQUIRED/
+  );
+  assert.throws(
+    () => assertVoiceDeliveryInput({ data: 'b3B1cw==', mimeType: 'text/plain' }),
+    /WAHA_VOICE_MIME_UNSUPPORTED/
   );
 });
