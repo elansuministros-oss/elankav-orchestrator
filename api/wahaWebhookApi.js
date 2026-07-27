@@ -1,6 +1,8 @@
 'use strict';
 
-const { processMessage } = require('../services/messageService');
+const {
+  processCommercialAwareMessage
+} = require('../services/commercial/commercialAwareMessageService');
 const {
   downloadWahaMedia,
   synthesizeSpeech,
@@ -266,7 +268,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     return true;
   }
 
-  const processMessageImpl = dependencies.processMessage || processMessage;
+  const processMessageImpl = dependencies.processMessage || processCommercialAwareMessage;
   const sendWahaTextImpl = dependencies.sendWahaText || sendWahaText;
   const sendWahaVoiceImpl = dependencies.sendWahaVoice || sendWahaVoice;
   const synthesizeImpl = dependencies.synthesizeSpeech || synthesizeSpeech;
@@ -343,6 +345,26 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null
       }
     });
+
+    if (result?.shouldReply === false) {
+      console.log('[WAHA_REPLY_SUPPRESSED]', {
+        session: incoming.session,
+        chatId: incoming.chatId,
+        suppressionReason: result.suppressionReason || 'REPLY_SUPPRESSED',
+        model: result.model || null
+      });
+      sendJson(res, 200, {
+        ok: true,
+        processed: true,
+        replySent: false,
+        replyType: 'suppressed',
+        suppressionReason: result.suppressionReason || 'REPLY_SUPPRESSED',
+        transcribed: incoming.messageType === 'audio',
+        ownerMode: Boolean(result?.context?.ownerMode),
+        platform: result?.context?.platform || null
+      });
+      return true;
+    }
 
     const reply = String(result?.reply || '').trim();
     if (!reply) throw new Error('Orchestrator respondió sin texto');
