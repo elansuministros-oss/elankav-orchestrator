@@ -99,6 +99,95 @@ function extractText(payload = {}) {
   ).trim();
 }
 
+function extractMessageType(payload = {}) {
+  const explicitType = String(
+    payload.type ||
+    payload.messageType ||
+    payload._data?.type ||
+    payload._data?.messageType ||
+    ''
+  ).toLowerCase();
+
+  const typeMap = {
+    chat: 'text',
+    text: 'text',
+    ptt: 'audio',
+    audio: 'audio',
+    voice: 'audio',
+    image: 'image',
+    video: 'video',
+    document: 'document',
+    location: 'location',
+    vcard: 'contact',
+    contact: 'contact',
+    sticker: 'sticker'
+  };
+
+  if (typeMap[explicitType]) return typeMap[explicitType];
+
+  const message = payload.message || {};
+  if (message.audioMessage) return 'audio';
+  if (message.imageMessage) return 'image';
+  if (message.videoMessage) return 'video';
+  if (message.documentMessage) return 'document';
+  if (message.locationMessage || message.liveLocationMessage) return 'location';
+  if (message.contactMessage || message.contactsArrayMessage) return 'contact';
+  if (message.stickerMessage) return 'sticker';
+  if (extractText(payload)) return 'text';
+
+  return 'unknown';
+}
+
+function extractReferral(payload = {}) {
+  const referral = payload.referral || payload._data?.referral || payload.message?.referral || null;
+  if (!referral || typeof referral !== 'object') return null;
+
+  const sourceUrl = String(referral.sourceUrl || referral.source_url || '').trim() || null;
+  const sourceId = String(referral.sourceId || referral.source_id || '').trim() || null;
+  const sourceType = String(referral.sourceType || referral.source_type || '').trim() || null;
+  const headline = String(referral.headline || referral.title || '').trim() || null;
+  const body = String(referral.body || referral.description || '').trim() || null;
+  const mediaType = String(referral.mediaType || referral.media_type || '').trim() || null;
+
+  return {
+    sourceUrl,
+    sourceId,
+    sourceType,
+    headline,
+    body,
+    mediaType
+  };
+}
+
+function classifySource(referral) {
+  if (!referral) return 'organic_whatsapp';
+
+  const haystack = [
+    referral.sourceUrl,
+    referral.sourceType,
+    referral.headline,
+    referral.body
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  if (haystack.includes('instagram')) return 'instagram_ads';
+  if (haystack.includes('facebook') || referral.sourceId) return 'facebook_ads';
+  return 'click_to_whatsapp';
+}
+
+function resolvePlatformHint({ text, referral } = {}) {
+  const haystack = [
+    referral?.sourceUrl,
+    referral?.headline,
+    referral?.body,
+    text
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  if (/elan\s*home|inmueble|casa|apartamento|propiedad/.test(haystack)) return 'elanhome';
+  if (/elan\s*pet|mascota|perro|gato|veterin/.test(haystack)) return 'elanpet';
+  if (/elan\s*visual|r[oó]tulo|fachada|vinil|acm|letra[s]? 3d|caja de luz/.test(haystack)) return 'elanvisual';
+  return null;
+}
+
 function extractIncoming(body = {}) {
   const payload = extractPayload(body);
   const senderRaw = extractSenderRaw(payload);
@@ -118,6 +207,11 @@ function extractIncoming(body = {}) {
     senderRaw ||
     ''
   );
+  const text = extractText(payload);
+  const messageType = extractMessageType(payload);
+  const referral = extractReferral(payload);
+  const sourceOrigin = classifySource(referral);
+  const platformHint = resolvePlatformHint({ text, referral });
 
   return {
     event,
@@ -125,7 +219,11 @@ function extractIncoming(body = {}) {
     senderRaw,
     phone: normalizePhone(senderRaw),
     chatId,
-    text: extractText(payload),
+    text,
+    messageType,
+    referral,
+    sourceOrigin,
+    platformHint,
     fromMe,
     isGroup: chatId.includes('@g.us'),
     isBroadcast: chatId.includes('status@broadcast')
@@ -168,7 +266,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       ok: true,
       service: 'ELANKAV WAHA Inbound Bridge',
       status: 'READY',
-      version: 'ORCH-WAHA-INBOUND-01'
+      version: 'ORCH-WAHA-INBOUND-02'
     });
     return true;
   }
@@ -205,7 +303,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       return true;
     }
 
-    if (!incoming.chatId || !incoming.senderRaw || !incoming.text) {
+    if (!incoming.chatId || !incoming.senderRaw || incoming.messageType === 'unknown') {
       sendJson(res, 200, { ok: true, ignored: true, reason: 'MESSAGE_INCOMPLETE' });
       return true;
     }
@@ -214,20 +312,28 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       event: incoming.event || 'message',
       session: incoming.session,
       senderRaw: incoming.senderRaw,
-      phone: incoming.phone
+      phone: incoming.phone,
+      messageType: incoming.messageType,
+      sourceOrigin: incoming.sourceOrigin,
+      platformHint: incoming.platformHint
     });
 
+    const normalizedMessage = incoming.text || `[${incoming.messageType} recibido por WhatsApp]`;
     const result = await processMessageImpl({
-      message: incoming.text,
-      platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
+      message: normalizedMessage,
+      platform: incoming.platformHint || undefined,
       channel: 'whatsapp',
       externalUserId: incoming.senderRaw,
       phone: incoming.phone,
       metadata: {
         source: 'waha',
+        sourceOrigin: incoming.sourceOrigin,
         session: incoming.session,
         event: incoming.event || 'message',
-        senderRaw: incoming.senderRaw
+        senderRaw: incoming.senderRaw,
+        messageType: incoming.messageType,
+        referral: incoming.referral,
+        sourcePlatform: incoming.platformHint
       }
     });
 
@@ -244,7 +350,9 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       session: incoming.session,
       chatId: incoming.chatId,
       ownerMode: Boolean(result?.context?.ownerMode),
-      model: result?.model || null
+      model: result?.model || null,
+      messageType: incoming.messageType,
+      sourceOrigin: incoming.sourceOrigin
     });
 
     sendJson(res, 200, {
@@ -252,7 +360,9 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       processed: true,
       replySent: true,
       ownerMode: Boolean(result?.context?.ownerMode),
-      platform: result?.context?.platform || null
+      platform: result?.context?.platform || incoming.platformHint || null,
+      messageType: incoming.messageType,
+      sourceOrigin: incoming.sourceOrigin
     });
   } catch (error) {
     console.error('[WAHA_INBOUND_ERROR]', {
@@ -273,8 +383,12 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 }
 
 module.exports = {
+  classifySource,
   extractIncoming,
+  extractMessageType,
+  extractReferral,
   handleWahaWebhookApi,
   normalizePhone,
+  resolvePlatformHint,
   sendWahaText
 };
