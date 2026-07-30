@@ -10,6 +10,7 @@ const { getDashboardStatus } = require('./adapters/dashboardAdapter');
 const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
 const { handleMessageApi } = require('./api/messageApi');
+const { handleWahaWebhookApi } = require('./api/wahaWebhookApi');
 const {
   getJobPersistenceState,
   initializeJobQueue
@@ -482,6 +483,16 @@ function renderDashboard() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const wahaWebhookHandled = await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (wahaWebhookHandled) {
+    return;
+  }
+
   const messageApiHandled =
     await handleMessageApi({
       req,
