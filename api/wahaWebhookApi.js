@@ -200,6 +200,18 @@ function extractMessageType(payload = {}) {
   ).toLowerCase();
   if (['ptt', 'audio', 'voice'].includes(explicit)) return 'audio';
   if (payload.message?.audioMessage) return 'audio';
+  const media = payload.media || payload._data?.media || null;
+  const mimeType = String(
+    payload.mimetype ||
+    payload.mimeType ||
+    payload.message?.mimetype ||
+    payload.message?.mimeType ||
+    payload._data?.mimetype ||
+    payload._data?.mimeType ||
+    (media && typeof media === 'object' ? media.mimetype || media.mimeType : '') ||
+    ''
+  ).toLowerCase();
+  if (mimeType.startsWith('audio/')) return 'audio';
   if (extractText(payload)) return 'text';
   return 'unknown';
 }
