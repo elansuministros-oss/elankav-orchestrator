@@ -100,6 +100,28 @@ test('extractIncoming preserves WAHA audio media', () => {
   assert.equal(incoming.media.filename, 'voice.ogg');
 });
 
+test('extractIncoming recognizes GOWS audio by media MIME when type is absent', () => {
+  const incoming = extractIncoming({
+    event: 'message',
+    session: 'ELANKAV',
+    payload: {
+      id: 'false_215440458567779@lid_ACCE719BB141BBD925FE61ECE50B9299',
+      from: '215440458567779@lid',
+      fromMe: false,
+      hasMedia: true,
+      media: {
+        url: 'http://localhost:3000/api/files/voice-gows.ogg',
+        mimetype: 'audio/ogg; codecs=opus'
+      }
+    }
+  });
+
+  assert.equal(incoming.messageType, 'audio');
+  assert.equal(incoming.chatId, '215440458567779@lid');
+  assert.equal(incoming.media.url, 'http://localhost:3000/api/files/voice-gows.ogg');
+  assert.equal(incoming.media.mimeType, 'audio/ogg; codecs=opus');
+});
+
 test('GET /webhook/inbound reports READY', async () => {
   const req = createRequest({ method: 'GET', body: null });
   const res = createResponse();
