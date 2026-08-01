@@ -14,7 +14,9 @@ const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
 const {
-  loadCommercialContext
+  loadCommercialContext,
+  savePersistentCommercialState,
+  updateCommercialState
 } = require('./commercialContextService');
 const {
   applyVerifiedCommercialReply
@@ -281,6 +283,7 @@ async function processMessage({
 
   const normalizedInstructions = normalizeMessage(instructions);
   let resolvedContext = null;
+  const startedAt = Date.now();
 
   const response = await routeContext(
     {
@@ -376,6 +379,7 @@ async function processMessage({
       let crm = null;
       let ecosystem = null;
       let commercial = null;
+      let commercialState = context.commercial?.state || null;
 
       if (ownerMode) {
         [crm, ecosystem] = await Promise.all([
@@ -385,8 +389,33 @@ async function processMessage({
       } else {
         commercial = await loadCommercialContext({
           message: normalizedMessage,
-          history: metadata?.conversationHistory
+          history: metadata?.conversationHistory,
+          platform: 'ELANVISUAL',
+          commercialState
         });
+        commercialState = updateCommercialState({
+          previousState: commercialState,
+          message: normalizedMessage,
+          commercial,
+          platform: 'ELANVISUAL'
+        });
+        await savePersistentCommercialState(
+          context.commercial?.stateKey,
+          commercialState,
+          {
+            platform: 'ELANVISUAL',
+            channel: context.channel || channel || 'whatsapp',
+            externalUserId: context.externalUserId || externalUserId || null,
+            phone: context.phone || phone || null
+          }
+        );
+
+        if (commercial) {
+          commercial = Object.freeze({
+            ...commercial,
+            persistentState: commercialState
+          });
+        }
       }
 
       const generatedResponse = await generateText({
@@ -407,16 +436,45 @@ async function processMessage({
           channel: context.channel || channel || null,
           crm,
           ecosystem,
-          commercial
+          commercial,
+          commercialState
         }
       });
 
-      return applyVerifiedCommercialReply({
+      const commercialResponse = applyVerifiedCommercialReply({
         message: normalizedMessage,
         history: metadata?.conversationHistory,
+        commercialState,
         commercial,
         response: generatedResponse
       });
+
+      if (!ownerMode) {
+        const elapsedMs = Date.now() - startedAt;
+        console.info('[COMMERCIAL_TRACE]', {
+          requestId: context.requestId || metadata?.requestId || null,
+          elapsedMs,
+          platform: commercialState?.platform || context.platform || null,
+          product: commercialState?.product || commercial?.productName || null,
+          category: commercialState?.category || null,
+          sku: commercialState?.sku || commercial?.productId || null,
+          matchedAlias: commercial?.matchedAlias || null,
+          intent: commercialState?.intent || null,
+          documentUsed: commercialState?.documentUsed || null,
+          priceSource: commercial?.priceSource?.status || commercialState?.priceSource || null,
+          sourceDocument: commercial?.priceSource?.source || commercialState?.documentUsed || null,
+          approved: commercial?.priceSource?.approved === true,
+          fallbackUsed: commercial?.fallbackUsed === true,
+          priceFound: commercialState?.verifiedPrice || null,
+          formula: commercialState?.formula || null,
+          formulaType: commercialState?.formulaType || null,
+          calculatedPrice: commercialState?.calculatedPrice || null,
+          calculationBreakdown: commercialState?.calculationBreakdown || null,
+          conversationStatus: commercialState?.conversationStatus || null
+        });
+      }
+
+      return commercialResponse;
     }
   );
 
@@ -442,7 +500,10 @@ async function processMessage({
       platform: resolvedContext?.platform || null,
       channel: resolvedContext?.channel || null,
       externalUserId: resolvedContext?.externalUserId || null,
-      ownerMode: Boolean(resolvedContext?.owner?.isOwner)
+      ownerMode: Boolean(resolvedContext?.owner?.isOwner),
+      commercialState: response.commercialState ||
+        resolvedContext?.commercial?.state ||
+        null
     },
     createdAt: new Date().toISOString()
   };

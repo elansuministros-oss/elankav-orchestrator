@@ -217,7 +217,11 @@ test('SALES-MEASURE-01 calcula 80 × 40 cm sin descontar la dimensión menor', (
   const dimensions = extractDimensions('Unos 80 x 40 cm');
   const pricing = calculateDimensionPrice(product, dimensions);
 
-  assert.deepEqual(dimensions, { widthCm: 80, heightCm: 40 });
+  assert.equal(dimensions.widthCm, 80);
+  assert.equal(dimensions.heightCm, 40);
+  assert.equal(dimensions.widthM, 0.8);
+  assert.equal(dimensions.heightM, 0.4);
+  assert.equal(dimensions.unit, 'cm');
   assert.equal(pricing.widthSteps, 2);
   assert.equal(pricing.heightSteps, 0);
   assert.equal(pricing.amount, 290);

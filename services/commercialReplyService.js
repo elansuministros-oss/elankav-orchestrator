@@ -1,8 +1,10 @@
 'use strict';
 
 const {
+  calculateCommercialPrice,
   calculateDimensionPrice,
   extractDimensions,
+  findProductDefinition,
   isMeasurementQuestion,
   resolveProductKnowledge
 } = require('./commercialProductKnowledge');
@@ -280,12 +282,215 @@ function buildVerifiedCommercialReply({
   return reply;
 }
 
+function responseIncludesAmount(responseText, amount) {
+  const normalizedAmount = formatAmount(amount)
+    .replace(/,/g, '')
+    .replace(/\.00$/, '');
+  const escaped = normalizedAmount.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}(?:\\.00)?\\b`).test(
+    String(responseText || '').replace(/,/g, '')
+  );
+}
+
+function buildPricingCorrectionLine({ commercial, commercialState, message } = {}) {
+  const validation = commercialState?.calculationBreakdown?.physicalValidation;
+  if (validation?.status === 'ATYPICAL_DIMENSION') {
+    return {
+      amount: null,
+      replace: true,
+      text: validation.question
+    };
+  }
+
+  if (commercialState?.calculationBreakdown?.missing === 'approvedUnitPriceM2') {
+    const reference = commercialState.calculationBreakdown.registeredReferencePrice;
+    const currency = commercialState.calculationBreakdown.currency || 'USD';
+    const area = commercialState.calculationBreakdown.measuredAreaM2;
+    const parts = [
+      'Se cotiza por metro cuadrado, pero falta definir el precio aprobado por metro cuadrado para calcular esta medida.'
+    ];
+
+    if (Number.isFinite(Number(reference))) {
+      parts.push(`Referencia registrada: desde ${currency} ${formatAmount(reference)}.`);
+    }
+    if (Number.isFinite(Number(area))) {
+      parts.push(`Area detectada: ${formatAmount(area)} m2.`);
+    }
+
+    return {
+      amount: null,
+      forceAppend: true,
+      text: parts.join(' ')
+    };
+  }
+
+  if (commercialState?.calculationBreakdown?.missing === 'approvedOfficialTariff') {
+    const formulaType = commercialState.calculationBreakdown.formulaType;
+    const sourceDocument = commercialState.calculationBreakdown.sourceDocument;
+    const parts = [
+      'Tenemos el producto registrado, pero falta una tarifa oficial aprobada para calcularlo.'
+    ];
+
+    if (formulaType) parts.push(`Formula esperada: ${formulaType}.`);
+    if (sourceDocument) parts.push(`Fuente registrada: ${sourceDocument}.`);
+    parts.push('Para avanzar, confirmame la medida indispensable y lo validamos con la tabla oficial.');
+
+    return {
+      amount: null,
+      forceAppend: true,
+      text: parts.join(' ')
+    };
+  }
+
+  const statePrice = commercialState?.verifiedPrice;
+  const requestedDimensions =
+    commercialState?.measurements?.width && commercialState?.measurements?.height
+      ? {
+          widthCm: commercialState.measurements.unit === 'm'
+            ? commercialState.measurements.width * 100
+            : commercialState.measurements.width,
+          heightCm: commercialState.measurements.unit === 'm'
+            ? commercialState.measurements.height * 100
+            : commercialState.measurements.height
+        }
+      : extractDimensions(message);
+  const productDefinition = findProductDefinition({
+    sku: commercialState?.sku || commercial?.productId,
+    productId: commercial?.productId || commercialState?.sku,
+    productName: commercialState?.product || commercial?.productName,
+    description: commercial?.description,
+    message
+  });
+  const dimensionPricing = productDefinition
+    ? calculateCommercialPrice(productDefinition, {
+        measurements: commercialState?.measurements?.width
+          ? commercialState.measurements
+          : requestedDimensions
+            ? {
+                width: requestedDimensions.widthM,
+                height: requestedDimensions.heightM,
+                area: requestedDimensions.areaM2,
+                widthCm: requestedDimensions.widthCm,
+                heightCm: requestedDimensions.heightCm
+              }
+            : null,
+        quantity: commercialState?.quantity || 1
+      })
+    : null;
+  const price = dimensionPricing
+    ? dimensionPricing.amount
+      ? {
+        amount: dimensionPricing.amount,
+        currency: dimensionPricing.currency || 'USD',
+        mode: 'reference',
+        formula: dimensionPricing.formulaType,
+        breakdown: dimensionPricing.calculationBreakdown
+      }
+      : null
+    : statePrice;
+
+  if (!price || !Number.isFinite(Number(price.amount))) return null;
+
+  const formula = price.formula || commercialState?.formula || null;
+  const prefix = price.mode === 'starting-at'
+    ? 'desde '
+    : price.approximate === true
+      ? 'aproximadamente '
+      : '';
+  const quantity = Number(commercialState?.quantity || 1);
+  const total = Number.isFinite(quantity) && quantity > 1
+    ? Number(price.amount) * quantity
+    : null;
+  const parts = [
+    `Precio verificado: ${prefix}${price.currency || 'USD'} ${formatAmount(price.amount)}.`
+  ];
+
+  if (total) {
+    parts.push(`Cantidad: ${quantity}. Total: ${price.currency || 'USD'} ${formatAmount(total)}.`);
+  }
+
+  if (formula) {
+    parts.push(`Formula comercial: ${formula}.`);
+  }
+
+  const breakdown = price.breakdown || commercialState?.calculationBreakdown;
+  if (breakdown?.formula) {
+    parts.push(`Detalle: ${breakdown.formula}.`);
+  }
+
+  return {
+    amount: Number(price.amount),
+    text: parts.join(' ')
+  };
+}
+
+function applyPricingOnlyCommercialCorrection({
+  message,
+  commercial,
+  commercialState,
+  response
+} = {}) {
+  if (!commercialState?.sku && !commercialState?.product) return null;
+
+  const correction = buildPricingCorrectionLine({
+    commercial,
+    commercialState,
+    message
+  });
+
+  if (!correction) {
+    return {
+      ...response,
+      commercialState
+    };
+  }
+
+  const outputText = String(response?.outputText || '').trim();
+  if (correction.replace) {
+    return {
+      ...response,
+      outputText: correction.text,
+      model: 'elankav-commercial-dimension-validation',
+      commercialAction: true,
+      commercialSource: 'persistent-commercial-state',
+      commercialState
+    };
+  }
+
+  if (!correction.forceAppend && responseIncludesAmount(outputText, correction.amount)) {
+    return {
+      ...response,
+      commercialState,
+      commercialAction: response?.commercialAction || true
+    };
+  }
+
+  return {
+    ...response,
+    outputText: [outputText, correction.text].filter(Boolean).join('\n\n'),
+    model: response?.model || 'elankav-commercial-pricing-verified',
+    commercialAction: true,
+    commercialSource: 'persistent-commercial-state',
+    commercialState
+  };
+}
+
 function applyVerifiedCommercialReply({
   message,
   history,
+  commercialState,
   commercial,
   response
 } = {}) {
+  const pricingOnly = applyPricingOnlyCommercialCorrection({
+    message,
+    commercial,
+    commercialState,
+    response
+  });
+
+  if (pricingOnly) return pricingOnly;
+
   const advertisedContext = resolveAdvertisedContext({ history });
   const productKnowledge = resolveProductKnowledge({
     message,
@@ -345,13 +550,16 @@ function applyVerifiedCommercialReply({
     ...response,
     outputText,
     model: 'elankav-commercial-verified',
-    commercialAction: true
+    commercialAction: true,
+    commercialState: commercialState || null
   };
 }
 
 module.exports = {
   applyVerifiedCommercialReply,
+  applyPricingOnlyCommercialCorrection,
   buildAdvertisedOfferReply,
+  buildPricingCorrectionLine,
   buildRequestedMeasurementReply,
   buildSalesOpening,
   buildStandardMeasurementReply,
