@@ -1,3 +1,53 @@
+## 2026-08-02 — CONNECT-CONVERSATIONS-LIVE-01
+
+Proyecto:
+ELANKAV ORCHESTRATOR + ELANKAV CONNECT
+
+Movimiento:
+Integración oficial de conversaciones WhatsApp en CONNECT.
+
+Cambios:
+- Se activó el flujo WAHA → Orchestrator → CONNECT → Supabase.
+- CONNECT pasó a ser el CRM maestro de conversaciones.
+- Se crearon y activaron `crm_conversations` y `crm_messages`.
+- Se habilitó persistencia de mensajes inbound y outbound.
+- Se incorporó autenticación interna mediante `CONNECT_INTERNAL_TOKEN` y `ORCHESTRATOR_INTERNAL_TOKEN`.
+- Se conectó Conversation Hub con conversaciones e historial reales.
+- Se corrigió Voice Pipeline V2 para publicar eventos hacia CONNECT.
+- Se corrigió la persistencia del `externalMessageId` de mensajes salientes.
+- Se confirmó protección contra duplicados mediante identificador externo único.
+
+Commits de producción:
+- CONNECT: `7f213b6` — `feat(connect): enable real WhatsApp conversation inbox`
+- ORCHESTRATOR: `aa817ed` — `feat(orchestrator): bridge WhatsApp conversations with CONNECT`
+- ORCHESTRATOR: `7876df5` — `fix(orchestrator): persist WhatsApp outbound message id`
+
+QA:
+- Typecheck CONNECT: OK.
+- Tests CONNECT: 222 aprobados.
+- Build CONNECT: OK.
+- Tests Orchestrator: 403 aprobados.
+- Node syntax checks: OK.
+- Evento interno controlado: HTTP 201 Created.
+- Persistencia Supabase: OK.
+- Historial inbound: OK.
+- Historial outbound: OK.
+- Conversation Hub: operativo en producción.
+
+Servicios:
+- `elankav-connect.service`: active.
+- `elankav-orchestrator.service`: active.
+
+Incidencia principal:
+Voice Pipeline V2 procesaba y respondía audios, pero no persistía los eventos en CONNECT. Posteriormente el outbound era rechazado con `VALIDATION_ERROR` por no incluir un `externalMessageId` válido.
+
+Resolución:
+Se integró `publishConversationEventSafely()` en los pipelines activos y se utilizó el identificador devuelto por WAHA, con fallback único controlado.
+
+Estado:
+COMPLETADO EN PRODUCCIÓN
+
+---
 
 ## 2026-07-10 — ORCH-002
 
