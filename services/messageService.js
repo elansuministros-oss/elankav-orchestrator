@@ -3,7 +3,6 @@
 const { generateText } = require('./openaiService');
 const { routeContext } = require('./context/index');
 const { detectOwnerCommand, executeOwnerCommand } = require('./ownerCommandService');
-const { loadCrmContext } = require('./crmContextService');
 const { processCrmConversation } = require('./crmConversationService');
 const { loadEcosystemContext } = require('./ecosystemContextService');
 const { loadPublishedRuntime, loadOfficialCatalogContext } = require('./aiRuntimeClient');
@@ -149,7 +148,7 @@ async function processMessage({ message, platform, channel, externalUserId, phon
         };
       }
 
-      const [crm, ecosystem] = await Promise.all([loadCrmContext(), loadEcosystemContext()]);
+      const ecosystem = await loadEcosystemContext();
       return generateText({
         input: normalizedMessage,
         history: [],
@@ -161,7 +160,6 @@ async function processMessage({ message, platform, channel, externalUserId, phon
           phone: context.phone || phone || null,
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
-          crm,
           ecosystem
         }
       });
