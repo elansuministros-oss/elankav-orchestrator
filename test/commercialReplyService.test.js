@@ -13,7 +13,7 @@ const {
 
 const jalaVista = PRODUCT_KNOWLEDGE[0];
 
-test('jala vista 60x60 does not ask interior or exterior', () => {
+test('jala vista 60x60 sells directly without asking interior or exterior', () => {
   const reply = buildRequestedMeasurementReply(jalaVista, {
     widthCm: 60,
     heightCm: 60
@@ -21,11 +21,14 @@ test('jala vista 60x60 does not ask interior or exterior', () => {
 
   assert.match(reply, /USD 260/);
   assert.match(reply, /instalación exterior/i);
+  assert.match(reply, /mandámelo por aquí/i);
+  assert.match(reply, /nosotros podemos prepararlo/i);
+  assert.match(reply, /https:\/\/visual\.elankav\.com\//i);
   assert.match(reply, /¿En qué ciudad se instalará\?/i);
   assert.doesNotMatch(reply, /interior o exterior/i);
 });
 
-test('short exterior answer keeps the active jala vista context', () => {
+test('short exterior answer keeps the active jala vista context and sales CTA', () => {
   const response = applyVerifiedCommercialReply({
     message: 'Exterior',
     history: [
@@ -47,6 +50,9 @@ test('short exterior answer keeps the active jala vista context', () => {
   assert.equal(response.model, 'elankav-commercial-continuation');
   assert.match(response.outputText, /jala vista/i);
   assert.match(response.outputText, /diseñado para exterior/i);
+  assert.match(response.outputText, /mandámelo por aquí/i);
+  assert.match(response.outputText, /nosotros podemos prepararlo/i);
+  assert.match(response.outputText, /https:\/\/visual\.elankav\.com\//i);
   assert.match(response.outputText, /¿En qué ciudad se instalará\?/i);
   assert.doesNotMatch(response.outputText, /qué producto querés cotizar/i);
 });
