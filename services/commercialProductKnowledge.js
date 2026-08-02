@@ -16,6 +16,15 @@ const PRODUCT_KNOWLEDGE = Object.freeze([
       widthCm: 60,
       heightCm: 60
     }),
+    commercialRules: Object.freeze({
+      defaultEnvironment: 'exterior',
+      askEnvironment: false,
+      requiresInstallationCity: true
+    }),
+    salesGuidance: Object.freeze({
+      valueStatement: 'Este modelo está diseñado para instalación exterior y fabricación doble cara.',
+      nextQuestion: '¿En qué ciudad se instalará?'
+    }),
     pricingRule: Object.freeze({
       type: 'dimension-step',
       stepCm: 10,
