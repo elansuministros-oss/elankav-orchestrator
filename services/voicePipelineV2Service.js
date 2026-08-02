@@ -4,6 +4,7 @@ const { downloadWahaMedia, resolveAudioMimeType, synthesizeSpeech, transcribeAud
 const { processMessage } = require('./messageService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const { createWahaVoiceMediaAdapterV2 } = require('../adapters/wahaVoiceMediaAdapterV2');
+const { publishConversationEventSafely } = require('./connectConversationClient');
 
 const TTL_MS = 10 * 60 * 1000;
 const states = new Map();
@@ -89,6 +90,26 @@ async function runVoicePipelineV2(event, dependencies = {}) {
     }
     log('TRANSCRIPTION_COMPLETED', event);
 
+    await publishConversationEventSafely({
+      platform: runtimeEnv.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
+      channel: 'whatsapp',
+      externalUserId: event.senderRaw,
+      phone: event.phone,
+      chatId: event.chatId,
+      direction: 'inbound',
+      text,
+      messageType: 'audio',
+      externalMessageId: event.messageId || null,
+      actorType: 'customer',
+      actorName: 'WhatsApp',
+      metadata: {
+        source: 'waha',
+        pipeline: 'voice-v2',
+        session: event.session,
+        media: event.media || null
+      }
+    }, { env: runtimeEnv });
+
     log('AI_STARTED', event);
     const result = await processMessageImpl({
       message: text,
@@ -125,6 +146,26 @@ async function runVoicePipelineV2(event, dependencies = {}) {
       return { processed: true, replySent: true, replyType: 'voice' };
     } catch (speechError) {
       await delivery.sendText({ chatId: event.chatId, text: reply });
+      await publishConversationEventSafely({
+        platform: runtimeEnv.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
+        channel: 'whatsapp',
+        externalUserId: event.senderRaw,
+        phone: event.phone,
+        chatId: event.chatId,
+        direction: 'outbound',
+        text: reply,
+        messageType: 'text',
+        externalMessageId: null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: {
+          source: 'waha',
+          pipeline: 'voice-v2',
+          session: event.session,
+          replyType: 'text',
+          fallbackFrom: 'voice'
+        }
+      }, { env: runtimeEnv });
       log('TEXT_FALLBACK_SENT', event, {
         errorCode: speechError.code || 'VOICE_SPEECH_FAILED'
       });
