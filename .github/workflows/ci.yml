@@ -25,7 +25,11 @@ jobs:
           node --check services/aiConversationContinuityService.js
           node --check services/messageService.js
       - name: Run new runtime tests
-        run: node --test tests/aiRuntimeClient.test.js tests/aiConversationContinuityService.test.js
+        run: |
+          node --test \
+            tests/aiRuntimeClient.test.js \
+            tests/aiConversationContinuityService.test.js \
+            tests/legacyCrmContextDisconnected.test.js
 
   legacy-regression-observation:
     runs-on: ubuntu-latest
