@@ -16,6 +16,15 @@ const PRODUCT_KNOWLEDGE = Object.freeze([
       widthCm: 60,
       heightCm: 60
     }),
+    commercialRules: Object.freeze({
+      defaultEnvironment: 'exterior',
+      askEnvironment: false,
+      requiresInstallationCity: true
+    }),
+    salesGuidance: Object.freeze({
+      valueStatement: 'Este modelo está diseñado para instalación exterior y fabricación doble cara.',
+      nextQuestion: 'Si ya tenés el diseño o logotipo, mandámelo por aquí. Si todavía no lo tenés, nosotros podemos prepararlo. También podés conocer nuestros trabajos y servicios en https://visual.elankav.com/\n\n¿En qué ciudad se instalará?'
+    }),
     pricingRule: Object.freeze({
       type: 'dimension-step',
       stepCm: 10,
