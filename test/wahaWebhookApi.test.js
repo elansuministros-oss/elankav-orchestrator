@@ -150,6 +150,7 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
   const recorder = createSendJsonRecorder();
   const processed = [];
   const sent = [];
+  const persisted = [];
 
   const handled = await handleWahaWebhookApi({
     req,
@@ -167,6 +168,10 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
       async sendWahaText(input) {
         sent.push(input);
         return { id: 'message-id' };
+      },
+      async persistConversationEvent(input) {
+        persisted.push(input);
+        return { ok: true };
       }
     }
   });
@@ -183,6 +188,10 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
   });
   assert.equal(recorder.calls[0].payload.replyType, 'text');
   assert.equal(recorder.calls[0].payload.ownerMode, true);
+  assert.equal(persisted.length, 2);
+  assert.equal(persisted[0].direction, 'inbound');
+  assert.equal(persisted[1].direction, 'outbound');
+  assert.equal(persisted[1].externalMessageId, 'message-id');
 });
 
 test('procesa nota de voz, transcribe y responde con voz', async () => {

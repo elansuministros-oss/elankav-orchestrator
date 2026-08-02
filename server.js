@@ -11,6 +11,7 @@ const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
 const { handleMessageApi } = require('./api/messageApi');
 const { handleWahaWebhookApi } = require('./api/wahaWebhookApi');
+const { handleConnectConversationApi } = require('./api/connectConversationApi');
 const {
   getJobPersistenceState,
   initializeJobQueue
@@ -490,6 +491,16 @@ const server = http.createServer(async (req, res) => {
   });
 
   if (wahaWebhookHandled) {
+    return;
+  }
+
+  const connectConversationHandled = await handleConnectConversationApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (connectConversationHandled) {
     return;
   }
 
