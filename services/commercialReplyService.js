@@ -136,12 +136,40 @@ function buildRequestedMeasurementReply(product, dimensions) {
   if (!pricing) return null;
 
   const { widthCm, heightCm } = dimensions;
+  const lines = [
+    `El ${String(product.productName || 'producto').toLowerCase()} de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm tiene un valor de USD ${formatAmount(pricing.amount)}.`
+  ];
+  const valueStatement = String(product?.salesGuidance?.valueStatement || '').trim();
+  const nextQuestion = String(product?.salesGuidance?.nextQuestion || '').trim();
 
-  return [
-    `Para la medida de ${formatAmount(widthCm)} × ${formatAmount(heightCm)} cm, el valor es de USD ${formatAmount(pricing.amount)}.`,
-    '',
-    '¿Sería para interior o exterior?'
-  ].join('\n');
+  if (valueStatement) lines.push('', valueStatement);
+  if (nextQuestion) lines.push('', nextQuestion);
+
+  return lines.join('\n');
+}
+
+function buildProductContinuationReply({ message, product } = {}) {
+  if (!product) return null;
+
+  const normalizedMessage = normalize(message);
+  const expectedEnvironment = normalize(
+    product?.commercialRules?.defaultEnvironment
+  );
+
+  if (
+    expectedEnvironment &&
+    normalizedMessage === expectedEnvironment
+  ) {
+    const lines = [
+      `Correcto, el ${String(product.productName || 'producto').toLowerCase()} está diseñado para ${expectedEnvironment}.`
+    ];
+    const nextQuestion = String(product?.salesGuidance?.nextQuestion || '').trim();
+
+    if (nextQuestion) lines.push('', nextQuestion);
+    return lines.join('\n');
+  }
+
+  return null;
 }
 
 function extractCentimeterMeasurement(message) {
@@ -314,6 +342,21 @@ function applyVerifiedCommercialReply({
     };
   }
 
+  const continuationReply = buildProductContinuationReply({
+    message,
+    product: productKnowledge
+  });
+
+  if (continuationReply) {
+    return {
+      ...response,
+      outputText: continuationReply,
+      model: 'elankav-commercial-continuation',
+      commercialAction: true,
+      commercialSource: 'product-knowledge'
+    };
+  }
+
   if (!hasCommercialPriceIntent(message)) {
     return response;
   }
@@ -352,6 +395,7 @@ function applyVerifiedCommercialReply({
 module.exports = {
   applyVerifiedCommercialReply,
   buildAdvertisedOfferReply,
+  buildProductContinuationReply,
   buildRequestedMeasurementReply,
   buildSalesOpening,
   buildStandardMeasurementReply,
