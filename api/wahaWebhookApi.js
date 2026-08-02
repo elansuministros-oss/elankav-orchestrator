@@ -8,6 +8,9 @@ const {
   transcribeAudio
 } = require('../services/connectVoiceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
+const {
+  publishConversationEventSafely
+} = require('../services/connectConversationClient');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -285,6 +288,31 @@ function extractIncoming(body = {}) {
   };
 }
 
+function buildConversationEvent({ incoming, direction, text, externalMessageId, actorType, actorName, metadata = {} }) {
+  return {
+    platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
+    channel: 'whatsapp',
+    externalUserId: incoming.senderRaw,
+    phone: incoming.phone,
+    chatId: incoming.chatId,
+    direction,
+    text,
+    messageType: incoming.messageType || 'text',
+    externalMessageId,
+    actorType,
+    actorName,
+    occurredAt: new Date().toISOString(),
+    metadata: {
+      source: 'waha',
+      session: incoming.session,
+      webhookMessageId: incoming.messageId || null,
+      chatId: incoming.chatId,
+      senderRaw: incoming.senderRaw,
+      ...metadata
+    }
+  };
+}
+
 async function sendWahaRequest(path, body, fetchImpl = fetch) {
   const baseUrl = String(process.env.WAHA_BASE_URL || DEFAULT_WAHA_BASE_URL).replace(/\/+$/, '');
   const apiKey = process.env.WAHA_API_KEY || process.env.WAHA_API_TOKEN || '';
@@ -384,6 +412,8 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const sendWahaTextImpl = dependencies.sendWahaText || sendWahaText;
   const sendWahaVoiceImpl = dependencies.sendWahaVoice || sendWahaVoice;
   const synthesizeImpl = dependencies.synthesizeSpeech || synthesizeSpeech;
+  const persistConversationEventImpl =
+    dependencies.persistConversationEvent || publishConversationEventSafely;
   let incoming = null;
 
   try {
@@ -424,6 +454,19 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     }
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
+    await persistConversationEventImpl(buildConversationEvent({
+      incoming,
+      direction: 'inbound',
+      text: resolvedMessage,
+      externalMessageId: incoming.messageId || null,
+      actorType: 'customer',
+      actorName: 'WhatsApp',
+      metadata: {
+        originalText: incoming.text || null,
+        transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
+        media: incoming.media || null
+      }
+    }));
 
     console.log('[WAHA_INBOUND_ACCEPTED]', {
       event: incoming.event || 'message',
@@ -437,12 +480,21 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 
     if (isOwnerPhone(incoming.phone) && isPresentationAudioRequest(resolvedMessage)) {
       const speech = await synthesizeImpl({ text: PRESENTATION_TEXT });
-      await sendWahaVoiceImpl({
+      const sent = await sendWahaVoiceImpl({
         session: incoming.session,
         chatId: incoming.chatId,
         data: speech.data,
         mimeType: speech.mimeType
       });
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: PRESENTATION_TEXT,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: { replyType: 'voice', ownerMode: true, presentationDemo: true }
+      }));
       sendJson(res, 200, {
         ok: true,
         processed: true,
@@ -487,12 +539,21 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           ...incoming,
           mimeType: speech.mimeType
         });
-        await sendWahaVoiceImpl({
+        const sent = await sendWahaVoiceImpl({
           session: incoming.session,
           chatId: incoming.chatId,
           data: speech.data,
           mimeType: speech.mimeType
         });
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: reply,
+          externalMessageId: sent?.messageId || sent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: { replyType: 'voice', ownerMode: Boolean(result?.context?.ownerMode), model: result?.model || null }
+        }));
         replyType = 'voice';
         logVoiceEvent('VOICE_REPLY_SENT', incoming);
       } catch (voiceError) {
@@ -501,7 +562,16 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           code: voiceError.code || null,
           status: voiceError.status || null
         });
-        await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: reply,
+          externalMessageId: sent?.messageId || sent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: { replyType: 'text', fallbackFrom: 'voice', ownerMode: Boolean(result?.context?.ownerMode), model: result?.model || null }
+        }));
         logVoiceEvent('VOICE_TEXT_FALLBACK_SENT', {
           ...incoming,
           errorCode: voiceError.code || 'VOICE_SPEECH_FAILED',
@@ -509,7 +579,16 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         });
       }
     } else {
-      await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+      const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: reply,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: { replyType: 'text', ownerMode: Boolean(result?.context?.ownerMode), model: result?.model || null }
+      }));
     }
 
     console.log('[WAHA_REPLY_SENT]', {
