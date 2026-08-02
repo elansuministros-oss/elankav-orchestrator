@@ -23,6 +23,8 @@ const PRODUCT_KNOWLEDGE = Object.freeze([
     }),
     salesGuidance: Object.freeze({
       valueStatement: 'Este modelo está diseñado para instalación exterior y fabricación doble cara.',
+      designPrompt: 'Si ya tenés el diseño o logotipo, mandámelo por aquí. Si todavía no lo tenés, nosotros podemos prepararlo.',
+      websiteUrl: 'https://visual.elankav.com/',
       nextQuestion: '¿En qué ciudad se instalará?'
     }),
     pricingRule: Object.freeze({
