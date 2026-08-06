@@ -467,7 +467,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       ok: true,
       service: 'ELANKAV WAHA Inbound Bridge',
       status: 'READY',
-      version: 'ORCH-WAHA-INBOUND-VOICE-05'
+      version: 'ORCH-WAHA-INBOUND-VOICE-06'
     });
     return true;
   }

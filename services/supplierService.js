@@ -8,7 +8,8 @@ const normalizePhone = value => normalize(value).replace(/\D/g, '');
 
 function normalizeSupplierInput(input = {}) {
   const name = normalize(input.name);
-  const supplierType = normalize(input.supplierType).toLowerCase();
+  const supplierType =
+    normalize(input.supplierType).toLowerCase() || 'mixed';
   const categories = Array.isArray(input.categories)
     ? input.categories.map(normalize).filter(Boolean)
     : [];
