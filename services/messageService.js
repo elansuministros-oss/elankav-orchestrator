@@ -168,6 +168,29 @@ async function processMessage({
         };
       }
 
+      console.log('[OWNER_COMMERCIAL_QUERY]', {
+        platform: context.platform || platform || 'elanvisual',
+        channel: context.channel || channel || null,
+        phone: context.phone || phone ? 'OWNER_RECOGNIZED' : null
+      });
+
+      const commercialResult = await processCustomerMessage({
+        normalizedMessage,
+        context: {
+          ...context,
+          platform: context.platform || platform || 'elanvisual'
+        },
+        platform: context.platform || platform || 'elanvisual',
+        channel,
+        externalUserId,
+        phone
+      });
+
+      return {
+        ...commercialResult,
+        ownerCommercialQuery: true
+      };
+
       const crmConversation = await processCrmConversation({
         message: normalizedMessage,
         externalUserId: context.externalUserId || externalUserId || null,
@@ -221,6 +244,7 @@ async function processMessage({
     suppressDelivery,
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
+    ownerCommercialQuery: response.ownerCommercialQuery === true,
     runtimeVersion: response.runtimeVersion || null,
     knowledgeAvailable: response.knowledgeAvailable ?? null,
     context: {
