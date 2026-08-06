@@ -15,6 +15,13 @@ const {
 const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
+const {
+  buildCustomerInstructions,
+  getPublishedRuntime
+} = require('./connectAiRuntimeService');
+const {
+  loadPlatformKnowledgeSafely
+} = require('./connectPlatformKnowledgeService');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -27,6 +34,54 @@ const OWNER_INSTRUCTIONS = [
 
 function normalizeMessage(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+async function processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone }) {
+  const runtime = await getPublishedRuntime(context.platform || platform || 'elanvisual');
+  if (!runtime.shouldRespond) {
+    return {
+      outputText: '',
+      model: 'elankav-connect-runtime-disabled',
+      id: null,
+      status: 'automation_disabled',
+      usage: null,
+      suppressDelivery: true,
+      runtimeVersion: runtime.version || null
+    };
+  }
+
+  const knowledge = await loadPlatformKnowledgeSafely({
+    platform: runtime.platformId,
+    query: normalizedMessage
+  });
+
+  const generated = await generateText({
+    input: normalizedMessage,
+    history: [],
+    instructions: buildCustomerInstructions(runtime),
+    context: {
+      ownerMode: false,
+      customerMode: true,
+      externalUserId: context.externalUserId || externalUserId || null,
+      phone: context.phone || phone || null,
+      platform: runtime.platformId,
+      channel: context.channel || channel || null,
+      runtime: {
+        schemaVersion: runtime.schemaVersion || null,
+        version: runtime.version || null,
+        publishedAt: runtime.publishedAt || null,
+        initialMessage: runtime.platform?.initialMessage || ''
+      },
+      officialKnowledge: knowledge
+    }
+  });
+
+  return {
+    ...generated,
+    status: generated.status || 'completed',
+    runtimeVersion: runtime.version || null,
+    knowledgeAvailable: Boolean(knowledge?.available)
+  };
 }
 
 async function processMessage({
@@ -62,14 +117,14 @@ async function processMessage({
       const ownerMode = Boolean(context.owner?.isOwner);
 
       if (!ownerMode) {
-        return {
-          outputText: '',
-          model: 'elankav-customer-auto-reply-disabled',
-          id: null,
-          status: 'automation_disabled',
-          usage: null,
-          suppressDelivery: true
-        };
+        return processCustomerMessage({
+          normalizedMessage,
+          context,
+          platform,
+          channel,
+          externalUserId,
+          phone
+        });
       }
 
       const ownerCommand = detectOwnerCommand(normalizedMessage);
@@ -143,6 +198,8 @@ async function processMessage({
     suppressDelivery,
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
+    runtimeVersion: response.runtimeVersion || null,
+    knowledgeAvailable: response.knowledgeAvailable ?? null,
     context: {
       version: resolvedContext?.version || null,
       platform: resolvedContext?.platform || null,
@@ -157,5 +214,6 @@ async function processMessage({
 module.exports = {
   OWNER_INSTRUCTIONS,
   normalizeMessage,
+  processCustomerMessage,
   processMessage
 };
