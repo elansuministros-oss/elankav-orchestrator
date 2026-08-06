@@ -467,7 +467,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       ok: true,
       service: 'ELANKAV WAHA Inbound Bridge',
       status: 'READY',
-      version: 'ORCH-WAHA-INBOUND-VOICE-02'
+      version: 'ORCH-WAHA-INBOUND-VOICE-03'
     });
     return true;
   }
@@ -735,24 +735,95 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       status: error.status || null
     });
     try {
-      if (incoming?.messageType === 'audio' && incoming.chatId) {
-        const isTranscriptionFailure = [
+      if (
+        incoming?.messageType === 'audio' &&
+        (incoming.chatId || incoming.senderRaw)
+      ) {
+        const fallbackChatId = incoming.chatId || incoming.senderRaw;
+
+        const transcriptionErrors = [
           'VOICE_TRANSCRIPTION_EMPTY',
           'CONNECT_TRANSCRIPTION_EMPTY',
           'CONNECT_VOICE_REQUEST_FAILED',
           'VOICE_MIME_UNSUPPORTED',
-          'CONNECT_AUDIO_REQUIRED'
-        ].includes(error.code);
-        await sendWahaTextImpl({
-          session: incoming.session,
-          chatId: incoming.chatId,
-          text: isTranscriptionFailure ? TRANSCRIPTION_FAILURE_TEXT : INTERNAL_AUDIO_FAILURE_TEXT
-        });
-        logVoiceEvent('VOICE_TEXT_FALLBACK_SENT', {
-          ...incoming,
-          errorCode: error.code || 'VOICE_PIPELINE_ERROR',
-          status: error.status || null
-        });
+          'CONNECT_AUDIO_REQUIRED',
+          'WAHA_AUDIO_MEDIA_URL_MISSING',
+          'MESSAGE_TRANSCRIPTION_EMPTY'
+        ];
+
+        const isTranscriptionFailure =
+          transcriptionErrors.includes(error.code) ||
+          transcriptionErrors.includes(error.message);
+
+        const fallbackText = isTranscriptionFailure
+          ? TRANSCRIPTION_FAILURE_TEXT
+          : INTERNAL_AUDIO_FAILURE_TEXT;
+
+        let fallbackSent = false;
+        let fallbackError = null;
+
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          try {
+            const sent = await sendWahaTextImpl({
+              session: incoming.session,
+              chatId: fallbackChatId,
+              text: fallbackText
+            });
+
+            try {
+              await persistConversationEventImpl(buildConversationEvent({
+                incoming,
+                direction: 'outbound',
+                text: fallbackText,
+                externalMessageId: sent?.messageId || sent?.id || null,
+                actorType: 'assistant',
+                actorName: 'ELAN IA',
+                metadata: {
+                  replyType: 'text',
+                  fallbackFrom: 'audio',
+                  pipelineError: error.code || error.message,
+                  attempt
+                }
+              }));
+            } catch (persistenceError) {
+              console.error('[VOICE_FALLBACK_PERSISTENCE_FAILED]', {
+                message: persistenceError.message,
+                code: persistenceError.code || null
+              });
+            }
+
+            fallbackSent = true;
+            break;
+          } catch (deliveryError) {
+            fallbackError = deliveryError;
+
+            console.error('[VOICE_TEXT_FALLBACK_ATTEMPT_FAILED]', {
+              attempt,
+              message: deliveryError.message,
+              code: deliveryError.code || null,
+              status: deliveryError.status || null
+            });
+
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 700));
+            }
+          }
+        }
+
+        if (!fallbackSent) {
+          console.error('[VOICE_TEXT_FALLBACK_FINAL_FAILURE]', {
+            chatId: fallbackChatId,
+            message: fallbackError?.message || 'VOICE_FALLBACK_DELIVERY_FAILED',
+            code: fallbackError?.code || null,
+            status: fallbackError?.status || null
+          });
+        } else {
+          logVoiceEvent('VOICE_TEXT_FALLBACK_SENT', {
+            ...incoming,
+            errorCode: error.code || 'VOICE_PIPELINE_ERROR',
+            status: error.status || null
+          });
+        }
       }
     } catch (fallbackError) {
       logVoiceEvent('VOICE_PIPELINE_ERROR', {

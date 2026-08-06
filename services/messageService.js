@@ -55,6 +55,29 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     query: normalizedMessage
   });
 
+  if (!knowledge?.available || !knowledge?.payload) {
+    console.error('[ELAN_AI_OFFICIAL_KNOWLEDGE_REQUIRED]', {
+      platform: runtime.platformId,
+      query: normalizedMessage,
+      error: knowledge?.error || 'OFFICIAL_KNOWLEDGE_UNAVAILABLE'
+    });
+
+    return {
+      outputText: [
+        'En este momento no pude consultar la información oficial de',
+        runtime.platformId.toUpperCase() + '.',
+        'Para no darte información incorrecta, dejaré tu consulta pendiente',
+        'hasta recuperar la conexión con la plataforma.'
+      ].join(' '),
+      model: 'elankav-official-knowledge-unavailable',
+      id: null,
+      status: 'knowledge_unavailable',
+      usage: null,
+      runtimeVersion: runtime.version || null,
+      knowledgeAvailable: false
+    };
+  }
+
   const generated = await generateText({
     input: normalizedMessage,
     history: [],
