@@ -16,7 +16,16 @@ const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_OWNER_PHONE = '50588388940';
 const DEDUPE_TTL_MS = 10 * 60 * 1000;
+const WELCOME_SESSION_TTL_MS = Number(
+  process.env.ELAN_AI_WELCOME_SESSION_TTL_MS || 24 * 60 * 60 * 1000
+);
 const processedMessageIds = new Map();
+const welcomedChats = new Map();
+const CUSTOMER_WELCOME_TEXT = process.env.ELAN_AI_WELCOME_TEXT || [
+  'Hola, soy ELAN IA, la asistente virtual oficial de ELANVISUAL.',
+  'Soy una inteligencia artificial creada para ayudarte con información sobre nuestros productos, servicios, precios y cotizaciones utilizando únicamente la información oficial de nuestra empresa.',
+  'Si tu consulta requiere atención personalizada, con gusto la pondré en seguimiento con uno de nuestros asesores.'
+].join(' ');
 const TRANSCRIPTION_FAILURE_TEXT = 'No pude escuchar correctamente la nota de voz. Podés enviarla nuevamente o escribirme el mensaje.';
 const INTERNAL_AUDIO_FAILURE_TEXT = 'Tuve un problema procesando el audio. Podés escribirme el mensaje mientras lo intento nuevamente.';
 const PRESENTATION_TEXT = process.env.ELAN_AI_PRESENTATION_TEXT || [
@@ -135,8 +144,69 @@ function markMessageOnce(messageId, now = Date.now()) {
   return true;
 }
 
+function cleanupWelcomedChats(now = Date.now()) {
+  for (const [key, expiresAt] of welcomedChats.entries()) {
+    if (expiresAt <= now) welcomedChats.delete(key);
+  }
+}
+
+function welcomeChatKey(incoming = {}) {
+  return `${incoming.session || 'default'}:${incoming.chatId || incoming.phone || ''}`;
+}
+
+function shouldSendWelcomeAudio(incoming, now = Date.now()) {
+  if (!incoming?.chatId || isOwnerPhone(incoming.phone)) return false;
+
+  cleanupWelcomedChats(now);
+
+  const key = welcomeChatKey(incoming);
+  return Boolean(key && !welcomedChats.has(key));
+}
+
+function markWelcomeAudioSent(incoming, now = Date.now()) {
+  const key = welcomeChatKey(incoming);
+  if (!key) return;
+
+  welcomedChats.set(key, now + WELCOME_SESSION_TTL_MS);
+}
+
+function stripSimulatedAudioWelcome(value) {
+  const text = String(value || '').trim();
+
+  const normalized = text
+    .replace(/^\s*🎧\s*/i, '')
+    .replace(/^\s*\*\*\s*/, '')
+    .replace(/^\s*audio de bienvenida\s*:?\s*/i, '')
+    .replace(/^\s*\*\*\s*/, '')
+    .trim();
+
+  if (normalized === text) {
+    return text;
+  }
+
+  const businessStart = normalized.search(
+    /\b(?:sobre|respecto|con respecto|para ayudarte|perfecto|claro|entiendo)\b/i
+  );
+
+  if (businessStart >= 0) {
+    return normalized.slice(businessStart).trim();
+  }
+
+  const blocks = normalized
+    .split(/\n\s*\n/)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  if (blocks.length > 1) {
+    return blocks.slice(1).join('\n\n').trim();
+  }
+
+  return normalized;
+}
+
 function clearWahaInboundDedupe() {
   processedMessageIds.clear();
+  welcomedChats.clear();
 }
 
 function extractMessageId(payload = {}, body = {}) {
@@ -397,7 +467,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       ok: true,
       service: 'ELANKAV WAHA Inbound Bridge',
       status: 'READY',
-      version: 'ORCH-WAHA-INBOUND-VOICE-01'
+      version: 'ORCH-WAHA-INBOUND-VOICE-02'
     });
     return true;
   }
@@ -415,6 +485,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const persistConversationEventImpl =
     dependencies.persistConversationEvent || publishConversationEventSafely;
   let incoming = null;
+  let welcomeAudioSent = false;
 
   try {
     const body = await readJsonBody(req);
@@ -478,6 +549,52 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       mimeType: incoming.media?.mimeType || null
     });
 
+    if (shouldSendWelcomeAudio(incoming)) {
+      try {
+        logVoiceEvent('WELCOME_VOICE_STARTED', incoming);
+
+        const welcomeSpeech = await synthesizeImpl({
+          text: CUSTOMER_WELCOME_TEXT
+        });
+
+        const welcomeSent = await sendWahaVoiceImpl({
+          session: incoming.session,
+          chatId: incoming.chatId,
+          data: welcomeSpeech.data,
+          mimeType: welcomeSpeech.mimeType
+        });
+
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: CUSTOMER_WELCOME_TEXT,
+          externalMessageId: welcomeSent?.messageId || welcomeSent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: {
+            replyType: 'voice',
+            welcomeAudio: true,
+            automaticWelcome: true
+          }
+        }));
+
+        markWelcomeAudioSent(incoming);
+        welcomeAudioSent = true;
+
+        logVoiceEvent('WELCOME_VOICE_SENT', {
+          ...incoming,
+          mimeType: welcomeSpeech.mimeType,
+          status: 'OK'
+        });
+      } catch (welcomeError) {
+        console.error('[WELCOME_VOICE_FAILED]', {
+          message: welcomeError.message,
+          code: welcomeError.code || null,
+          status: welcomeError.status || null
+        });
+      }
+    }
+
     if (isOwnerPhone(incoming.phone) && isPresentationAudioRequest(resolvedMessage)) {
       const speech = await synthesizeImpl({ text: PRESENTATION_TEXT });
       const sent = await sendWahaVoiceImpl({
@@ -527,7 +644,9 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     });
     logVoiceEvent('VOICE_AI_COMPLETED', incoming);
 
-    const reply = String(result?.reply || '').trim();
+    const rawReply = String(result?.reply || '').trim();
+    const reply = stripSimulatedAudioWelcome(rawReply);
+
     if (!reply) throw new Error('Orchestrator respondió sin texto');
 
     let replyType = 'text';
@@ -604,6 +723,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       processed: true,
       replySent: true,
       replyType,
+      welcomeAudioSent,
       transcribed: incoming.messageType === 'audio',
       ownerMode: Boolean(result?.context?.ownerMode),
       platform: result?.context?.platform || null
@@ -661,5 +781,7 @@ module.exports = {
   normalizePhone,
   resolveIncomingMessage,
   sendWahaText,
-  sendWahaVoice
+  sendWahaVoice,
+  shouldSendWelcomeAudio,
+  stripSimulatedAudioWelcome
 };
