@@ -168,6 +168,30 @@ async function processMessage({
         };
       }
 
+      const crmConversation = await processCrmConversation({
+        message: normalizedMessage,
+        externalUserId: context.externalUserId || externalUserId || null,
+        phone: context.phone || phone || null
+      });
+
+      if (crmConversation.handled) {
+        console.log('[OWNER_CRM_COMMAND]', {
+          platform: context.platform || platform || 'elanvisual',
+          completed: Boolean(crmConversation.completed),
+          phone: 'OWNER_RECOGNIZED'
+        });
+
+        return {
+          outputText: crmConversation.outputText,
+          model: 'elankav-crm-conversation',
+          id: null,
+          status: crmConversation.completed ? 'completed' : 'in_progress',
+          usage: null,
+          crmAction: true,
+          ownerCrmCommand: true
+        };
+      }
+
       console.log('[OWNER_COMMERCIAL_QUERY]', {
         platform: context.platform || platform || 'elanvisual',
         channel: context.channel || channel || null,
@@ -190,23 +214,6 @@ async function processMessage({
         ...commercialResult,
         ownerCommercialQuery: true
       };
-
-      const crmConversation = await processCrmConversation({
-        message: normalizedMessage,
-        externalUserId: context.externalUserId || externalUserId || null,
-        phone: context.phone || phone || null
-      });
-
-      if (crmConversation.handled) {
-        return {
-          outputText: crmConversation.outputText,
-          model: 'elankav-crm-conversation',
-          id: null,
-          status: crmConversation.completed ? 'completed' : 'in_progress',
-          usage: null,
-          crmAction: true
-        };
-      }
 
       const [crm, ecosystem] = await Promise.all([
         loadCrmContext(),
@@ -245,6 +252,7 @@ async function processMessage({
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
     ownerCommercialQuery: response.ownerCommercialQuery === true,
+    ownerCrmCommand: response.ownerCrmCommand === true,
     runtimeVersion: response.runtimeVersion || null,
     knowledgeAvailable: response.knowledgeAvailable ?? null,
     context: {
