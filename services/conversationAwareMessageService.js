@@ -17,7 +17,9 @@ function latestQuestion(reply) {
   return value.slice(start + 1, index + 1).trim().slice(0, 1000) || null;
 }
 
-async function processMessageWithConversationEvents(input = {}) {
+async function processMessageWithConversationEvents(input = {}, dependencies = {}) {
+  const processMessageImpl = dependencies.processMessage || processMessage;
+  const publishEventImpl = dependencies.publishConversationEvent || publishConversationEventSafely;
   const metadata = input.metadata || {};
   const chatId = text(metadata.chatId || input.externalUserId);
   const platform = text(input.platform) || 'ELANVISUAL';
@@ -27,7 +29,7 @@ async function processMessageWithConversationEvents(input = {}) {
   let inboundEvent = null;
 
   if (chatId && inboundText) {
-    inboundEvent = await publishConversationEventSafely({
+    inboundEvent = await publishEventImpl({
       externalMessageId: text(metadata.messageId) || undefined,
       direction: 'inbound',
       actor: 'customer',
@@ -61,12 +63,12 @@ async function processMessageWithConversationEvents(input = {}) {
     };
   }
 
-  const result = await processMessage(input);
+  const result = await processMessageImpl(input);
   const reply = text(result && result.reply);
   const state = result && result.context ? result.context.commercialState : null;
 
   if (chatId && reply) {
-    await publishConversationEventSafely({
+    await publishEventImpl({
       direction: 'outbound',
       actor: 'elan_ai',
       chatId,
