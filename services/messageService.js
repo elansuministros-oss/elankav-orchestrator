@@ -22,6 +22,9 @@ const {
 const {
   loadPlatformKnowledgeSafely
 } = require('./connectPlatformKnowledgeService');
+const {
+  publishConversationEventSafely
+} = require('./connectConversationClient');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -34,6 +37,52 @@ const OWNER_INSTRUCTIONS = [
 
 function normalizeMessage(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+async function checkHumanTakeover({
+  normalizedMessage,
+  platform,
+  channel,
+  externalUserId,
+  phone,
+  metadata,
+  publishFn = publishConversationEventSafely
+}) {
+  if (String(channel || '').toLowerCase() !== 'whatsapp') return false;
+
+  const messageId = String(metadata?.messageId || '').trim();
+  const chatId = String(metadata?.chatId || externalUserId || '').trim();
+  if (!messageId || !chatId) return false;
+
+  const result = await publishFn({
+    platform: platform || 'ELANVISUAL',
+    channel: 'whatsapp',
+    externalUserId: externalUserId || null,
+    phone: phone || null,
+    chatId,
+    direction: 'inbound',
+    text: normalizedMessage,
+    messageType: metadata?.messageType || 'text',
+    externalMessageId: messageId,
+    actorType: 'customer',
+    actorName: 'WhatsApp',
+    occurredAt: new Date().toISOString(),
+    metadata: {
+      source: 'messageService-human-takeover-check',
+      session: metadata?.session || null,
+      webhookMessageId: messageId,
+      chatId
+    }
+  });
+
+  const assignment = String(result?.assignment || '').trim().toLowerCase();
+  if (assignment !== 'human') return false;
+
+  console.log('[HUMAN_TAKEOVER_ACTIVE]', {
+    platform: platform || 'ELANVISUAL',
+    chatId: chatId.length > 8 ? `${chatId.slice(0, 4)}***${chatId.slice(-8)}` : '***'
+  });
+  return true;
 }
 
 async function processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone }) {
@@ -140,6 +189,26 @@ async function processMessage({
       const ownerMode = Boolean(context.owner?.isOwner);
 
       if (!ownerMode) {
+        const humanTakeover = await checkHumanTakeover({
+          normalizedMessage,
+          platform: context.platform || platform || 'ELANVISUAL',
+          channel: context.channel || channel,
+          externalUserId: context.externalUserId || externalUserId,
+          phone: context.phone || phone,
+          metadata
+        });
+
+        if (humanTakeover) {
+          return {
+            outputText: '',
+            model: 'elankav-human-takeover',
+            id: null,
+            status: 'human_takeover',
+            usage: null,
+            suppressDelivery: true
+          };
+        }
+
         return processCustomerMessage({
           normalizedMessage,
           context,
@@ -269,6 +338,7 @@ async function processMessage({
 module.exports = {
   OWNER_INSTRUCTIONS,
   normalizeMessage,
+  checkHumanTakeover,
   processCustomerMessage,
   processMessage
 };
