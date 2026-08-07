@@ -32,30 +32,11 @@ const {
 const {
   processDesignFollowup
 } = require('./designFollowupService');
+const {
+  requirePublishedRuntime
+} = require('./connectRuntimeConfigService');
 
 const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno/whatsapp';
-
-const CUSTOMER_INSTRUCTIONS = [
-  'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
-  'Respondé en español natural, amable, breve y profesional.',
-  'Atendé primero la solicitud concreta del cliente y no conviertas una explicación en un formulario.',
-  'Hacé como máximo una pregunta por respuesta y solo cuando sea indispensable para avanzar.',
-  'No repitas datos que el cliente ya proporcionó.',
-  'No exijas nombre, logotipo, fotografía ni archivo para brindar una orientación o precio autorizado.',
-  'Si el cliente ya indicó producto, medida y si es interior o exterior, no hagas preguntas adicionales innecesarias.',
-  'Si pregunta por precio, respondé con el precio únicamente cuando esté presente en el contexto verificado; nunca inventes precios.',
-  'Cuando falte un precio verificado, indicá que debe revisarse en el cotizador y continuá ayudando con la información disponible.',
-  'Cuando exista contexto comercial verificado, usá el nombre, las medidas, el precio y la modalidad exactos de ese contexto.',
-  'Usá únicamente sitios web y ubicaciones presentes en el contexto oficial verificado; nunca inventes, completes ni adivines dominios o ubicaciones.',
-  'No presentes la página principal como catálogo. Solo afirmes que existe un catálogo cuando el contexto incluya un enlace exacto y verificado al catálogo solicitado.',
-  'Si no existe un enlace exacto al catálogo, indicá que podés orientar con muestras verificadas sin inventar enlaces.',
-  'Decí “desde” únicamente cuando la oferta verificada sea starting-at y aclará que el precio es aproximado cuando así se indique.',
-  'Después de orientar el precio, hacé una sola pregunta útil para acercar al cliente a la cotización o al cierre.',
-  'No hables de Orchestrator, repositorios, herramientas internas, permisos técnicos ni programación con clientes.',
-  'No trates al cliente como proveedor ni inicies flujos CRM internos por una explicación general.',
-  'No prometas fabricación, instalación, entrega o disponibilidad sin datos confirmados.',
-  'Respondé únicamente al mensaje recibido y mantené el contexto de la plataforma indicada.'
-].join(' ');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -78,17 +59,21 @@ function normalizeMessage(value) {
 
 function resolveMessageInstructions({
   ownerMode,
-  customInstructions
+  customInstructions,
+  runtimeInstructions
 }) {
-  const normalizedCustom = normalizeMessage(customInstructions);
-
-  if (normalizedCustom) {
-    return normalizedCustom;
+  if (ownerMode) {
+    const normalizedCustom = normalizeMessage(customInstructions);
+    return normalizedCustom || OWNER_INSTRUCTIONS;
   }
 
-  return ownerMode
-    ? OWNER_INSTRUCTIONS
-    : CUSTOMER_INSTRUCTIONS;
+  const normalizedRuntime = normalizeMessage(runtimeInstructions);
+  if (!normalizedRuntime) {
+    const error = new Error('CONNECT_RUNTIME_INSTRUCTIONS_REQUIRED');
+    error.code = 'CONNECT_RUNTIME_INSTRUCTIONS_REQUIRED';
+    throw error;
+  }
+  return normalizedRuntime;
 }
 
 function buildDesignPortalLink() {
@@ -283,6 +268,7 @@ async function processMessage({
 
   const normalizedInstructions = normalizeMessage(instructions);
   let resolvedContext = null;
+  let resolvedRuntime = null;
   const startedAt = Date.now();
 
   const response = await routeContext(
@@ -295,12 +281,18 @@ async function processMessage({
       phone,
       metadata: {
         ...(metadata && typeof metadata === 'object' ? metadata : {}),
-        instructions: normalizedInstructions || CUSTOMER_INSTRUCTIONS
+        ...(normalizedInstructions ? { instructions: normalizedInstructions } : {})
       }
     },
     async context => {
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
+
+      if (!ownerMode) {
+        resolvedRuntime = await requirePublishedRuntime({
+          platform: context.platform || platform || 'elanvisual'
+        });
+      }
 
       const ownerCommand = ownerMode
         ? detectOwnerCommand(normalizedMessage)
@@ -380,6 +372,7 @@ async function processMessage({
       let ecosystem = null;
       let commercial = null;
       let commercialState = context.commercial?.state || null;
+      const authorityPlatform = resolvedRuntime?.platform?.platformId || context.platform || platform || 'elanvisual';
 
       if (ownerMode) {
         [crm, ecosystem] = await Promise.all([
@@ -390,20 +383,20 @@ async function processMessage({
         commercial = await loadCommercialContext({
           message: normalizedMessage,
           history: metadata?.conversationHistory,
-          platform: 'ELANVISUAL',
+          platform: authorityPlatform,
           commercialState
         });
         commercialState = updateCommercialState({
           previousState: commercialState,
           message: normalizedMessage,
           commercial,
-          platform: 'ELANVISUAL'
+          platform: authorityPlatform
         });
         await savePersistentCommercialState(
           context.commercial?.stateKey,
           commercialState,
           {
-            platform: 'ELANVISUAL',
+            platform: authorityPlatform,
             channel: context.channel || channel || 'whatsapp',
             externalUserId: context.externalUserId || externalUserId || null,
             phone: context.phone || phone || null
@@ -425,15 +418,25 @@ async function processMessage({
           : metadata?.conversationHistory,
         instructions: resolveMessageInstructions({
           ownerMode,
-          customInstructions: normalizedInstructions
+          customInstructions: normalizedInstructions,
+          runtimeInstructions: resolvedRuntime?.instructions
         }),
         context: {
           ownerMode,
           ownerName: ownerMode ? 'Erick Cano' : null,
           externalUserId: context.externalUserId || externalUserId || null,
           phone: context.phone || phone || null,
-          platform: context.platform || platform || null,
+          platform: authorityPlatform,
           channel: context.channel || channel || null,
+          runtime: resolvedRuntime ? {
+            source: resolvedRuntime.source,
+            schemaVersion: resolvedRuntime.schemaVersion,
+            version: resolvedRuntime.version,
+            publishedAt: resolvedRuntime.publishedAt,
+            responseRules: resolvedRuntime.responseRules,
+            continuity: resolvedRuntime.continuity,
+            catalogAccess: resolvedRuntime.catalogAccess
+          } : null,
           crm,
           ecosystem,
           commercial,
@@ -455,6 +458,8 @@ async function processMessage({
           requestId: context.requestId || metadata?.requestId || null,
           elapsedMs,
           platform: commercialState?.platform || context.platform || null,
+          runtimeVersion: resolvedRuntime?.version || null,
+          runtimePublishedAt: resolvedRuntime?.publishedAt || null,
           product: commercialState?.product || commercial?.productName || null,
           category: commercialState?.category || null,
           sku: commercialState?.sku || commercial?.productId || null,
@@ -501,6 +506,9 @@ async function processMessage({
       channel: resolvedContext?.channel || null,
       externalUserId: resolvedContext?.externalUserId || null,
       ownerMode: Boolean(resolvedContext?.owner?.isOwner),
+      runtimeVersion: resolvedRuntime?.version || null,
+      runtimePublishedAt: resolvedRuntime?.publishedAt || null,
+      runtimeSource: resolvedRuntime?.source || null,
       commercialState: response.commercialState ||
         resolvedContext?.commercial?.state ||
         null
@@ -510,7 +518,6 @@ async function processMessage({
 }
 
 module.exports = {
-  CUSTOMER_INSTRUCTIONS,
   OWNER_INSTRUCTIONS,
   buildDesignPortalLink,
   normalizeMessage,
