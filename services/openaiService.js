@@ -132,6 +132,34 @@ function buildContextInstructions(context) {
     }
   }
 
+  if (context.officialKnowledge?.available && context.officialKnowledge?.payload) {
+    let commercialKnowledge = '';
+
+    try {
+      commercialKnowledge = JSON.stringify(context.officialKnowledge.payload);
+    } catch {
+      commercialKnowledge = '';
+    }
+
+    if (commercialKnowledge) {
+      commercialKnowledge = commercialKnowledge.slice(0, 60000);
+
+      lines.push(
+        'CONOCIMIENTO COMERCIAL OFICIAL DE CONNECT: los siguientes datos provienen de ELANKAV CONNECT y son la fuente oficial para productos, servicios, precios, materiales, variantes y condiciones comerciales.'
+      );
+
+      lines.push(
+        'Usá activamente estos datos para vender. Antes de decir que no existe un precio o producto, revisá este contexto completo, buscá coincidencias exactas y relacionadas y realizá cálculos simples cuando existan precio por unidad, metro cuadrado, metro lineal o cantidad.'
+      );
+
+      lines.push(
+        'No menciones al cliente que estás consultando CONNECT, catálogos internos, JSON, bases de datos ni sistemas técnicos.'
+      );
+
+      lines.push(`DATOS_CONNECT=${commercialKnowledge}`);
+    }
+  }
+
   if (context.crm?.available) {
     lines.push('CRM Core conectado y disponible para consultas internas autorizadas.');
     lines.push(`CRM identidades=${context.crm.counts?.identities ?? 0}.`);
