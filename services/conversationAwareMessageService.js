@@ -22,9 +22,10 @@ async function processMessageWithConversationEvents(input = {}) {
   const phone = text(input.phone) || undefined;
   const messageType = text(metadata.messageType) || 'text';
   const inboundText = text(input.message);
+  let inboundEvent = null;
 
   if (chatId && inboundText) {
-    await publishConversationEventSafely({
+    inboundEvent = await publishConversationEventSafely({
       externalMessageId: text(metadata.messageId) || undefined,
       direction: 'inbound',
       actor: 'customer',
@@ -35,14 +36,32 @@ async function processMessageWithConversationEvents(input = {}) {
       text: messageType === 'audio' ? undefined : inboundText,
       transcription: messageType === 'audio' ? inboundText : undefined,
       messageType,
-      mediaUrl: text(metadata.mediaUrl) || undefined,
       occurredAt: new Date().toISOString()
     });
   }
 
+  if (text(inboundEvent && inboundEvent.assignment).toLowerCase() === 'human') {
+    return {
+      reply: '',
+      suppressReply: true,
+      provider: 'elankav',
+      model: null,
+      status: 'human_takeover',
+      context: {
+        platform,
+        channel: 'whatsapp',
+        externalUserId: input.externalUserId || null,
+        ownerMode: false,
+        commercialState: null,
+        assignment: 'human'
+      },
+      createdAt: new Date().toISOString()
+    };
+  }
+
   const result = await processMessage(input);
-  const reply = text(result?.reply);
-  const state = result?.context?.commercialState || null;
+  const reply = text(result && result.reply);
+  const state = result && result.context ? result.context.commercialState : null;
 
   if (chatId && reply) {
     await publishConversationEventSafely({
@@ -50,15 +69,15 @@ async function processMessageWithConversationEvents(input = {}) {
       actor: 'elan_ai',
       chatId,
       phone,
-      platform: text(result?.context?.platform) || platform,
+      platform: text(result && result.context && result.context.platform) || platform,
       language: 'es-NI',
       text: reply,
       messageType: 'text',
-      intent: text(state?.intent) || undefined,
-      phase: text(state?.conversationStatus || state?.phase) || undefined,
+      intent: text(state && state.intent) || undefined,
+      phase: text(state && (state.conversationStatus || state.phase)) || undefined,
       lastQuestion: latestQuestion(reply) || undefined,
       assignment: 'ai',
-      occurredAt: text(result?.createdAt) || new Date().toISOString()
+      occurredAt: text(result && result.createdAt) || new Date().toISOString()
     });
   }
 
