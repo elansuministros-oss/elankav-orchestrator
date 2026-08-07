@@ -661,6 +661,83 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     }
 
     const rawReply = String(result?.reply || '').trim();
+
+    // Convierte directivas <audio>...</audio> del modelo en audio real de WhatsApp.
+    const audioDirective = rawReply.match(/<audio>([\\s\\S]*?)<\\/audio>/i);
+
+    if (audioDirective) {
+      const audioText = String(audioDirective[1] || '').trim();
+      const remainingText = rawReply
+        .replace(audioDirective[0], '')
+        .replace(/<\\/?audio>/gi, '')
+        .trim();
+
+      if (audioText) {
+        logVoiceEvent('VOICE_SPEECH_STARTED', incoming);
+
+        const speech = await synthesizeImpl({ text: audioText });
+
+        logVoiceEvent('VOICE_SPEECH_COMPLETED', {
+          ...incoming,
+          mimeType: speech.mimeType
+        });
+
+        await sendWahaVoiceImpl({
+          session: incoming.session,
+          chatId: incoming.chatId,
+          data: speech.buffer,
+          mimeType: speech.mimeType
+        });
+
+        logVoiceEvent('VOICE_REPLY_SENT', incoming);
+
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: audioText,
+          externalMessageId: undefined,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: {
+            replyType: 'voice',
+            audioDirective: true
+          }
+        }));
+
+        // Si después del bloque <audio> solo quedó otro saludo redundante,
+        // no se envía un segundo mensaje de texto.
+        const redundantGreeting =
+          /^(?:¡?hola[!, .]*)?(?:soy )?ELAN IA[\\s\\S]{0,180}¿?en qué puedo ayudarte hoy\\??$/i
+            .test(remainingText);
+
+        if (!remainingText || redundantGreeting) {
+          sendJson(res, 200, {
+            ok: true,
+            processed: true,
+            replySent: true,
+            replyType: 'voice',
+            audioDirective: true
+          });
+          return true;
+        }
+
+        await sendWahaTextImpl({
+          session: incoming.session,
+          chatId: incoming.chatId,
+          text: remainingText
+        });
+
+        sendJson(res, 200, {
+          ok: true,
+          processed: true,
+          replySent: true,
+          replyType: 'voice+text',
+          audioDirective: true
+        });
+        return true;
+      }
+    }
+
     const reply = stripSimulatedAudioWelcome(rawReply);
 
     if (!reply) throw new Error('Orchestrator respondió sin texto');
