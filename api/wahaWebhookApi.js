@@ -644,6 +644,22 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     });
     logVoiceEvent('VOICE_AI_COMPLETED', incoming);
 
+    if (result?.suppressDelivery === true) {
+      console.log('[HUMAN_TAKEOVER_REPLY_SUPPRESSED]', {
+        chatId: maskChatId(incoming.chatId),
+        status: result?.status || 'suppressed'
+      });
+
+      sendJson(res, 200, {
+        ok: true,
+        processed: true,
+        replySent: false,
+        suppressed: true,
+        reason: result?.status || 'human_takeover'
+      });
+      return true;
+    }
+
     const rawReply = String(result?.reply || '').trim();
     const reply = stripSimulatedAudioWelcome(rawReply);
 
