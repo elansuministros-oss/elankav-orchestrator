@@ -3,6 +3,8 @@
 const { processMessage } = require('./messageService');
 const { publishConversationEventSafely } = require('./connectConversationEventService');
 
+const SUPPRESS_REPLY_TEXT = '__ELANKAV_HUMAN_TAKEOVER_NO_REPLY__';
+
 function text(value) {
   return String(value ?? '').trim();
 }
@@ -42,7 +44,7 @@ async function processMessageWithConversationEvents(input = {}) {
 
   if (text(inboundEvent && inboundEvent.assignment).toLowerCase() === 'human') {
     return {
-      reply: '',
+      reply: SUPPRESS_REPLY_TEXT,
       suppressReply: true,
       provider: 'elankav',
       model: null,
@@ -85,5 +87,6 @@ async function processMessageWithConversationEvents(input = {}) {
 }
 
 module.exports = {
+  SUPPRESS_REPLY_TEXT,
   processMessageWithConversationEvents
 };
