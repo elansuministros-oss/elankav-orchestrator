@@ -663,13 +663,28 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     const rawReply = String(result?.reply || '').trim();
 
     // Convierte directivas <audio>...</audio> del modelo en audio real de WhatsApp.
-    const audioDirective = rawReply.match(/<audio>([\s\S]*?)<\/audio>/i);
+    // Sin regex para evitar errores de escape en runtime.
+    const audioOpenTag = '<audio>';
+    const audioCloseTag = '</audio>';
+    const lowerRawReply = rawReply.toLowerCase();
+    const audioStart = lowerRawReply.indexOf(audioOpenTag);
+    const audioEnd = audioStart >= 0
+      ? lowerRawReply.indexOf(audioCloseTag, audioStart + audioOpenTag.length)
+      : -1;
+
+    const audioDirective = audioStart >= 0 && audioEnd > audioStart
+      ? {
+          full: rawReply.slice(audioStart, audioEnd + audioCloseTag.length),
+          text: rawReply.slice(audioStart + audioOpenTag.length, audioEnd)
+        }
+      : null;
 
     if (audioDirective) {
-      const audioText = String(audioDirective[1] || '').trim();
+      const audioText = String(audioDirective.text || '').trim();
       const remainingText = rawReply
-        .replace(audioDirective[0], '')
-        .replace(/<\\/?audio>/gi, '')
+        .replace(audioDirective.full, '')
+        .split('<audio>').join('')
+        .split('</audio>').join('')
         .trim();
 
       if (audioText) {
