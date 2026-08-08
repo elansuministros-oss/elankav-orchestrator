@@ -700,7 +700,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         await sendWahaVoiceImpl({
           session: incoming.session,
           chatId: incoming.chatId,
-          data: speech.buffer,
+          data: speech.data,
           mimeType: speech.mimeType
         });
 
