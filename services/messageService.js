@@ -23,6 +23,7 @@ const {
   loadPlatformKnowledgeSafely
 } = require('./connectPlatformKnowledgeService');
 const {
+  fetchConversationHistorySafely,
   publishConversationEventSafely
 } = require('./connectConversationClient');
 
@@ -37,6 +38,30 @@ const OWNER_INSTRUCTIONS = [
 
 function normalizeMessage(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeHistory(history, currentMessage) {
+  const normalized = Array.isArray(history)
+    ? history
+      .map(item => ({
+        role: item?.role === 'assistant' ? 'assistant' : item?.role === 'user' ? 'user' : null,
+        content: normalizeMessage(item?.content)
+      }))
+      .filter(item => item.role && item.content)
+    : [];
+
+  const current = normalizeMessage(currentMessage);
+  const last = normalized[normalized.length - 1];
+  if (last?.role === 'user' && current && last.content === current) normalized.pop();
+  return normalized;
+}
+
+function buildKnowledgeQuery(history, currentMessage) {
+  const recent = Array.isArray(history) ? history.slice(-8) : [];
+  return [
+    ...recent.map(item => item.content),
+    normalizeMessage(currentMessage)
+  ].filter(Boolean).join('\n').slice(-12000);
 }
 
 async function checkHumanTakeover({
@@ -99,9 +124,25 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     };
   }
 
+  const historyLimit = Math.max(
+    1,
+    Math.min(Number(runtime?.platform?.continuity?.historyLimit) || 20, 50)
+  );
+  const chatId = String(context?.metadata?.chatId || externalUserId || '').trim();
+  const historyPayload = await fetchConversationHistorySafely({ chatId, limit: historyLimit });
+  const history = normalizeHistory(historyPayload?.history, normalizedMessage);
+  const knowledgeQuery = buildKnowledgeQuery(history, normalizedMessage);
+
+  console.log('[ELAN_AI_CONTEXT_LOADED]', {
+    platform: runtime.platformId,
+    historyMessages: history.length,
+    knowledgeQueryLength: knowledgeQuery.length,
+    conversationId: historyPayload?.conversationId || null
+  });
+
   const knowledge = await loadPlatformKnowledgeSafely({
     platform: runtime.platformId,
-    query: normalizedMessage
+    query: knowledgeQuery || normalizedMessage
   });
 
   if (!knowledge?.available || !knowledge?.payload) {
@@ -129,7 +170,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
 
   const generated = await generateText({
     input: normalizedMessage,
-    history: [],
+    history,
     instructions: buildCustomerInstructions(runtime),
     context: {
       ownerMode: false,
@@ -152,7 +193,8 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     ...generated,
     status: generated.status || 'completed',
     runtimeVersion: runtime.version || null,
-    knowledgeAvailable: Boolean(knowledge?.available)
+    knowledgeAvailable: Boolean(knowledge?.available),
+    historyMessages: history.length
   };
 }
 
@@ -324,6 +366,7 @@ async function processMessage({
     ownerCrmCommand: response.ownerCrmCommand === true,
     runtimeVersion: response.runtimeVersion || null,
     knowledgeAvailable: response.knowledgeAvailable ?? null,
+    historyMessages: response.historyMessages ?? null,
     context: {
       version: resolvedContext?.version || null,
       platform: resolvedContext?.platform || null,
@@ -338,6 +381,8 @@ async function processMessage({
 module.exports = {
   OWNER_INSTRUCTIONS,
   normalizeMessage,
+  normalizeHistory,
+  buildKnowledgeQuery,
   checkHumanTakeover,
   processCustomerMessage,
   processMessage
