@@ -252,7 +252,7 @@ function createWahaDeliveryAdapter({
         mimetype: normalizedMimeType,
         data: String(data).trim()
       },
-      convert: false
+      convert: true
     });
 
     return Object.freeze({
