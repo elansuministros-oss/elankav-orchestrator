@@ -7,11 +7,25 @@ function clean(value) {
 }
 
 function resolveConnectUrl(env = process.env) {
-  return clean(env.ELANKAV_CONNECT_URL || env.CONNECT_URL) || DEFAULT_CONNECT_URL;
+  return clean(env.ELANKAV_CONNECT_URL || env.CONNECT_URL || env.CONNECT_API_URL) || DEFAULT_CONNECT_URL;
 }
 
 function resolveConnectToken(env = process.env) {
-  return clean(env.CONNECT_INTERNAL_TOKEN || env.ELANKAV_CONNECT_INTERNAL_TOKEN);
+  return clean(
+    env.CONNECT_INTERNAL_API_TOKEN ||
+    env.CONNECT_INTERNAL_TOKEN ||
+    env.ELANKAV_CONNECT_INTERNAL_TOKEN ||
+    env.ORCHESTRATOR_INTERNAL_TOKEN
+  );
+}
+
+function buildHeaders(token) {
+  return {
+    Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+    'X-Elankav-Internal-Token': token,
+    'X-Elankav-Platform': 'ORCHESTRATOR'
+  };
 }
 
 async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
@@ -30,10 +44,8 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
   const response = await fetchImpl(`${baseUrl}/api/v1/conversations/events`, {
     method: 'POST',
     headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'X-Elankav-Platform': 'ORCHESTRATOR'
+      ...buildHeaders(token),
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify(event),
     signal: AbortSignal.timeout(10000)
@@ -46,6 +58,53 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
     throw error;
   }
   return payload;
+}
+
+async function fetchConversationHistory({ chatId, limit = 20 } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  const normalizedChatId = clean(chatId);
+  if (!normalizedChatId) return { ok: true, history: [], conversationId: null };
+  if (typeof fetchImpl !== 'function') {
+    const error = new Error('FETCH_NOT_AVAILABLE');
+    error.code = 'FETCH_NOT_AVAILABLE';
+    throw error;
+  }
+
+  const token = resolveConnectToken(env);
+  if (!token) {
+    const error = new Error('CONNECT_INTERNAL_TOKEN_REQUIRED');
+    error.code = 'CONNECT_INTERNAL_TOKEN_REQUIRED';
+    throw error;
+  }
+
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
+  const baseUrl = resolveConnectUrl(env).replace(/\/+$/, '');
+  const params = new URLSearchParams({ chatId: normalizedChatId, limit: String(safeLimit) });
+  const response = await fetchImpl(`${baseUrl}/api/v1/conversations/history?${params.toString()}`, {
+    method: 'GET',
+    headers: buildHeaders(token),
+    signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok === false) {
+    const error = new Error(payload?.error?.message || payload?.error || `CONNECT_HISTORY_HTTP_${response.status}`);
+    error.code = payload?.error?.code || 'CONNECT_CONVERSATION_HISTORY_FAILED';
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+async function fetchConversationHistorySafely(input, options) {
+  try {
+    return await fetchConversationHistory(input, options);
+  } catch (error) {
+    console.error('[CONNECT_CONVERSATION_HISTORY_FAILED]', {
+      code: error.code || null,
+      status: error.status || null,
+      message: error.message
+    });
+    return { ok: false, history: [], conversationId: null, error: error.code || error.message };
+  }
 }
 
 async function publishConversationEventSafely(event, options) {
@@ -63,9 +122,10 @@ async function publishConversationEventSafely(event, options) {
 
 module.exports = {
   DEFAULT_CONNECT_URL,
+  fetchConversationHistory,
+  fetchConversationHistorySafely,
   publishConversationEvent,
   publishConversationEventSafely,
   resolveConnectToken,
   resolveConnectUrl
 };
-
