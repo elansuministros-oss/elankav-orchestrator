@@ -129,7 +129,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     Math.min(Number(runtime?.platform?.continuity?.historyLimit) || 20, 50)
   );
   const chatId = String(context?.metadata?.chatId || externalUserId || '').trim();
-  const historyPayload = await fetchConversationHistorySafely({ chatId, limit: historyLimit });
+  const historyPayload = await fetchConversationHistorySafely({ identity: externalUserId || chatId, platform: runtime.platformId, limit: historyLimit });
   const history = normalizeHistory(historyPayload?.history, normalizedMessage);
   const knowledgeQuery = buildKnowledgeQuery(history, normalizedMessage);
 
@@ -186,6 +186,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
         initialMessage: runtime.platform?.initialMessage || ''
       },
       officialKnowledge: knowledge
+      ,prospectMemory: historyPayload?.prospect || null
     }
   });
 

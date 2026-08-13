@@ -60,8 +60,8 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
   return payload;
 }
 
-async function fetchConversationHistory({ chatId, limit = 20 } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
-  const normalizedChatId = clean(chatId);
+async function fetchConversationHistory({ chatId, identity, platform = 'ELANVISUAL', limit = 20 } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  const normalizedChatId = clean(identity || chatId);
   if (!normalizedChatId) return { ok: true, history: [], conversationId: null };
   if (typeof fetchImpl !== 'function') {
     const error = new Error('FETCH_NOT_AVAILABLE');
@@ -78,7 +78,7 @@ async function fetchConversationHistory({ chatId, limit = 20 } = {}, { fetchImpl
 
   const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
   const baseUrl = resolveConnectUrl(env).replace(/\/+$/, '');
-  const params = new URLSearchParams({ chatId: normalizedChatId, limit: String(safeLimit) });
+  const params = new URLSearchParams({ identity: normalizedChatId, platform, limit: String(safeLimit) });
   const response = await fetchImpl(`${baseUrl}/api/v1/conversations/history?${params.toString()}`, {
     method: 'GET',
     headers: buildHeaders(token),
@@ -91,6 +91,18 @@ async function fetchConversationHistory({ chatId, limit = 20 } = {}, { fetchImpl
     error.status = response.status;
     throw error;
   }
+  return payload;
+}
+
+async function claimProspectWelcome({ identity, platform = 'ELANVISUAL' } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  const token = resolveConnectToken(env);
+  if (!token) throw Object.assign(new Error('CONNECT_INTERNAL_TOKEN_REQUIRED'), { code: 'CONNECT_INTERNAL_TOKEN_REQUIRED' });
+  const response = await fetchImpl(`${resolveConnectUrl(env).replace(/\/+$/, '')}/api/v1/conversations/welcome-claims`, {
+    method: 'POST', headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity, platform }), signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(payload?.error?.message || `CONNECT_WELCOME_HTTP_${response.status}`), { code: payload?.error?.code || 'CONNECT_WELCOME_CLAIM_FAILED', status: response.status });
   return payload;
 }
 
@@ -122,6 +134,7 @@ async function publishConversationEventSafely(event, options) {
 
 module.exports = {
   DEFAULT_CONNECT_URL,
+  claimProspectWelcome,
   fetchConversationHistory,
   fetchConversationHistorySafely,
   publishConversationEvent,

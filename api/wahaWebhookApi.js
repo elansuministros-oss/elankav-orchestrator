@@ -9,8 +9,10 @@ const {
 } = require('../services/connectVoiceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const {
-  publishConversationEventSafely
+  publishConversationEventSafely,
+  claimProspectWelcome
 } = require('../services/connectConversationClient');
+const { getPublishedRuntime } = require('../services/connectAiRuntimeService');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -74,6 +76,7 @@ function readJsonBody(req) {
 }
 
 function normalizePhone(value) {
+  if (String(value || '').toLowerCase().includes('@lid')) return '';
   const raw = String(value || '')
     .split('@')[0]
     .replace(/\D/g, '');
@@ -348,6 +351,7 @@ function extractIncoming(body = {}) {
     session: body.session || payload.session || process.env.WAHA_SESSION || 'default',
     senderRaw,
     phone: normalizePhone(senderRaw),
+    whatsappName: String(payload.pushname || payload.pushName || payload.notifyName || payload._data?.notifyName || payload._data?.pushname || '').trim(),
     chatId,
     text: extractText(payload),
     messageType: extractMessageType(payload),
@@ -364,6 +368,7 @@ function buildConversationEvent({ incoming, direction, text, externalMessageId, 
     channel: 'whatsapp',
     externalUserId: incoming.senderRaw,
     phone: incoming.phone,
+    whatsappName: incoming.whatsappName,
     chatId: incoming.chatId,
     direction,
     text,
@@ -402,6 +407,19 @@ async function sendWahaRequest(path, body, fetchImpl = fetch) {
     throw error;
   }
   return data;
+}
+
+async function resolveWahaContactName({ session, contactId, fetchImpl = fetch }) {
+  if (!contactId) return '';
+  const baseUrl = String(process.env.WAHA_BASE_URL || DEFAULT_WAHA_BASE_URL).replace(/\/+$/, '');
+  const apiKey = process.env.WAHA_API_KEY || process.env.WAHA_API_TOKEN || '';
+  const headers = { Accept: 'application/json' };
+  if (apiKey) headers['X-Api-Key'] = apiKey;
+  const params = new URLSearchParams({ session: session || process.env.WAHA_SESSION || 'default', contactId });
+  const response = await fetchImpl(`${baseUrl}/api/contacts?${params.toString()}`, { headers, signal: AbortSignal.timeout(10000) });
+  if (!response.ok) return '';
+  const payload = await response.json().catch(() => ({}));
+  return String(payload?.pushname || payload?.pushName || payload?.name || '').trim();
 }
 
 async function sendWahaText({ session, chatId, text, fetchImpl = fetch }) {
@@ -516,6 +534,10 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       sendJson(res, 200, { ok: true, ignored: true, reason: 'DUPLICATE_MESSAGE' });
       return true;
     }
+    if (!incoming.whatsappName && String(incoming.senderRaw).toLowerCase().endsWith('@lid')) {
+      const contactResolver = dependencies.resolveWahaContactName || (!dependencies.processMessage ? resolveWahaContactName : null);
+      if (contactResolver) incoming.whatsappName = await contactResolver({ session: incoming.session, contactId: incoming.senderRaw });
+    }
 
     if (incoming.messageType === 'audio') {
       logVoiceEvent('VOICE_INBOUND_RECEIVED', {
@@ -549,7 +571,23 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       mimeType: incoming.media?.mimeType || null
     });
 
-    if (shouldSendWelcomeAudio(incoming)) {
+    const platform = process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL';
+    const runtimeResolver = dependencies.getPublishedRuntime || (!dependencies.processMessage ? getPublishedRuntime : null);
+    const runtime = runtimeResolver ? await runtimeResolver(platform) : { shouldRespond: true };
+    if (!runtime.shouldRespond) {
+      sendJson(res, 200, { ok: true, processed: true, replySent: false, suppressed: true, reason: 'automation_disabled', platform });
+      return true;
+    }
+
+    let welcomeClaim = { claimed: false };
+    if (!isOwnerPhone(incoming.phone) && (dependencies.claimProspectWelcome || !dependencies.processMessage)) {
+      try {
+        welcomeClaim = await (dependencies.claimProspectWelcome || claimProspectWelcome)({ identity: incoming.senderRaw || incoming.chatId, platform });
+      } catch (claimError) {
+        console.error('[WELCOME_CLAIM_FAILED]', { code: claimError.code || null, status: claimError.status || null, message: claimError.message });
+      }
+    }
+    if (welcomeClaim.claimed === true) {
       try {
         logVoiceEvent('WELCOME_VOICE_STARTED', incoming);
 
@@ -578,7 +616,6 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           }
         }));
 
-        markWelcomeAudioSent(incoming);
         welcomeAudioSent = true;
 
         logVoiceEvent('WELCOME_VOICE_SENT', {
@@ -959,6 +996,7 @@ module.exports = {
   isPresentationAudioRequest,
   normalizePhone,
   resolveIncomingMessage,
+  resolveWahaContactName,
   sendWahaText,
   sendWahaVoice,
   shouldSendWelcomeAudio,
