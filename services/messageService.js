@@ -16,15 +16,11 @@ const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
 const {
-  buildCustomerInstructions,
-  getPublishedRuntime
-} = require('./connectAiRuntimeService');
-const {
   loadPlatformKnowledgeSafely
 } = require('./connectPlatformKnowledgeService');
 const {
-  fetchConversationHistorySafely,
-  publishConversationEventSafely
+  publishConversationEventSafely,
+  requestConversationDecision
 } = require('./connectConversationClient');
 
 const OWNER_INSTRUCTIONS = [
@@ -111,8 +107,13 @@ async function checkHumanTakeover({
 }
 
 async function processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone }) {
-  const runtime = await getPublishedRuntime(context.platform || platform || 'elanvisual');
-  if (!runtime.shouldRespond) {
+  const decision = context?.metadata?.connectDecision || await requestConversationDecision({
+    identity: externalUserId || context?.metadata?.senderRaw || context?.metadata?.chatId,
+    platform: context.platform || platform || 'elanvisual',
+    message: normalizedMessage,
+    ownerMode: Boolean(context?.owner?.isOwner)
+  });
+  if (decision.action === 'PAUSED') {
     return {
       outputText: '',
       model: 'elankav-connect-runtime-disabled',
@@ -120,34 +121,30 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       status: 'automation_disabled',
       usage: null,
       suppressDelivery: true,
-      runtimeVersion: runtime.version || null
+      runtimeVersion: decision.runtimeVersion || null
     };
   }
 
-  const historyLimit = Math.max(
-    1,
-    Math.min(Number(runtime?.platform?.continuity?.historyLimit) || 20, 50)
-  );
-  const chatId = String(context?.metadata?.chatId || externalUserId || '').trim();
-  const historyPayload = await fetchConversationHistorySafely({ identity: externalUserId || chatId, platform: runtime.platformId, limit: historyLimit });
-  const history = normalizeHistory(historyPayload?.history, normalizedMessage);
+  const runtimePlatform = decision.platform || {};
+  const platformId = runtimePlatform.platformId || context.platform || platform || 'elanvisual';
+  const history = normalizeHistory(decision.history, normalizedMessage);
   const knowledgeQuery = buildKnowledgeQuery(history, normalizedMessage);
 
   console.log('[ELAN_AI_CONTEXT_LOADED]', {
-    platform: runtime.platformId,
+    platform: platformId,
     historyMessages: history.length,
     knowledgeQueryLength: knowledgeQuery.length,
-    conversationId: historyPayload?.conversationId || null
+    conversationId: decision.conversationId || null
   });
 
   const knowledge = await loadPlatformKnowledgeSafely({
-    platform: runtime.platformId,
+    platform: platformId,
     query: knowledgeQuery || normalizedMessage
   });
 
   if (!knowledge?.available || !knowledge?.payload) {
     console.error('[ELAN_AI_OFFICIAL_KNOWLEDGE_REQUIRED]', {
-      platform: runtime.platformId,
+      platform: platformId,
       query: normalizedMessage,
       error: knowledge?.error || 'OFFICIAL_KNOWLEDGE_UNAVAILABLE'
     });
@@ -155,7 +152,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     return {
       outputText: [
         'En este momento no pude consultar la información oficial de',
-        runtime.platformId.toUpperCase() + '.',
+        platformId.toUpperCase() + '.',
         'Para no darte información incorrecta, dejaré tu consulta pendiente',
         'hasta recuperar la conexión con la plataforma.'
       ].join(' '),
@@ -163,7 +160,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       id: null,
       status: 'knowledge_unavailable',
       usage: null,
-      runtimeVersion: runtime.version || null,
+      runtimeVersion: decision.runtimeVersion || null,
       knowledgeAvailable: false
     };
   }
@@ -171,29 +168,29 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
   const generated = await generateText({
     input: normalizedMessage,
     history,
-    instructions: buildCustomerInstructions(runtime),
+    instructions: decision.instructions,
     context: {
       ownerMode: false,
       customerMode: true,
       externalUserId: context.externalUserId || externalUserId || null,
       phone: context.phone || phone || null,
-      platform: runtime.platformId,
+      platform: platformId,
       channel: context.channel || channel || null,
       runtime: {
-        schemaVersion: runtime.schemaVersion || null,
-        version: runtime.version || null,
-        publishedAt: runtime.publishedAt || null,
-        initialMessage: runtime.platform?.initialMessage || ''
+        schemaVersion: decision.schemaVersion || 'ELANKAV_AI_RUNTIME_V1',
+        version: decision.runtimeVersion || null,
+        publishedAt: decision.publishedAt || null,
+        initialMessage: runtimePlatform.initialMessage || ''
       },
       officialKnowledge: knowledge
-      ,prospectMemory: historyPayload?.prospect || null
+      ,prospectMemory: decision.prospect || null
     }
   });
 
   return {
     ...generated,
     status: generated.status || 'completed',
-    runtimeVersion: runtime.version || null,
+    runtimeVersion: decision.runtimeVersion || null,
     knowledgeAvailable: Boolean(knowledge?.available),
     historyMessages: history.length
   };
@@ -232,7 +229,7 @@ async function processMessage({
       const ownerMode = Boolean(context.owner?.isOwner);
 
       if (!ownerMode) {
-        const humanTakeover = await checkHumanTakeover({
+        const humanTakeover = metadata?.connectDecision ? false : await checkHumanTakeover({
           normalizedMessage,
           platform: context.platform || platform || 'ELANVISUAL',
           channel: context.channel || channel,

@@ -84,12 +84,9 @@ test('responsesEnabled apagado impide bienvenida, texto y audio', async () => {
       async persistConversationEvent() {
         return { ok: true };
       },
-      async getPublishedRuntime() {
-        return { shouldRespond: false };
-      },
-      async claimProspectWelcome() {
+      async requestConversationDecision() {
         claims += 1;
-        return { claimed: true };
+        return { action: 'PAUSED', welcome: { send: false, text: '' } };
       },
       async processMessage() {
         modelCalls += 1;
@@ -104,7 +101,7 @@ test('responsesEnabled apagado impide bienvenida, texto y audio', async () => {
     }
   });
 
-  assert.equal(claims, 0);
+  assert.equal(claims, 1);
   assert.equal(modelCalls, 0);
   assert.equal(texts, 0);
   assert.equal(voices, 0);
@@ -121,12 +118,9 @@ test('bienvenida se envía únicamente cuando CONNECT concede el reclamo', async
     async persistConversationEvent() {
       return { ok: true };
     },
-    async getPublishedRuntime() {
-      return { shouldRespond: true };
-    },
-    async claimProspectWelcome() {
+    async requestConversationDecision() {
       claimCalls += 1;
-      return { claimed: claimCalls === 1 };
+      return { action: 'RESPOND', welcome: { send: claimCalls === 1, text: 'Bienvenida publicada desde CONNECT' } };
     },
     async processMessage() {
       return {
@@ -196,8 +190,8 @@ test('pushname se entrega a CONNECT y el teléfono queda vacío para LID', async
         persisted.push(event);
         return { ok: true };
       },
-      async getPublishedRuntime() {
-        return { shouldRespond: false };
+      async requestConversationDecision() {
+        return { action: 'PAUSED', welcome: { send: false, text: '' } };
       },
       async processMessage() {
         throw new Error('No debe ejecutarse');
@@ -210,4 +204,3 @@ test('pushname se entrega a CONNECT y el teléfono queda vacío para LID', async
   assert.equal(persisted[0].phone, '');
   assert.equal(persisted[0].whatsappName, 'V.I.C.A❤');
 });
-

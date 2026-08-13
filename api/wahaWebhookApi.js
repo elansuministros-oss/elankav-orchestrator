@@ -10,24 +10,14 @@ const {
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const {
   publishConversationEventSafely,
-  claimProspectWelcome
+  requestConversationDecision
 } = require('../services/connectConversationClient');
-const { getPublishedRuntime } = require('../services/connectAiRuntimeService');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_OWNER_PHONE = '50588388940';
 const DEDUPE_TTL_MS = 10 * 60 * 1000;
-const WELCOME_SESSION_TTL_MS = Number(
-  process.env.ELAN_AI_WELCOME_SESSION_TTL_MS || 24 * 60 * 60 * 1000
-);
 const processedMessageIds = new Map();
-const welcomedChats = new Map();
-const CUSTOMER_WELCOME_TEXT = process.env.ELAN_AI_WELCOME_TEXT || [
-  'Hola, soy ELAN IA, la asistente virtual oficial de ELANVISUAL.',
-  'Soy una inteligencia artificial creada para ayudarte con información sobre nuestros productos, servicios, precios y cotizaciones utilizando únicamente la información oficial de nuestra empresa.',
-  'Si tu consulta requiere atención personalizada, con gusto la pondré en seguimiento con uno de nuestros asesores.'
-].join(' ');
 const TRANSCRIPTION_FAILURE_TEXT = 'No pude escuchar correctamente la nota de voz. Podés enviarla nuevamente o escribirme el mensaje.';
 const INTERNAL_AUDIO_FAILURE_TEXT = 'Tuve un problema procesando el audio. Podés escribirme el mensaje mientras lo intento nuevamente.';
 const PRESENTATION_TEXT = process.env.ELAN_AI_PRESENTATION_TEXT || [
@@ -147,32 +137,6 @@ function markMessageOnce(messageId, now = Date.now()) {
   return true;
 }
 
-function cleanupWelcomedChats(now = Date.now()) {
-  for (const [key, expiresAt] of welcomedChats.entries()) {
-    if (expiresAt <= now) welcomedChats.delete(key);
-  }
-}
-
-function welcomeChatKey(incoming = {}) {
-  return `${incoming.session || 'default'}:${incoming.chatId || incoming.phone || ''}`;
-}
-
-function shouldSendWelcomeAudio(incoming, now = Date.now()) {
-  if (!incoming?.chatId || isOwnerPhone(incoming.phone)) return false;
-
-  cleanupWelcomedChats(now);
-
-  const key = welcomeChatKey(incoming);
-  return Boolean(key && !welcomedChats.has(key));
-}
-
-function markWelcomeAudioSent(incoming, now = Date.now()) {
-  const key = welcomeChatKey(incoming);
-  if (!key) return;
-
-  welcomedChats.set(key, now + WELCOME_SESSION_TTL_MS);
-}
-
 function stripSimulatedAudioWelcome(value) {
   const text = String(value || '').trim();
 
@@ -209,7 +173,6 @@ function stripSimulatedAudioWelcome(value) {
 
 function clearWahaInboundDedupe() {
   processedMessageIds.clear();
-  welcomedChats.clear();
 }
 
 function extractMessageId(payload = {}, body = {}) {
@@ -572,27 +535,25 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     });
 
     const platform = process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL';
-    const runtimeResolver = dependencies.getPublishedRuntime || (!dependencies.processMessage ? getPublishedRuntime : null);
-    const runtime = runtimeResolver ? await runtimeResolver(platform) : { shouldRespond: true };
-    if (!runtime.shouldRespond) {
+    const decisionResolver = dependencies.requestConversationDecision || (!dependencies.processMessage ? requestConversationDecision : null);
+    const decision = decisionResolver
+      ? await decisionResolver({ identity: incoming.senderRaw || incoming.chatId, platform, message: resolvedMessage, ownerMode: isOwnerPhone(incoming.phone) })
+      : { action: 'RESPOND', welcome: { send: false, text: '' } };
+    if (decision.action === 'PAUSED') {
       sendJson(res, 200, { ok: true, processed: true, replySent: false, suppressed: true, reason: 'automation_disabled', platform });
       return true;
     }
-
-    let welcomeClaim = { claimed: false };
-    if (!isOwnerPhone(incoming.phone) && (dependencies.claimProspectWelcome || !dependencies.processMessage)) {
-      try {
-        welcomeClaim = await (dependencies.claimProspectWelcome || claimProspectWelcome)({ identity: incoming.senderRaw || incoming.chatId, platform });
-      } catch (claimError) {
-        console.error('[WELCOME_CLAIM_FAILED]', { code: claimError.code || null, status: claimError.status || null, message: claimError.message });
-      }
+    if (decision.action === 'NO_REPLY') {
+      sendJson(res, 200, { ok: true, processed: true, replySent: false, suppressed: true, reason: decision.reason || 'no_reply', platform });
+      return true;
     }
-    if (welcomeClaim.claimed === true) {
+
+    if (decision?.welcome?.send === true && String(decision?.welcome?.text || '').trim()) {
       try {
         logVoiceEvent('WELCOME_VOICE_STARTED', incoming);
 
         const welcomeSpeech = await synthesizeImpl({
-          text: CUSTOMER_WELCOME_TEXT
+          text: decision.welcome.text
         });
 
         const welcomeSent = await sendWahaVoiceImpl({
@@ -605,7 +566,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         await persistConversationEventImpl(buildConversationEvent({
           incoming,
           direction: 'outbound',
-          text: CUSTOMER_WELCOME_TEXT,
+          text: decision.welcome.text,
           externalMessageId: welcomeSent?.messageId || welcomeSent?.id || null,
           actorType: 'assistant',
           actorName: 'ELAN IA',
@@ -677,6 +638,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         messageType: incoming.messageType,
         originalText: incoming.text || null,
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null
+        ,connectDecision: decision
       }
     });
     logVoiceEvent('VOICE_AI_COMPLETED', incoming);
@@ -999,6 +961,5 @@ module.exports = {
   resolveWahaContactName,
   sendWahaText,
   sendWahaVoice,
-  shouldSendWelcomeAudio,
   stripSimulatedAudioWelcome
 };
