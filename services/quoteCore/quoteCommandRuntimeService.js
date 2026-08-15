@@ -28,17 +28,33 @@ function resolveIntent(message = '') {
   const text = normalize(message);
   if (!text) return null;
 
-  if (
+  const asksGlobalActiveProjects =
     (
       text.includes('proyectos activos') ||
       text.includes('proyectos tengo activos') ||
       text.includes('proyectos estan activos') ||
-      text.includes('proyectos están activos') ||
       text.includes('trabajos activos') ||
-      text.includes('trabajos tengo activos')
+      text.includes('trabajos tengo activos') ||
+      text.includes('que tengo activo') ||
+      text.includes('que tengo abierto') ||
+      text.includes('que tengo andando') ||
+      text.includes('que tengo en marcha') ||
+      text.includes('que tenemos activo') ||
+      text.includes('que tenemos abierto') ||
+      text.includes('que tenemos andando') ||
+      text.includes('que tenemos en marcha') ||
+      text.includes('como van los trabajos') ||
+      text.includes('como van los proyectos') ||
+      text.includes('que trabajos siguen') ||
+      text.includes('que proyectos siguen') ||
+      text.includes('que hay activo') ||
+      text.includes('que hay abierto') ||
+      text.includes('que hay andando') ||
+      text.includes('que hay en marcha')
     ) &&
-    !text.includes('cliente')
-  ) {
+    !text.includes('cliente');
+
+  if (asksGlobalActiveProjects) {
     return COMMANDS.ACTIVE_PROJECTS;
   }
 
