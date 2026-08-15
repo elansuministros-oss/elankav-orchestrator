@@ -3,6 +3,7 @@
 const { getConfig } = require('../../adapters/jobSupabaseAdapter');
 
 const COMMANDS = Object.freeze({
+  ACTIVE_PROJECTS: 'active_projects',
   PROJECTS_BY_CUSTOMER: 'projects_by_customer',
   PRODUCTION_BY_CUSTOMER: 'production_by_customer',
   QUOTATIONS_WITHOUT_FOLLOW_UP: 'quotations_without_follow_up',
@@ -26,6 +27,20 @@ function normalize(value = '') {
 function resolveIntent(message = '') {
   const text = normalize(message);
   if (!text) return null;
+
+  if (
+    (
+      text.includes('proyectos activos') ||
+      text.includes('proyectos tengo activos') ||
+      text.includes('proyectos estan activos') ||
+      text.includes('proyectos están activos') ||
+      text.includes('trabajos activos') ||
+      text.includes('trabajos tengo activos')
+    ) &&
+    !text.includes('cliente')
+  ) {
+    return COMMANDS.ACTIVE_PROJECTS;
+  }
 
   if ((text.includes('produccion') || text.includes('en produccion')) &&
       (text.includes('cliente') || text.includes('de ') || text.includes('trabajo'))) {
@@ -136,6 +151,7 @@ function format(command, rows, customerQuery = '') {
   const customer = customerQuery ? ` de ${customerQuery}` : '';
   if (!rows.length) {
     const empty = {
+      [COMMANDS.ACTIVE_PROJECTS]: 'No encontré proyectos activos.',
       [COMMANDS.PRODUCTION_BY_CUSTOMER]: `No encontré trabajos${customer} en producción.`,
       [COMMANDS.PROJECTS_BY_CUSTOMER]: `No encontré proyectos${customer}.`,
       [COMMANDS.QUOTATIONS_WITHOUT_FOLLOW_UP]: 'No encontré cotizaciones activas sin seguimiento.',
@@ -146,6 +162,7 @@ function format(command, rows, customerQuery = '') {
   }
 
   const headers = {
+    [COMMANDS.ACTIVE_PROJECTS]: `${rows.length} proyecto(s) activo(s):`,
     [COMMANDS.PRODUCTION_BY_CUSTOMER]: `${rows.length} trabajo(s)${customer} en producción:`,
     [COMMANDS.PROJECTS_BY_CUSTOMER]: `${rows.length} proyecto(s)${customer}:`,
     [COMMANDS.QUOTATIONS_WITHOUT_FOLLOW_UP]: `${rows.length} cotización(es) requieren seguimiento:`,
@@ -163,6 +180,17 @@ function format(command, rows, customerQuery = '') {
 
 async function executeQuery({ command, customerQuery, scope, reader, staleDays = 3 } = {}) {
   const executiveFilter = queryParam('executive_id', scope.executiveId);
+
+  if (command === COMMANDS.ACTIVE_PROJECTS) {
+    const rows = await reader.select(
+      'elankav_projects',
+      `select=*&order=created_at.desc&limit=100${executiveFilter}`
+    );
+
+    return rows
+      .filter(row => ACTIVE_PROJECT_STATUSES.has(row.status))
+      .map(projectPublic);
+  }
 
   if (command === COMMANDS.PRODUCTION_BY_CUSTOMER || command === COMMANDS.PROJECTS_BY_CUSTOMER) {
     const statusFilter = command === COMMANDS.PRODUCTION_BY_CUSTOMER ? '&status=eq.production' : '';

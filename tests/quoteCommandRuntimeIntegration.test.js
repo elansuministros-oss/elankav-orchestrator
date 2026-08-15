@@ -119,3 +119,45 @@ test('executeOwnerCommand entrega la consulta Quote Core mediante el router owne
     else process.env.QUOTE_CORE_RUNTIME_ENABLED = previous;
   }
 });
+
+
+test('Owner consulta proyectos activos globales', async () => {
+  const rows = [
+    {
+      project_number: 'PROY-001',
+      title: 'Proyecto activo',
+      status: 'production',
+      current_stage: 'production',
+      expected_delivery_at: null,
+      customer_snapshot: { name: 'Cliente A' }
+    },
+    {
+      project_number: 'PROY-002',
+      title: 'Proyecto cerrado',
+      status: 'completed',
+      current_stage: 'completed',
+      expected_delivery_at: null,
+      customer_snapshot: { name: 'Cliente B' }
+    }
+  ];
+
+  const reader = {
+    async select(table) {
+      assert.equal(table, 'elankav_projects');
+      return rows;
+    }
+  };
+
+  const result = await processQuoteRuntimeCommand({
+    message: 'Qué proyectos tengo activos',
+    actor: { role: 'owner' },
+    reader
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.command, COMMANDS.ACTIVE_PROJECTS);
+  assert.equal(result.scope, 'global');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].projectNumber, 'PROY-001');
+  assert.match(result.outputText, /1 proyecto\(s\) activo\(s\)/);
+});
