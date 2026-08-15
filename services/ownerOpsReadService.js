@@ -7,6 +7,9 @@ const {
   resolveRepository,
   resolveService
 } = require('./ownerOpsCapabilityRegistry');
+const {
+  recordAuditSafely
+} = require('./ownerOpsAuditService');
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 1024 * 1024;
@@ -261,22 +264,52 @@ function formatResult(result) {
 }
 
 async function executeReadOperation(command) {
-  switch (command?.capability) {
-    case 'production.audit':
-      return readProductionAudit();
-    case 'server.summary':
-      return readServerSummary();
-    case 'service.status':
-      return readServiceStatus(command.target);
-    case 'service.logs':
-      return readServiceLogs(command.target, command.lines);
-    case 'git.status':
-      return readGitStatus(command.target);
-    default: {
-      const error = new Error('Operación Owner READ-ONLY no soportada.');
-      error.code = 'OWNER_OPS_UNSUPPORTED';
-      throw error;
+  const capability = command?.capability || null;
+  const target = command?.target || null;
+
+  try {
+    let result;
+    switch (capability) {
+      case 'production.audit':
+        result = await readProductionAudit();
+        break;
+      case 'server.summary':
+        result = await readServerSummary();
+        break;
+      case 'service.status':
+        result = await readServiceStatus(target);
+        break;
+      case 'service.logs':
+        result = await readServiceLogs(target, command.lines);
+        break;
+      case 'git.status':
+        result = await readGitStatus(target);
+        break;
+      default: {
+        const error = new Error('Operación Owner READ-ONLY no soportada.');
+        error.code = 'OWNER_OPS_UNSUPPORTED';
+        throw error;
+      }
     }
+
+    await recordAuditSafely({
+      capability,
+      target,
+      success: true,
+      metadata: capability === 'service.logs'
+        ? { lines: result.lines }
+        : {}
+    });
+
+    return result;
+  } catch (error) {
+    await recordAuditSafely({
+      capability,
+      target,
+      success: false,
+      errorCode: error?.code || 'OWNER_OPS_READ_FAILED'
+    });
+    throw error;
   }
 }
 
