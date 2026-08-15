@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 1024 * 1024;
 const DEFAULT_LOG_LINES = 80;
 const MAX_LOG_LINES = 300;
+const SAFE_ENV_NAME_PATTERN = /^(OWNER|ORCHESTRATOR|WAHA|CONNECT|VQS|SUPABASE|GITHUB|OPENAI|CODEX|SERVICE|RUNTIME|QUOTE_CORE)/i;
 
 function sanitizeOutput(value) {
   return String(value || '')
@@ -158,8 +159,61 @@ async function readServerSummary() {
   };
 }
 
+function readConfiguredEnvNames() {
+  return Object.keys(process.env)
+    .filter(name => SAFE_ENV_NAME_PATTERN.test(name))
+    .sort();
+}
+
+async function readProductionAudit() {
+  assertReadCapability('production.audit');
+  const [server, connectGit, orchestratorGit, connectService, orchestratorService] = await Promise.all([
+    readServerSummary(),
+    readGitStatus('connect'),
+    readGitStatus('orchestrator'),
+    readServiceStatus('connect'),
+    readServiceStatus('orchestrator')
+  ]);
+
+  return {
+    capability: 'production.audit',
+    server,
+    git: {
+      connect: connectGit,
+      orchestrator: orchestratorGit
+    },
+    services: {
+      connect: connectService,
+      orchestrator: orchestratorService
+    },
+    configuredEnvNames: readConfiguredEnvNames(),
+    secretsExposed: false
+  };
+}
+
 function formatResult(result) {
   if (!result) return 'No fue posible obtener el resultado.';
+
+  if (result.capability === 'production.audit') {
+    return [
+      'Auditoría integral READ-ONLY de producción completada.', '',
+      'SERVICIOS',
+      `CONNECT: ${result.services.connect.active}`,
+      `ORCHESTRATOR: ${result.services.orchestrator.active}`, '',
+      'GIT CONNECT',
+      `Rama: ${result.git.connect.branch}`,
+      `Commit: ${result.git.connect.commit}`,
+      `Estado: ${result.git.connect.clean ? 'limpio' : 'con cambios locales'}`, '',
+      'GIT ORCHESTRATOR',
+      `Rama: ${result.git.orchestrator.branch}`,
+      `Commit: ${result.git.orchestrator.commit}`,
+      `Estado: ${result.git.orchestrator.clean ? 'limpio' : 'con cambios locales'}`, '',
+      `Uptime: ${result.server.uptime || 'no disponible'}`,
+      `Variables de configuración detectadas: ${result.configuredEnvNames.length}`,
+      'Valores de secretos expuestos: NO', '',
+      'No se realizaron cambios, reinicios, pull, push, merge ni deploy.'
+    ].join('\n');
+  }
 
   if (result.capability === 'server.summary') {
     return [
@@ -208,6 +262,8 @@ function formatResult(result) {
 
 async function executeReadOperation(command) {
   switch (command?.capability) {
+    case 'production.audit':
+      return readProductionAudit();
     case 'server.summary':
       return readServerSummary();
     case 'service.status':
@@ -227,7 +283,9 @@ async function executeReadOperation(command) {
 module.exports = {
   executeReadOperation,
   formatResult,
+  readConfiguredEnvNames,
   readGitStatus,
+  readProductionAudit,
   readServerSummary,
   readServiceLogs,
   readServiceStatus,
