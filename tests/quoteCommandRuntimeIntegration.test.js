@@ -161,3 +161,144 @@ test('Owner consulta proyectos activos globales', async () => {
   assert.equal(result.rows[0].projectNumber, 'PROY-001');
   assert.match(result.outputText, /1 proyecto\(s\) activo\(s\)/);
 });
+
+test('Owner reconoce consultas naturales de compras, entregas y pagos', () => {
+  assert.equal(
+    resolveIntent('Qué compras tengo pendientes'),
+    COMMANDS.OPEN_PURCHASE_ORDERS
+  );
+
+  assert.equal(
+    resolveIntent('Qué proveedor no ha entregado'),
+    COMMANDS.PENDING_SUPPLIER_DELIVERIES
+  );
+
+  assert.equal(
+    resolveIntent('Ya entregó Play Marketing?'),
+    COMMANDS.SUPPLIER_DELIVERY_STATUS
+  );
+
+  assert.equal(
+    resolveIntent('Qué debo pagarle a proveedores'),
+    COMMANDS.PENDING_SUPPLIER_PAYMENTS
+  );
+
+  assert.equal(
+    resolveIntent('Qué compras están bloqueando producción'),
+    COMMANDS.PROJECTS_BLOCKED_BY_PURCHASES
+  );
+});
+
+test('Owner lista únicamente órdenes de compra abiertas', async () => {
+  const reader = {
+    async select(table) {
+      assert.equal(table, 'elankav_purchase_orders');
+
+      return [
+        {
+          id: 'po-1',
+          purchase_order_number: 'OC-2026-000001',
+          supplier_name_snapshot: 'PLAY MARKETING',
+          supplier_id: 'supplier-1',
+          status: 'draft',
+          blocks_production: true,
+          currency: 'NIO',
+          total: 3707.04
+        },
+        {
+          id: 'po-2',
+          purchase_order_number: 'OC-2026-000002',
+          supplier_name_snapshot: 'Proveedor B',
+          supplier_id: 'supplier-2',
+          status: 'received',
+          blocks_production: false,
+          currency: 'NIO',
+          total: 100
+        }
+      ];
+    }
+  };
+
+  const result = await processQuoteRuntimeCommand({
+    message: 'Qué compras tengo pendientes',
+    actor: { role: 'owner' },
+    reader
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.command, COMMANDS.OPEN_PURCHASE_ORDERS);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].purchaseOrderNumber, 'OC-2026-000001');
+  assert.match(result.outputText, /PLAY MARKETING/);
+});
+
+test('Owner distingue reporte del proveedor de recepción interna', async () => {
+  const reader = {
+    async select(table) {
+      if (table === 'elankav_purchase_orders') {
+        return [{
+          id: 'po-play',
+          purchase_order_number: 'OC-2026-000002',
+          supplier_name_snapshot: 'PLAY MARKETING',
+          supplier_id: 'supplier-play',
+          status: 'ordered',
+          blocks_production: true,
+          currency: 'NIO',
+          total: 3707.04
+        }];
+      }
+
+      if (table === 'elankav_purchase_order_delivery_lines') {
+        return [{
+          id: 'line-1',
+          purchase_order_id: 'po-play',
+          supplier_status: 'ready',
+          supplier_ready_qty: 10,
+          supplier_delivered_qty: 0,
+          internal_received_at: null,
+          internal_received_qty: 0,
+          internal_conformity: false
+        }];
+      }
+
+      return [];
+    }
+  };
+
+  const result = await processQuoteRuntimeCommand({
+    message: 'Ya entregó Play Marketing?',
+    actor: { role: 'owner' },
+    reader
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.command, COMMANDS.SUPPLIER_DELIVERY_STATUS);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].supplierDelivered, false);
+  assert.equal(result.rows[0].internalReceived, false);
+  assert.match(result.outputText, /proveedor reporta avance/);
+  assert.match(result.outputText, /recepción interna pendiente/);
+});
+
+test('Owner informa cuando no existen pagos pendientes a proveedores', async () => {
+  const reader = {
+    async select(table) {
+      assert.equal(table, 'elankav_supplier_payment_orders');
+      return [];
+    }
+  };
+
+  const result = await processQuoteRuntimeCommand({
+    message: 'Qué debo pagarle a proveedores',
+    actor: { role: 'owner' },
+    reader
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.command, COMMANDS.PENDING_SUPPLIER_PAYMENTS);
+  assert.equal(result.rows.length, 0);
+  assert.match(
+    result.outputText,
+    /No encontré órdenes de pago pendientes/
+  );
+});
