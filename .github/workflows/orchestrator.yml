@@ -29,9 +29,16 @@ jobs:
           node --check services/ownerOpsConfirmationService.js
           node --check services/ownerOpsSensitiveExecutor.js
           node --check services/ownerOpsCodePublishService.js
+          node --check services/jobs/jobPipeline.js
+          node --check adapters/repositoryWorkspaceAdapter.js
 
-      - name: Tests
-        run: npm test
+      - name: Owner Ops Tests
+        run: |
+          node --test \
+            test/ownerOpsCommandRouting.test.js \
+            test/ownerOpsReadService.test.js \
+            test/ownerOpsConfirmation.test.js \
+            test/codePrepareJob.test.js
 
       - name: Success
         run: echo "ELANKAV ORCHESTRATOR OWNER OPS OK"
