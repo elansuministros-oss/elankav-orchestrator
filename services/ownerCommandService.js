@@ -206,12 +206,13 @@ function formatContextSyncResult(job) {
 
 function formatCodeJobAccepted(job) {
   return [
-    'Orden de programación aceptada.', '',
+    'Preparación técnica aceptada.', '',
     `Job: ${job.id}`,
     `Plataforma: ${job.platform}`,
-    `Rama temporal: ${job.branch}`,
+    `Rama local temporal: ${job.branch}`,
     `Estado: ${job.status}`, '',
-    'Codex trabajará en un workspace aislado. El flujo puede crear una rama y un Pull Request, pero no hará merge ni despliegue automático.'
+    'Codex trabajará en un workspace aislado y ejecutará QA.',
+    'Este flujo NO publica la rama, NO hace git push, NO crea Pull Request, NO hace merge y NO despliega producción.'
   ].join('\n');
 }
 
@@ -231,7 +232,7 @@ function formatJobStatusResult(job) {
     `Rama: ${job.branch || 'No aplica'}`,
     `Pasos completados: ${completedSteps.length ? completedSteps.join(', ') : 'Aún no disponibles'}`,
     `Error: ${job.error || 'Ninguno'}`,
-    `Pull Request: ${pullRequest?.url || 'Todavía no disponible'}`,
+    `Pull Request: ${pullRequest?.url || 'No publicado'}`,
     `Creado: ${job.createdAt || 'No disponible'}`,
     `Finalizado: ${job.finishedAt || 'Todavía no finalizado'}`
   ].join('\n');
@@ -272,8 +273,8 @@ async function executeOwnerCommand({ command, platform }) {
     return { command: type, job, outputText: formatJobStatusResult(job) };
   }
   if (type === OWNER_COMMANDS.CODE_JOB) {
-    const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE, task: command.task });
-    executeJob(job.id).catch(error => console.error(`[OWNER_CODE_JOB_ERROR] ${job.id}: ${error.message}`));
+    const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE_PREPARE, task: command.task });
+    executeJob(job.id).catch(error => console.error(`[OWNER_CODE_PREPARE_ERROR] ${job.id}: ${error.message}`));
     return { command: type, job, outputText: formatCodeJobAccepted(job) };
   }
   if (type === OWNER_COMMANDS.QUOTE_QUERY) {
