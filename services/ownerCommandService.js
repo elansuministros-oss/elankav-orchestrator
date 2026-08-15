@@ -19,6 +19,14 @@ const {
   executeReadOperation,
   formatResult: formatOwnerOpsResult
 } = require('./ownerOpsReadService');
+const {
+  createPendingOperation,
+  formatPendingOperation
+} = require('./ownerOpsConfirmationService');
+const {
+  executeConfirmedOperation,
+  formatSensitiveResult
+} = require('./ownerOpsSensitiveExecutor');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -30,7 +38,9 @@ const OWNER_COMMANDS = Object.freeze({
   WAHA_STATUS: 'waha_status',
   QUOTE_QUERY: 'quote_query',
   SEND_DESIGN_LINK: 'send_design_link',
-  OWNER_OPS_READ: 'owner_ops_read'
+  OWNER_OPS_READ: 'owner_ops_read',
+  OWNER_OPS_PREPARE_SENSITIVE: 'owner_ops_prepare_sensitive',
+  OWNER_OPS_CONFIRM: 'owner_ops_confirm'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -45,6 +55,7 @@ const CODE_ACTION_PATTERN = /\b(audita|auditar|revisa|revisar|corrige|corregir|p
 const READ_ONLY_PATTERN = /\b(read only|solo lectura|no crear job|no crees ningun job|no usar codex|no uses codex|no ejecutar acciones|consult(a|ar|á)|lista(r)?|mostrar|estado)\b/;
 const CANCEL_PATTERN = /^(cancelar|cancela|detener|deten|parar|para|olvida eso|olvidalo|deja eso|dejalo|cambiar de tema|cambiemos de tema|cancelar esta conversacion|da por cancelar esta conversacion|elimina esa orden|cancelar esta orden)$/;
 const JOB_ID_PATTERN = /\bJOB-(\d+)-([a-z0-9]+)\b/i;
+const OPS_ID_PATTERN = /\bOPS-(\d+)-([A-Z0-9]{6})\b/i;
 const JOB_STATUS_PATTERN = /\b(estado|estatus|avance|seguimiento|resultado|resultados|como va|que paso|error|errores|pull request|pr)\b/;
 const DESIGN_LINK_ACTION_PATTERN = /\b(envia|enviale|manda|mandale|comparte|compartile|pasale)\b/;
 const DESIGN_LINK_TARGET_PATTERN = /\b(link|enlace|formulario|sitio)\b.*\b(diseno|diseñar|diseño)\b|\b(diseno|diseñar|diseño)\b.*\b(link|enlace|formulario|sitio)\b/;
@@ -119,6 +130,37 @@ function detectOwnerOpsReadCommand(normalizedMessage) {
   return null;
 }
 
+function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
+  const target = resolveOwnerOpsTarget(normalizedMessage);
+  if (!target) return null;
+
+  if (/\b(reinicia|reiniciar|restart|rearranca|rearrancar)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
+      capability: 'service.restart',
+      target,
+      summary: `Reiniciar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'}`,
+      impact: target === 'connect'
+        ? 'CONNECT tendrá una interrupción breve y luego se verificará que vuelva a estado active.'
+        : 'El reinicio del propio Orchestrator está bloqueado por seguridad hasta disponer de supervisor externo.'
+    });
+  }
+
+  return null;
+}
+
+function detectOwnerOpsConfirmation(message) {
+  const normalized = normalizeCommand(message);
+  if (!normalized.startsWith('confirmar ')) return null;
+  const match = String(message || '').toUpperCase().match(OPS_ID_PATTERN);
+  if (!match) return null;
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.OWNER_OPS_CONFIRM,
+    operationId: `OPS-${match[1]}-${match[2]}`
+  });
+}
+
 function detectJobStatusCommand(message, normalizedMessage) {
   const match = String(message || '').match(JOB_ID_PATTERN);
   if (!match || !JOB_STATUS_PATTERN.test(normalizedMessage)) return null;
@@ -137,11 +179,18 @@ function detectSendDesignLinkCommand(message, normalizedMessage) {
 
 function detectOwnerCommand(message) {
   const normalized = normalizeCommand(message);
+
+  const confirmationCommand = detectOwnerOpsConfirmation(message);
+  if (confirmationCommand) return confirmationCommand;
+
   const jobStatusCommand = detectJobStatusCommand(message, normalized);
   if (jobStatusCommand) return jobStatusCommand;
 
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
+
+  const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
+  if (sensitiveCommand) return sensitiveCommand;
 
   const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
   if (ownerOpsReadCommand) return ownerOpsReadCommand;
@@ -244,6 +293,30 @@ async function executeOwnerCommand({ command, platform }) {
   if (type === OWNER_COMMANDS.CANCEL_FLOW) {
     return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
   }
+  if (type === OWNER_COMMANDS.OWNER_OPS_CONFIRM) {
+    const result = await executeConfirmedOperation(command.operationId);
+    return {
+      command: type,
+      job: result.job,
+      outputText: formatSensitiveResult(result),
+      ownerOps: result.execution
+    };
+  }
+  if (type === OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE) {
+    const operation = await createPendingOperation({
+      capability: command.capability,
+      target: command.target,
+      summary: command.summary,
+      impact: command.impact,
+      requestedBy: 'owner-whatsapp'
+    });
+    return {
+      command: type,
+      job: operation,
+      outputText: formatPendingOperation(operation),
+      ownerOps: operation.result?.operation || null
+    };
+  }
   if (type === OWNER_COMMANDS.OWNER_OPS_READ) {
     const result = await executeReadOperation(command);
     return {
@@ -308,7 +381,9 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectOwnerOpsConfirmation,
   detectOwnerOpsReadCommand,
+  detectOwnerOpsSensitiveCommand,
   detectSendDesignLinkCommand,
   executeOwnerCommand,
   formatContextSyncResult,
