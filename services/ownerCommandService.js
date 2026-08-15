@@ -52,16 +52,17 @@ const PLATFORM_ALIASES = Object.freeze([
 ]);
 
 const CODE_ACTION_PATTERN = /\b(audita|auditar|revisa|revisar|corrige|corregir|programa|programar|implementa|implementar|crea|crear|modifica|modificar|repara|reparar|actualiza|actualizar)\b/;
-const READ_ONLY_PATTERN = /\b(read only|solo lectura|no crear job|no crees ningun job|no usar codex|no uses codex|no ejecutar acciones|consult(a|ar|á)|lista(r)?|mostrar|estado)\b/;
+const READ_ONLY_PATTERN = /\b(read only|solo lectura|no crear job|no crees ningun job|no usar codex|no uses codex|no ejecutar acciones|consulta|consultar|lista|listar|mostrar|estado)\b/;
 const CANCEL_PATTERN = /^(cancelar|cancela|detener|deten|parar|para|olvida eso|olvidalo|deja eso|dejalo|cambiar de tema|cambiemos de tema|cancelar esta conversacion|da por cancelar esta conversacion|elimina esa orden|cancelar esta orden)$/;
 const JOB_ID_PATTERN = /\bJOB-(\d+)-([a-z0-9]+)\b/i;
 const OPS_ID_PATTERN = /\bOPS-(\d+)-([A-Z0-9]{6})\b/i;
 const JOB_STATUS_PATTERN = /\b(estado|estatus|avance|seguimiento|resultado|resultados|como va|que paso|error|errores|pull request|pr)\b/;
 const DESIGN_LINK_ACTION_PATTERN = /\b(envia|enviale|manda|mandale|comparte|compartile|pasale)\b/;
-const DESIGN_LINK_TARGET_PATTERN = /\b(link|enlace|formulario|sitio)\b.*\b(diseno|diseñar|diseño)\b|\b(diseno|diseñar|diseño)\b.*\b(link|enlace|formulario|sitio)\b/;
-const CAPABILITY_PATTERN = /\b(catalogo|catálogo|capacidades|acciones registradas|herramientas registradas|owner router)\b/;
-const JOBS_LIST_PATTERN = /\b(ultimos|últimos|recientes|lista|listar|mostra|mostrar)\b.*\bjobs?\b|\bjobs?\b.*\b(ultimos|últimos|recientes|lista|listar|mostra|mostrar)\b/;
-const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|sesión|status|verifica|consult(a|ar|á))\b|\b(estado|sesion|sesión|status)\b.*\b(waha)\b/;
+const DESIGN_LINK_TARGET_PATTERN = /\b(link|enlace|formulario|sitio)\b.*\b(diseno|disenar|diseño)\b|\b(diseno|disenar|diseño)\b.*\b(link|enlace|formulario|sitio)\b/;
+const CAPABILITY_PATTERN = /\b(catalogo|capacidades|acciones registradas|herramientas registradas|owner router)\b/;
+const JOBS_LIST_PATTERN = /\b(ultimos|recientes|lista|listar|mostra|mostrar)\b.*\bjobs?\b|\bjobs?\b.*\b(ultimos|recientes|lista|listar|mostra|mostrar)\b/;
+const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|status|verifica|consulta|consultar)\b|\b(estado|sesion|status)\b.*\b(waha)\b/;
+const PUBLISH_PREPARED_PATTERN = /\b(publica|publicar|publicalo|publicala|sube|subir|crea pr|crear pr|abre pr|abrir pr|pull request)\b/;
 
 function normalizeCommand(value) {
   return String(value || '')
@@ -90,8 +91,18 @@ function detectOwnerOpsReadCommand(normalizedMessage) {
   const target = resolveOwnerOpsTarget(normalizedMessage);
 
   if (
+    /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) &&
+    /\b(produccion)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'production.audit'
+    });
+  }
+
+  if (
     /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) &&
-    /\b(servidor|vps|produccion|producción|sistema)\b/.test(normalizedMessage)
+    /\b(servidor|vps|sistema)\b/.test(normalizedMessage)
   ) {
     return Object.freeze({
       type: OWNER_COMMANDS.OWNER_OPS_READ,
@@ -130,7 +141,26 @@ function detectOwnerOpsReadCommand(normalizedMessage) {
   return null;
 }
 
+function detectPreparedPublishCommand(message, normalizedMessage) {
+  if (!PUBLISH_PREPARED_PATTERN.test(normalizedMessage)) return null;
+  const match = String(message || '').match(JOB_ID_PATTERN);
+  if (!match) return null;
+  const jobId = `JOB-${match[1]}-${match[2].toLowerCase()}`;
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
+    capability: 'git.publish-prepared',
+    target: 'prepared-code',
+    summary: `Publicar corrección preparada ${jobId}`,
+    impact: 'Se publicará la rama temporal y se creará un Pull Request. No se hará merge ni deploy.',
+    parameters: Object.freeze({ jobId })
+  });
+}
+
 function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
+  const preparedPublish = detectPreparedPublishCommand(message, normalizedMessage);
+  if (preparedPublish) return preparedPublish;
+
   const target = resolveOwnerOpsTarget(normalizedMessage);
   if (!target) return null;
 
@@ -142,7 +172,8 @@ function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
       summary: `Reiniciar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'}`,
       impact: target === 'connect'
         ? 'CONNECT tendrá una interrupción breve y luego se verificará que vuelva a estado active.'
-        : 'El reinicio del propio Orchestrator está bloqueado por seguridad hasta disponer de supervisor externo.'
+        : 'El reinicio del propio Orchestrator está bloqueado por seguridad hasta disponer de supervisor externo.',
+      parameters: Object.freeze({})
     });
   }
 
@@ -183,14 +214,14 @@ function detectOwnerCommand(message) {
   const confirmationCommand = detectOwnerOpsConfirmation(message);
   if (confirmationCommand) return confirmationCommand;
 
+  const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
+  if (sensitiveCommand) return sensitiveCommand;
+
   const jobStatusCommand = detectJobStatusCommand(message, normalized);
   if (jobStatusCommand) return jobStatusCommand;
 
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
-
-  const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
-  if (sensitiveCommand) return sensitiveCommand;
 
   const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
   if (ownerOpsReadCommand) return ownerOpsReadCommand;
@@ -308,6 +339,7 @@ async function executeOwnerCommand({ command, platform }) {
       target: command.target,
       summary: command.summary,
       impact: command.impact,
+      parameters: command.parameters || {},
       requestedBy: 'owner-whatsapp'
     });
     return {
@@ -384,6 +416,7 @@ module.exports = {
   detectOwnerOpsConfirmation,
   detectOwnerOpsReadCommand,
   detectOwnerOpsSensitiveCommand,
+  detectPreparedPublishCommand,
   detectSendDesignLinkCommand,
   executeOwnerCommand,
   formatContextSyncResult,
