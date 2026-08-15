@@ -12,6 +12,9 @@ const {
   publishConversationEventSafely,
   requestConversationDecision
 } = require('../services/connectConversationClient');
+const {
+  resolveCanonicalIdentity
+} = require('../services/context/identityResolver');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -88,6 +91,20 @@ function getOwnerPhones() {
 
 function isOwnerPhone(phone) {
   return Boolean(phone && getOwnerPhones().includes(normalizePhone(phone)));
+}
+
+function resolveOwnerIdentity(value) {
+  const identity = resolveCanonicalIdentity(value);
+  const canonicalPhone = normalizePhone(identity.canonicalId);
+
+  return {
+    receivedId: identity.receivedId,
+    canonicalId: identity.canonicalId,
+    matchedAlias: identity.matchedAlias,
+    source: identity.source,
+    phone: canonicalPhone,
+    isOwner: isOwnerPhone(canonicalPhone)
+  };
 }
 
 function isPresentationAudioRequest(text) {
@@ -535,9 +552,20 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     });
 
     const platform = process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL';
+    const ownerIdentity = resolveOwnerIdentity(
+      incoming.senderRaw ||
+      incoming.chatId ||
+      incoming.phone
+    );
+
     const decisionResolver = dependencies.requestConversationDecision || (!dependencies.processMessage ? requestConversationDecision : null);
     const decision = decisionResolver
-      ? await decisionResolver({ identity: incoming.senderRaw || incoming.chatId, platform, message: resolvedMessage, ownerMode: isOwnerPhone(incoming.phone) })
+      ? await decisionResolver({
+          identity: incoming.senderRaw || incoming.chatId,
+          platform,
+          message: resolvedMessage,
+          ownerMode: ownerIdentity.isOwner
+        })
       : { action: 'RESPOND', welcome: { send: false, text: '' } };
     if (decision.action === 'PAUSED') {
       sendJson(res, 200, { ok: true, processed: true, replySent: false, suppressed: true, reason: 'automation_disabled', platform });
@@ -593,7 +621,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       }
     }
 
-    if (isOwnerPhone(incoming.phone) && isPresentationAudioRequest(resolvedMessage)) {
+    if (ownerIdentity.isOwner && isPresentationAudioRequest(resolvedMessage)) {
       const speech = await synthesizeImpl({ text: PRESENTATION_TEXT });
       const sent = await sendWahaVoiceImpl({
         session: incoming.session,

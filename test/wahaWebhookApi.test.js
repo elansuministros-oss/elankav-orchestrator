@@ -194,6 +194,89 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
   assert.equal(persisted[1].externalMessageId, 'message-id');
 });
 
+
+test('Owner recibido por @lid activa ownerMode mediante identidad canónica', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'owner-lid-regression-01',
+      session: 'ELANKAV',
+      payload: {
+        from: '215440458567779@lid',
+        body: 'estado del sistema',
+        fromMe: false
+      }
+    }
+  });
+
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const decisions = [];
+  const processed = [];
+  const sent = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async requestConversationDecision(input) {
+        decisions.push(input);
+
+        return {
+          action: 'RESPOND',
+          welcome: {
+            send: false,
+            text: ''
+          }
+        };
+      },
+
+      async processMessage(input) {
+        processed.push(input);
+
+        return {
+          reply: 'Modo Owner reconocido.',
+          model: 'elankav-owner-command',
+          context: {
+            ownerMode: true,
+            platform: 'ELANVISUAL'
+          }
+        };
+      },
+
+      async sendWahaText(input) {
+        sent.push(input);
+        return { id: 'owner-lid-reply' };
+      },
+
+      async persistConversationEvent() {
+        return { ok: true };
+      }
+    }
+  });
+
+  assert.equal(decisions.length, 1);
+  assert.equal(decisions[0].identity, '215440458567779@lid');
+  assert.equal(decisions[0].ownerMode, true);
+
+  assert.equal(processed.length, 1);
+  assert.equal(
+    processed[0].externalUserId,
+    '215440458567779@lid'
+  );
+
+  assert.equal(
+    sent[0].chatId,
+    '215440458567779@lid'
+  );
+
+  assert.equal(
+    recorder.calls[0].payload.ownerMode,
+    true
+  );
+});
+
 test('procesa nota de voz, transcribe y responde con voz', async () => {
   const req = createRequest({
     body: {
