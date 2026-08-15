@@ -32,6 +32,13 @@ async function runCommand(file, args, options = {}) {
   };
 }
 
+async function runPrivilegedSystemctl(args) {
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  return isRoot
+    ? runCommand('systemctl', args)
+    : runCommand('sudo', ['-n', 'systemctl', ...args]);
+}
+
 async function restartService(target) {
   const service = resolveService(target);
   if (!service) {
@@ -46,7 +53,7 @@ async function restartService(target) {
     throw error;
   }
 
-  await runCommand('sudo', ['-n', 'systemctl', 'restart', service]);
+  await runPrivilegedSystemctl(['restart', service]);
   const status = await runCommand('systemctl', ['is-active', service]);
 
   if (status.stdout !== 'active') {
@@ -140,5 +147,6 @@ module.exports = {
   executeConfirmedOperation,
   formatSensitiveResult,
   restartService,
-  runCommand
+  runCommand,
+  runPrivilegedSystemctl
 };
