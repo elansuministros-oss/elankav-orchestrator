@@ -192,6 +192,16 @@ test('Owner reconoce consultas naturales de compras, entregas y pagos', () => {
 test('Owner lista únicamente órdenes de compra abiertas', async () => {
   const reader = {
     async select(table) {
+      if (table === 'econ_providers') {
+        return [{
+          id: 'supplier-1',
+          legal_name: 'PLAY MARKETING',
+          trade_name: null,
+          status: 'active',
+          currency: 'USD'
+        }];
+      }
+
       assert.equal(table, 'elankav_purchase_orders');
 
       return [
@@ -235,6 +245,16 @@ test('Owner lista únicamente órdenes de compra abiertas', async () => {
 test('Owner distingue reporte del proveedor de recepción interna', async () => {
   const reader = {
     async select(table) {
+      if (table === 'econ_providers') {
+        return [{
+          id: 'supplier-play',
+          legal_name: 'PLAY MARKETING',
+          trade_name: null,
+          status: 'active',
+          currency: 'USD'
+        }];
+      }
+
       if (table === 'elankav_purchase_orders') {
         return [{
           id: 'po-play',
@@ -319,4 +339,72 @@ test('Owner reconoce variantes naturales de entregas pendientes', () => {
       message
     );
   }
+});
+
+test('Owner resuelve proveedor maestro aunque la OC conserve snapshot histórico', async () => {
+  const reader = {
+    async select(table) {
+      if (table === 'elankav_purchase_orders') {
+        return [{
+          id: 'po-play',
+          purchase_order_number: 'OC-2026-000002',
+          supplier_id: 'supplier-play',
+          supplier_name_snapshot: 'FUN PRINT & EVENTS',
+          status: 'draft',
+          blocks_production: true,
+          currency: 'NIO',
+          total: 3707.04
+        }];
+      }
+
+      if (table === 'econ_providers') {
+        return [{
+          id: 'supplier-play',
+          legal_name: 'PLAY MARKETING',
+          trade_name: null,
+          status: 'active',
+          currency: 'USD'
+        }];
+      }
+
+      if (table === 'elankav_purchase_order_delivery_lines') {
+        return [];
+      }
+
+      return [];
+    }
+  };
+
+  const result = await processQuoteRuntimeCommand({
+    message: 'Ya entregó Play Marketing?',
+    actor: { role: 'owner' },
+    reader
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(
+    result.command,
+    COMMANDS.SUPPLIER_DELIVERY_STATUS
+  );
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(
+    result.rows[0].supplierName,
+    'PLAY MARKETING'
+  );
+
+  assert.equal(
+    result.rows[0].supplierSnapshotName,
+    'FUN PRINT & EVENTS'
+  );
+
+  assert.equal(
+    result.rows[0].currency,
+    'NIO'
+  );
+
+  assert.match(
+    result.outputText,
+    /PLAY MARKETING/
+  );
 });

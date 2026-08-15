@@ -273,14 +273,50 @@ function quotationPublic(row) {
   };
 }
 
-function purchaseOrderPublic(row) {
+function supplierMasterName(provider = {}) {
+  return (
+    provider.trade_name ||
+    provider.legal_name ||
+    ''
+  );
+}
+
+async function loadProvidersByIds(reader, ids = []) {
+  const uniqueIds = [
+    ...new Set(
+      ids
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+    )
+  ];
+
+  if (!uniqueIds.length) return new Map();
+
+  const rows = await reader.select(
+    'econ_providers',
+    `select=id,legal_name,trade_name,status,currency,tax_id,phone,whatsapp&id=in.(${uniqueIds.join(',')})`
+  );
+
+  return new Map(
+    rows.map(row => [String(row.id), row])
+  );
+}
+
+function purchaseOrderPublic(row, provider = null) {
   return {
     purchaseOrderId: row.id,
     purchaseOrderNumber: row.purchase_order_number,
     projectId: row.project_id,
     workOrderId: row.work_order_id,
     supplierId: row.supplier_id,
-    supplierName: row.supplier_name_snapshot || '',
+    supplierName:
+      supplierMasterName(provider) ||
+      row.supplier_name_snapshot ||
+      '',
+    supplierSnapshotName:
+      row.supplier_name_snapshot || '',
+    supplierMasterStatus:
+      provider?.status || null,
     status: row.status,
     expectedAt: row.expected_at || null,
     blocksProduction: Boolean(row.blocks_production),
@@ -333,11 +369,11 @@ function summarizeDeliveryLines(lines = []) {
   };
 }
 
-function deliveryPublic(order, lines = []) {
+function deliveryPublic(order, lines = [], provider = null) {
   const summary = summarizeDeliveryLines(lines);
 
   return {
-    ...purchaseOrderPublic(order),
+    ...purchaseOrderPublic(order, provider),
     deliveryLines: lines.length,
     supplierReport: summary.supplierReport,
     supplierDelivered: summary.supplierDelivered,
@@ -346,7 +382,7 @@ function deliveryPublic(order, lines = []) {
   };
 }
 
-function paymentOrderPublic(row) {
+function paymentOrderPublic(row, provider = null) {
   return {
     paymentOrderId: row.id,
     paymentOrderNumber:
@@ -357,6 +393,11 @@ function paymentOrderPublic(row) {
     purchaseOrderId: row.purchase_order_id || null,
     supplierId: row.supplier_id || null,
     supplierName:
+      supplierMasterName(provider) ||
+      row.supplier_name_snapshot ||
+      row.supplier_name ||
+      '',
+    supplierSnapshotName:
       row.supplier_name_snapshot ||
       row.supplier_name ||
       '',
@@ -480,9 +521,20 @@ async function executeQuery({ command, customerQuery, scope, reader, staleDays =
       'select=*&order=created_at.desc&limit=100'
     );
 
-    return rows
-      .filter(row => OPEN_PURCHASE_ORDER_STATUSES.has(normalize(row.status)))
-      .map(purchaseOrderPublic);
+    const openRows = rows
+      .filter(row => OPEN_PURCHASE_ORDER_STATUSES.has(normalize(row.status)));
+
+    const providers = await loadProvidersByIds(
+      reader,
+      openRows.map(row => row.supplier_id)
+    );
+
+    return openRows.map(row =>
+      purchaseOrderPublic(
+        row,
+        providers.get(String(row.supplier_id)) || null
+      )
+    );
   }
 
   if (
@@ -497,9 +549,17 @@ async function executeQuery({ command, customerQuery, scope, reader, staleDays =
     );
 
     const supplierNeedle = normalize(customerQuery);
+
+    const providers = await loadProvidersByIds(
+      reader,
+      orders.map(row => row.supplier_id)
+    );
+
     const results = [];
 
     for (const order of orders) {
+      const provider =
+        providers.get(String(order.supplier_id)) || null;
       if (
         command === COMMANDS.PENDING_SUPPLIER_DELIVERIES &&
         !OPEN_PURCHASE_ORDER_STATUSES.has(normalize(order.status))
@@ -511,6 +571,8 @@ async function executeQuery({ command, customerQuery, scope, reader, staleDays =
         command === COMMANDS.SUPPLIER_DELIVERY_STATUS &&
         supplierNeedle &&
         ![
+          provider?.trade_name,
+          provider?.legal_name,
           order.supplier_name_snapshot,
           order.supplier_id
         ].some(value => normalize(value).includes(supplierNeedle))
@@ -523,7 +585,11 @@ async function executeQuery({ command, customerQuery, scope, reader, staleDays =
         `select=*&purchase_order_id=eq.${encodeURIComponent(order.id)}&order=created_at.asc&limit=500`
       );
 
-      const item = deliveryPublic(order, lines);
+      const item = deliveryPublic(
+        order,
+        lines,
+        provider
+      );
 
       if (
         command === COMMANDS.PENDING_SUPPLIER_DELIVERIES &&
@@ -548,9 +614,20 @@ async function executeQuery({ command, customerQuery, scope, reader, staleDays =
       'select=*&order=created_at.desc&limit=100'
     );
 
-    return rows
-      .filter(row => !CLOSED_PAYMENT_STATUSES.has(normalize(row.status)))
-      .map(paymentOrderPublic);
+    const pendingRows = rows
+      .filter(row => !CLOSED_PAYMENT_STATUSES.has(normalize(row.status)));
+
+    const providers = await loadProvidersByIds(
+      reader,
+      pendingRows.map(row => row.supplier_id)
+    );
+
+    return pendingRows.map(row =>
+      paymentOrderPublic(
+        row,
+        providers.get(String(row.supplier_id)) || null
+      )
+    );
   }
 
   if (command === COMMANDS.ACTIVE_PROJECTS) {
@@ -691,6 +768,7 @@ module.exports = {
   COMMANDS,
   createRestReader,
   executeQuery,
+  loadProvidersByIds,
   extractCustomer,
   extractSupplier,
   format,
