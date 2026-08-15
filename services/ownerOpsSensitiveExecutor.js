@@ -12,6 +12,9 @@ const {
   markOperationFailed,
   markOperationRunning
 } = require('./ownerOpsConfirmationService');
+const {
+  publishPreparedJob
+} = require('./ownerOpsCodePublishService');
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 512 * 1024;
@@ -37,9 +40,6 @@ async function restartService(target) {
     throw error;
   }
 
-  // Self-restart is intentionally blocked. Restarting the Orchestrator from
-  // inside its own request path can terminate delivery before an audit result
-  // reaches WhatsApp. A supervisor capability can be added separately later.
   if (target === 'orchestrator') {
     const error = new Error('OWNER_OPS_SELF_RESTART_BLOCKED');
     error.code = 'OWNER_OPS_SELF_RESTART_BLOCKED';
@@ -81,6 +81,14 @@ async function executeConfirmedOperation(id) {
 
     if (operation.capability === 'service.restart') {
       execution = await restartService(operation.target);
+    } else if (operation.capability === 'git.publish-prepared') {
+      const jobId = String(operation.parameters?.jobId || '').trim();
+      if (!jobId) {
+        const error = new Error('PREPARED_JOB_ID_REQUIRED');
+        error.code = 'PREPARED_JOB_ID_REQUIRED';
+        throw error;
+      }
+      execution = await publishPreparedJob(jobId);
     } else {
       const error = new Error('OWNER_OPS_SENSITIVE_CAPABILITY_NOT_IMPLEMENTED');
       error.code = 'OWNER_OPS_SENSITIVE_CAPABILITY_NOT_IMPLEMENTED';
@@ -108,6 +116,20 @@ function formatSensitiveResult(result) {
       `Operación: ${result.job.id}`,
       `Servicio: ${execution.service}`,
       `Estado verificado: ${execution.status}`
+    ].join('\n');
+  }
+
+  if (execution.capability === 'git.publish-prepared') {
+    return [
+      '✅ Corrección preparada publicada.',
+      '',
+      `Operación: ${result.job.id}`,
+      `Job preparado: ${execution.jobId}`,
+      `Rama: ${execution.branch}`,
+      `Commit: ${execution.commitSha || 'creado'}`,
+      `Pull Request: ${execution.pullRequestUrl || 'creado'}`,
+      '',
+      'No se realizó merge ni deploy.'
     ].join('\n');
   }
 
