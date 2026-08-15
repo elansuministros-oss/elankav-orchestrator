@@ -26,6 +26,7 @@ jobs:
           node --check server.js
           node --check services/ownerCommandService.js
           node --check services/ownerOpsReadService.js
+          node --check services/ownerOpsAuditService.js
           node --check services/ownerOpsConfirmationService.js
           node --check services/ownerOpsSensitiveExecutor.js
           node --check services/ownerOpsCodePublishService.js
