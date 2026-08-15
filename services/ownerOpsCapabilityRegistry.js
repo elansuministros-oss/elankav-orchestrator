@@ -18,6 +18,11 @@ const REPOSITORIES = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
+  'production.audit': Object.freeze({
+    id: 'production.audit',
+    risk: RISK.READ,
+    description: 'Auditoría integral de producción: servidor, servicios, Git y presencia de configuración sin revelar secretos.'
+  }),
   'server.summary': Object.freeze({
     id: 'server.summary',
     risk: RISK.READ,
