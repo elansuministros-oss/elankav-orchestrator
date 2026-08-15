@@ -47,6 +47,11 @@ const CAPABILITIES = Object.freeze({
     id: 'service.restart',
     risk: RISK.CONFIRM_REQUIRED,
     description: 'Reinicia un servicio explícitamente autorizado y verifica que vuelva a estado active.'
+  }),
+  'git.publish-prepared': Object.freeze({
+    id: 'git.publish-prepared',
+    risk: RISK.CONFIRM_REQUIRED,
+    description: 'Publica una rama local preparada y validada, y crea Pull Request sin merge ni deploy.'
   })
 });
 
