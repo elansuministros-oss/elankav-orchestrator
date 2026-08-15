@@ -39,6 +39,7 @@ jobs:
             test/ownerOpsCommandRouting.test.js \
             test/ownerOpsReadService.test.js \
             test/ownerOpsConfirmation.test.js \
+            test/ownerOpsAudit.test.js \
             test/codePrepareJob.test.js
 
       - name: Success
