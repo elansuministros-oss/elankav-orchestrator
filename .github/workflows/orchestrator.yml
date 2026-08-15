@@ -2,6 +2,9 @@ name: ELANKAV Orchestrator
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/OWNER-OPS-GATEWAY-READONLY-01
 
 jobs:
   health:
@@ -21,6 +24,14 @@ jobs:
       - name: Syntax Check
         run: |
           node --check server.js
+          node --check services/ownerCommandService.js
+          node --check services/ownerOpsReadService.js
+          node --check services/ownerOpsConfirmationService.js
+          node --check services/ownerOpsSensitiveExecutor.js
+          node --check services/ownerOpsCodePublishService.js
+
+      - name: Tests
+        run: npm test
 
       - name: Success
-        run: echo "ELANKAV ORCHESTRATOR OK"
+        run: echo "ELANKAV ORCHESTRATOR OWNER OPS OK"
