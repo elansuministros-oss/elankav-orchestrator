@@ -37,6 +37,11 @@ const CAPABILITIES = Object.freeze({
     id: 'git.status',
     risk: RISK.READ,
     description: 'Consulta rama, commit, cambios locales y diff stat de un repositorio autorizado.'
+  }),
+  'service.restart': Object.freeze({
+    id: 'service.restart',
+    risk: RISK.CONFIRM_REQUIRED,
+    description: 'Reinicia un servicio explícitamente autorizado y verifica que vuelva a estado active.'
   })
 });
 
