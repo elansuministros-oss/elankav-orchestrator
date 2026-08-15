@@ -15,6 +15,18 @@ const {
   getRecentJobs,
   readWahaSession
 } = require('./ownerOperationalReadService');
+const {
+  executeReadOperation,
+  formatResult: formatOwnerOpsResult
+} = require('./ownerOpsReadService');
+const {
+  createPendingOperation,
+  formatPendingOperation
+} = require('./ownerOpsConfirmationService');
+const {
+  executeConfirmedOperation,
+  formatSensitiveResult
+} = require('./ownerOpsSensitiveExecutor');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -25,7 +37,10 @@ const OWNER_COMMANDS = Object.freeze({
   CAPABILITY_CATALOG: 'capability_catalog',
   WAHA_STATUS: 'waha_status',
   QUOTE_QUERY: 'quote_query',
-  SEND_DESIGN_LINK: 'send_design_link'
+  SEND_DESIGN_LINK: 'send_design_link',
+  OWNER_OPS_READ: 'owner_ops_read',
+  OWNER_OPS_PREPARE_SENSITIVE: 'owner_ops_prepare_sensitive',
+  OWNER_OPS_CONFIRM: 'owner_ops_confirm'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -37,15 +52,17 @@ const PLATFORM_ALIASES = Object.freeze([
 ]);
 
 const CODE_ACTION_PATTERN = /\b(audita|auditar|revisa|revisar|corrige|corregir|programa|programar|implementa|implementar|crea|crear|modifica|modificar|repara|reparar|actualiza|actualizar)\b/;
-const READ_ONLY_PATTERN = /\b(read only|solo lectura|no crear job|no crees ningun job|no usar codex|no uses codex|no ejecutar acciones|consult(a|ar|á)|lista(r)?|mostrar|estado)\b/;
+const READ_ONLY_PATTERN = /\b(read only|solo lectura|no crear job|no crees ningun job|no usar codex|no uses codex|no ejecutar acciones|consulta|consultar|lista|listar|mostrar|estado)\b/;
 const CANCEL_PATTERN = /^(cancelar|cancela|detener|deten|parar|para|olvida eso|olvidalo|deja eso|dejalo|cambiar de tema|cambiemos de tema|cancelar esta conversacion|da por cancelar esta conversacion|elimina esa orden|cancelar esta orden)$/;
 const JOB_ID_PATTERN = /\bJOB-(\d+)-([a-z0-9]+)\b/i;
+const OPS_ID_PATTERN = /\bOPS-(\d+)-([A-Z0-9]{6})\b/i;
 const JOB_STATUS_PATTERN = /\b(estado|estatus|avance|seguimiento|resultado|resultados|como va|que paso|error|errores|pull request|pr)\b/;
 const DESIGN_LINK_ACTION_PATTERN = /\b(envia|enviale|manda|mandale|comparte|compartile|pasale)\b/;
-const DESIGN_LINK_TARGET_PATTERN = /\b(link|enlace|formulario|sitio)\b.*\b(diseno|diseñar|diseño)\b|\b(diseno|diseñar|diseño)\b.*\b(link|enlace|formulario|sitio)\b/;
-const CAPABILITY_PATTERN = /\b(catalogo|catálogo|capacidades|acciones registradas|herramientas registradas|owner router)\b/;
-const JOBS_LIST_PATTERN = /\b(ultimos|últimos|recientes|lista|listar|mostra|mostrar)\b.*\bjobs?\b|\bjobs?\b.*\b(ultimos|últimos|recientes|lista|listar|mostra|mostrar)\b/;
-const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|sesión|status|verifica|consult(a|ar|á))\b|\b(estado|sesion|sesión|status)\b.*\b(waha)\b/;
+const DESIGN_LINK_TARGET_PATTERN = /\b(link|enlace|formulario|sitio)\b.*\b(diseno|disenar|diseño)\b|\b(diseno|disenar|diseño)\b.*\b(link|enlace|formulario|sitio)\b/;
+const CAPABILITY_PATTERN = /\b(catalogo|capacidades|acciones registradas|herramientas registradas|owner router)\b/;
+const JOBS_LIST_PATTERN = /\b(ultimos|recientes|lista|listar|mostra|mostrar)\b.*\bjobs?\b|\bjobs?\b.*\b(ultimos|recientes|lista|listar|mostra|mostrar)\b/;
+const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|status|verifica|consulta|consultar)\b|\b(estado|sesion|status)\b.*\b(waha)\b/;
+const PUBLISH_PREPARED_PATTERN = /\b(publica|publicar|publicalo|publicala|sube|subir|crea pr|crear pr|abre pr|abrir pr|pull request)\b/;
 
 function normalizeCommand(value) {
   return String(value || '')
@@ -62,6 +79,117 @@ function resolvePlatformFromMessage(normalizedMessage) {
     if (platform.aliases.some(alias => normalizedMessage.includes(alias))) return platform.id;
   }
   return null;
+}
+
+function resolveOwnerOpsTarget(normalizedMessage) {
+  if (/\b(connect|elankav connect)\b/.test(normalizedMessage)) return 'connect';
+  if (/\b(orchestrator|orquestador)\b/.test(normalizedMessage)) return 'orchestrator';
+  return null;
+}
+
+function detectOwnerOpsReadCommand(normalizedMessage) {
+  const target = resolveOwnerOpsTarget(normalizedMessage);
+
+  if (
+    /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) &&
+    /\b(produccion)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'production.audit'
+    });
+  }
+
+  if (
+    /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) &&
+    /\b(servidor|vps|sistema)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'server.summary'
+    });
+  }
+
+  if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'service.logs',
+      target,
+      lines: 100
+    });
+  }
+
+  if (target && /\b(git|repo|repositorio|rama|branch|commit|cambios locales|diff)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'git.status',
+      target
+    });
+  }
+
+  if (
+    target &&
+    /\b(estado|status|activo|activa|corriendo|levantado|levantada|servicio|health|salud|revisa|revisar|verifica|verificar)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'service.status',
+      target
+    });
+  }
+
+  return null;
+}
+
+function detectPreparedPublishCommand(message, normalizedMessage) {
+  if (!PUBLISH_PREPARED_PATTERN.test(normalizedMessage)) return null;
+  const match = String(message || '').match(JOB_ID_PATTERN);
+  if (!match) return null;
+  const jobId = `JOB-${match[1]}-${match[2].toLowerCase()}`;
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
+    capability: 'git.publish-prepared',
+    target: 'prepared-code',
+    summary: `Publicar corrección preparada ${jobId}`,
+    impact: 'Se publicará la rama temporal y se creará un Pull Request. No se hará merge ni deploy.',
+    parameters: Object.freeze({ jobId })
+  });
+}
+
+function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
+  const preparedPublish = detectPreparedPublishCommand(message, normalizedMessage);
+  if (preparedPublish) return preparedPublish;
+
+  const target = resolveOwnerOpsTarget(normalizedMessage);
+  if (!target) return null;
+
+  if (/\b(reinicia|reiniciar|restart|rearranca|rearrancar)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
+      capability: 'service.restart',
+      target,
+      summary: `Reiniciar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'}`,
+      impact: target === 'connect'
+        ? 'CONNECT tendrá una interrupción breve y luego se verificará que vuelva a estado active.'
+        : 'El reinicio del propio Orchestrator está bloqueado por seguridad hasta disponer de supervisor externo.',
+      parameters: Object.freeze({})
+    });
+  }
+
+  return null;
+}
+
+function detectOwnerOpsConfirmation(message) {
+  const normalized = normalizeCommand(message);
+  if (!normalized.startsWith('confirmar ')) return null;
+  const match = String(message || '').toUpperCase().match(OPS_ID_PATTERN);
+  if (!match) return null;
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.OWNER_OPS_CONFIRM,
+    operationId: `OPS-${match[1]}-${match[2]}`
+  });
 }
 
 function detectJobStatusCommand(message, normalizedMessage) {
@@ -82,11 +210,21 @@ function detectSendDesignLinkCommand(message, normalizedMessage) {
 
 function detectOwnerCommand(message) {
   const normalized = normalizeCommand(message);
+
+  const confirmationCommand = detectOwnerOpsConfirmation(message);
+  if (confirmationCommand) return confirmationCommand;
+
+  const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
+  if (sensitiveCommand) return sensitiveCommand;
+
   const jobStatusCommand = detectJobStatusCommand(message, normalized);
   if (jobStatusCommand) return jobStatusCommand;
 
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
+
+  const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
+  if (ownerOpsReadCommand) return ownerOpsReadCommand;
 
   if (CAPABILITY_PATTERN.test(normalized)) {
     return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
@@ -148,12 +286,13 @@ function formatContextSyncResult(job) {
 
 function formatCodeJobAccepted(job) {
   return [
-    'Orden de programación aceptada.', '',
+    'Preparación técnica aceptada.', '',
     `Job: ${job.id}`,
     `Plataforma: ${job.platform}`,
-    `Rama temporal: ${job.branch}`,
+    `Rama local temporal: ${job.branch}`,
     `Estado: ${job.status}`, '',
-    'Codex trabajará en un workspace aislado. El flujo puede crear una rama y un Pull Request, pero no hará merge ni despliegue automático.'
+    'Codex trabajará en un workspace aislado y ejecutará QA.',
+    'Este flujo NO publica la rama, NO hace git push, NO crea Pull Request, NO hace merge y NO despliega producción.'
   ].join('\n');
 }
 
@@ -173,7 +312,7 @@ function formatJobStatusResult(job) {
     `Rama: ${job.branch || 'No aplica'}`,
     `Pasos completados: ${completedSteps.length ? completedSteps.join(', ') : 'Aún no disponibles'}`,
     `Error: ${job.error || 'Ninguno'}`,
-    `Pull Request: ${pullRequest?.url || 'Todavía no disponible'}`,
+    `Pull Request: ${pullRequest?.url || 'No publicado'}`,
     `Creado: ${job.createdAt || 'No disponible'}`,
     `Finalizado: ${job.finishedAt || 'Todavía no finalizado'}`
   ].join('\n');
@@ -184,6 +323,40 @@ async function executeOwnerCommand({ command, platform }) {
 
   if (type === OWNER_COMMANDS.CANCEL_FLOW) {
     return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
+  }
+  if (type === OWNER_COMMANDS.OWNER_OPS_CONFIRM) {
+    const result = await executeConfirmedOperation(command.operationId);
+    return {
+      command: type,
+      job: result.job,
+      outputText: formatSensitiveResult(result),
+      ownerOps: result.execution
+    };
+  }
+  if (type === OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE) {
+    const operation = await createPendingOperation({
+      capability: command.capability,
+      target: command.target,
+      summary: command.summary,
+      impact: command.impact,
+      parameters: command.parameters || {},
+      requestedBy: 'owner-whatsapp'
+    });
+    return {
+      command: type,
+      job: operation,
+      outputText: formatPendingOperation(operation),
+      ownerOps: operation.result?.operation || null
+    };
+  }
+  if (type === OWNER_COMMANDS.OWNER_OPS_READ) {
+    const result = await executeReadOperation(command);
+    return {
+      command: type,
+      job: null,
+      outputText: formatOwnerOpsResult(result),
+      ownerOps: result
+    };
   }
   if (type === OWNER_COMMANDS.CAPABILITY_CATALOG) {
     return { command: type, job: null, outputText: formatCapabilityCatalog() };
@@ -205,8 +378,8 @@ async function executeOwnerCommand({ command, platform }) {
     return { command: type, job, outputText: formatJobStatusResult(job) };
   }
   if (type === OWNER_COMMANDS.CODE_JOB) {
-    const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE, task: command.task });
-    executeJob(job.id).catch(error => console.error(`[OWNER_CODE_JOB_ERROR] ${job.id}: ${error.message}`));
+    const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE_PREPARE, task: command.task });
+    executeJob(job.id).catch(error => console.error(`[OWNER_CODE_PREPARE_ERROR] ${job.id}: ${error.message}`));
     return { command: type, job, outputText: formatCodeJobAccepted(job) };
   }
   if (type === OWNER_COMMANDS.QUOTE_QUERY) {
@@ -240,6 +413,10 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectOwnerOpsConfirmation,
+  detectOwnerOpsReadCommand,
+  detectOwnerOpsSensitiveCommand,
+  detectPreparedPublishCommand,
   detectSendDesignLinkCommand,
   executeOwnerCommand,
   formatContextSyncResult,
