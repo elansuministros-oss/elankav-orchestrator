@@ -301,32 +301,18 @@ async function processMessage({
         };
       }
 
-      console.log('[OWNER_COMMERCIAL_QUERY]', {
+      console.log('[OWNER_GENERAL_QUERY]', {
         platform: context.platform || platform || 'elanvisual',
         channel: context.channel || channel || null,
         phone: context.phone || phone ? 'OWNER_RECOGNIZED' : null
       });
 
-      const commercialResult = await processCustomerMessage({
-        normalizedMessage,
-        context: {
-          ...context,
-          platform: context.platform || platform || 'elanvisual'
-        },
-        platform: context.platform || platform || 'elanvisual',
-        channel,
-        externalUserId,
-        phone
-      });
-
-      return {
-        ...commercialResult,
-        ownerCommercialQuery: true
-      };
-
       const [crm, ecosystem] = await Promise.all([
         loadCrmContext(),
-        loadEcosystemContext()
+        loadEcosystemContext({
+          platform: context.platform || platform || 'ELANVISUAL',
+          query: normalizedMessage
+        })
       ]);
 
       return generateText({
@@ -335,6 +321,7 @@ async function processMessage({
         instructions: OWNER_INSTRUCTIONS,
         context: {
           ownerMode: true,
+          customerMode: false,
           ownerName: 'Erick Cano',
           externalUserId: context.externalUserId || externalUserId || null,
           phone: context.phone || phone || null,
