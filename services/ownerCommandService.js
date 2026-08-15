@@ -15,6 +15,10 @@ const {
   getRecentJobs,
   readWahaSession
 } = require('./ownerOperationalReadService');
+const {
+  executeReadOperation,
+  formatResult: formatOwnerOpsResult
+} = require('./ownerOpsReadService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -25,7 +29,8 @@ const OWNER_COMMANDS = Object.freeze({
   CAPABILITY_CATALOG: 'capability_catalog',
   WAHA_STATUS: 'waha_status',
   QUOTE_QUERY: 'quote_query',
-  SEND_DESIGN_LINK: 'send_design_link'
+  SEND_DESIGN_LINK: 'send_design_link',
+  OWNER_OPS_READ: 'owner_ops_read'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -64,6 +69,56 @@ function resolvePlatformFromMessage(normalizedMessage) {
   return null;
 }
 
+function resolveOwnerOpsTarget(normalizedMessage) {
+  if (/\b(connect|elankav connect)\b/.test(normalizedMessage)) return 'connect';
+  if (/\b(orchestrator|orquestador)\b/.test(normalizedMessage)) return 'orchestrator';
+  return null;
+}
+
+function detectOwnerOpsReadCommand(normalizedMessage) {
+  const target = resolveOwnerOpsTarget(normalizedMessage);
+
+  if (
+    /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) &&
+    /\b(servidor|vps|produccion|producción|sistema)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'server.summary'
+    });
+  }
+
+  if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'service.logs',
+      target,
+      lines: 100
+    });
+  }
+
+  if (target && /\b(git|repo|repositorio|rama|branch|commit|cambios locales|diff)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'git.status',
+      target
+    });
+  }
+
+  if (
+    target &&
+    /\b(estado|status|activo|activa|corriendo|levantado|levantada|servicio|health|salud|revisa|revisar|verifica|verificar)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'service.status',
+      target
+    });
+  }
+
+  return null;
+}
+
 function detectJobStatusCommand(message, normalizedMessage) {
   const match = String(message || '').match(JOB_ID_PATTERN);
   if (!match || !JOB_STATUS_PATTERN.test(normalizedMessage)) return null;
@@ -87,6 +142,9 @@ function detectOwnerCommand(message) {
 
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
+
+  const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
+  if (ownerOpsReadCommand) return ownerOpsReadCommand;
 
   if (CAPABILITY_PATTERN.test(normalized)) {
     return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
@@ -185,6 +243,15 @@ async function executeOwnerCommand({ command, platform }) {
   if (type === OWNER_COMMANDS.CANCEL_FLOW) {
     return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
   }
+  if (type === OWNER_COMMANDS.OWNER_OPS_READ) {
+    const result = await executeReadOperation(command);
+    return {
+      command: type,
+      job: null,
+      outputText: formatOwnerOpsResult(result),
+      ownerOps: result
+    };
+  }
   if (type === OWNER_COMMANDS.CAPABILITY_CATALOG) {
     return { command: type, job: null, outputText: formatCapabilityCatalog() };
   }
@@ -240,6 +307,7 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectOwnerOpsReadCommand,
   detectSendDesignLinkCommand,
   executeOwnerCommand,
   formatContextSyncResult,
