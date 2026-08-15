@@ -302,3 +302,21 @@ test('Owner informa cuando no existen pagos pendientes a proveedores', async () 
     /No encontré órdenes de pago pendientes/
   );
 });
+
+test('Owner reconoce variantes naturales de entregas pendientes', () => {
+  const samples = [
+    'Qué entregas están pendientes',
+    'Qué entregas siguen pendientes',
+    'Qué entregas faltan',
+    'Qué falta entregar',
+    'Qué materiales faltan'
+  ];
+
+  for (const message of samples) {
+    assert.equal(
+      resolveIntent(message),
+      COMMANDS.PENDING_SUPPLIER_DELIVERIES,
+      message
+    );
+  }
+});

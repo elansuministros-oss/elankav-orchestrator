@@ -104,6 +104,12 @@ function resolveIntent(message = '') {
 
   const asksPendingDeliveries =
     text.includes('entregas pendientes') ||
+    text.includes('entregas estan pendientes') ||
+    text.includes('entregas siguen pendientes') ||
+    text.includes('que entregas faltan') ||
+    text.includes('que falta entregar') ||
+    text.includes('que falta de proveedor') ||
+    text.includes('que materiales faltan') ||
     text.includes('proveedor no ha entregado') ||
     text.includes('proveedores no han entregado') ||
     text.includes('proveedor falta entregar') ||
