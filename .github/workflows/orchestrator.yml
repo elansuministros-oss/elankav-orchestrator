@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/OWNER-OPS-GATEWAY-READONLY-01
+      - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
 
 jobs:
   health:
@@ -25,8 +26,10 @@ jobs:
         run: |
           node --check server.js
           node --check services/ownerCommandService.js
+          node --check services/ownerOperationalReadService.js
           node --check services/ownerOpsReadService.js
           node --check services/ownerOpsAuditService.js
+          node --check services/ownerOpsLocalStore.js
           node --check services/ownerOpsConfirmationService.js
           node --check services/ownerOpsSensitiveExecutor.js
           node --check services/ownerOpsCodePublishService.js
