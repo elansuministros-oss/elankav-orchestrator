@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "postinstall": "node deploy/schedule-owner-ops-supervisor-refresh.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
