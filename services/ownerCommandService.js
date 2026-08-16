@@ -26,7 +26,8 @@ const {
 } = require('./ownerOpsConfirmationService');
 const {
   executeConfirmedOperation,
-  formatSensitiveResult
+  formatSensitiveResult,
+  readDeferredOperationResult
 } = require('./ownerOpsSensitiveExecutor');
 const {
   TECHNICAL_OWNER_OPS_CAPABILITIES,
@@ -54,6 +55,7 @@ const OWNER_COMMANDS = Object.freeze({
   CANCEL_FLOW: 'cancel_flow',
   CODE_JOB: 'code_job',
   JOB_STATUS: 'job_status',
+  OPS_STATUS: 'ops_status',
   JOBS_LIST: 'jobs_list',
   CAPABILITY_CATALOG: 'capability_catalog',
   WAHA_STATUS: 'waha_status',
@@ -377,6 +379,28 @@ function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
   if (preparedPublish) return preparedPublish;
   const target = resolveOwnerOpsTarget(normalizedMessage);
   if (!target) return null;
+
+  if (/\b(despliega|desplegar|deploy|despliegue)\b/.test(normalizedMessage)) {
+    const commitMatch = String(message || '').match(/\b[0-9a-fA-F]{40}\b/);
+
+    if (commitMatch) {
+      const expectedCommit = commitMatch[0].toLowerCase();
+
+      return Object.freeze({
+        type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
+        capability: 'repository.deploy',
+        target,
+        summary: `Desplegar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'} al commit ${expectedCommit}`,
+        impact: 'Se verificará el commit remoto exacto, solo se permitirá fast-forward, se creará backup, se actualizará el repositorio, se reiniciará el servicio y se verificará estado active.',
+        parameters: Object.freeze({
+          expectedCommit,
+          restart: true,
+          install: false
+        })
+      });
+    }
+  }
+
   if (/\b(reinicia|reiniciar|restart|rearranca|rearrancar)\b/.test(normalizedMessage)) {
     return Object.freeze({
       type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
@@ -406,6 +430,19 @@ function detectJobStatusCommand(message, normalizedMessage) {
   return Object.freeze({ type: OWNER_COMMANDS.JOB_STATUS, jobId: `JOB-${match[1]}-${match[2].toLowerCase()}` });
 }
 
+function detectOpsStatusCommand(message, normalizedMessage) {
+  const match = String(message || '').toUpperCase().match(OPS_ID_PATTERN);
+
+  if (!match || !JOB_STATUS_PATTERN.test(normalizedMessage)) {
+    return null;
+  }
+
+  return Object.freeze({
+    type: OWNER_COMMANDS.OPS_STATUS,
+    operationId: `OPS-${match[1]}-${match[2]}`
+  });
+}
+
 function detectSendDesignLinkCommand(message, normalizedMessage) {
   if (!DESIGN_LINK_ACTION_PATTERN.test(normalizedMessage) || !DESIGN_LINK_TARGET_PATTERN.test(normalizedMessage)) return null;
   const phone = extractPhone(message);
@@ -423,6 +460,9 @@ function detectOwnerCommand(message) {
 
   const confirmationCommand = detectOwnerOpsConfirmation(message);
   if (confirmationCommand) return confirmationCommand;
+
+  const opsStatusCommand = detectOpsStatusCommand(message, normalized);
+  if (opsStatusCommand) return opsStatusCommand;
 
   const permissionCommand =
     detectOwnerPermissionAuditCommand(normalized);
@@ -663,6 +703,47 @@ async function executeOwnerCommand({ command, platform }) {
     const sent = await sendDesignLink({ phone: command.phone });
     return { command: type, job: null, outputText: `Mensaje enviado correctamente a +${sent.phone}.\n\nEnlace: ${sent.link}`, delivery: sent };
   }
+  if (type === OWNER_COMMANDS.OPS_STATUS) {
+    const result = await readDeferredOperationResult(
+      command.operationId
+    );
+
+    if (result.status === 'pending') {
+      return {
+        command: type,
+        job: null,
+        outputText: [
+          'Operación todavía en proceso.',
+          '',
+          `Operación: ${command.operationId}`,
+          'Estado: pending'
+        ].join('\n'),
+        ownerOps: result
+      };
+    }
+
+    if (result.status === 'failed') {
+      return {
+        command: type,
+        job: null,
+        outputText: [
+          '❌ Operación fallida.',
+          '',
+          `Operación: ${command.operationId}`,
+          `Error: ${result.error || 'SUPERVISOR_OPERATION_FAILED'}`
+        ].join('\n'),
+        ownerOps: result
+      };
+    }
+
+    return {
+      command: type,
+      job: result.job,
+      outputText: formatSensitiveResult(result),
+      ownerOps: result.execution
+    };
+  }
+
   if (type === OWNER_COMMANDS.JOB_STATUS) {
     const job = await getJob(command.jobId);
     return { command: type, job, outputText: formatJobStatusResult(job) };
