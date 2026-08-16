@@ -1,77 +1,17 @@
 'use strict';
 
-const businessCommands = require('./ownerBusinessCommandService');
-const sellerRegistration = require('./ownerSellerRegistrationService');
-const {
-  addItemByHumanReference,
-  parseAddQuotationItemRequest
-} = require('./ownerQuotationMediaService');
+const gateway = require('./ownerBusinessProcessMessageGateway');
 
-const QUOTATION_ITEM_ADD = 'business_quotation_item_add';
-
-const originalDetectOwnerBusinessCommand = businessCommands.detectOwnerBusinessCommand;
-const originalExecuteOwnerBusinessCommand = businessCommands.executeOwnerBusinessCommand;
-const originalProcessSellerRegistrationConversation = sellerRegistration.processSellerRegistrationConversation;
-
-function detectOwnerBusinessCommand(message) {
-  const request = parseAddQuotationItemRequest(message);
-  if (request) {
-    return {
-      type: QUOTATION_ITEM_ADD,
-      input: request
-    };
-  }
-
-  return originalDetectOwnerBusinessCommand(message);
-}
-
-async function executeOwnerBusinessCommand(command) {
-  if (command?.type === QUOTATION_ITEM_ADD) {
-    return addItemByHumanReference(command.input || {});
-  }
-
-  return originalExecuteOwnerBusinessCommand(command);
-}
-
-async function processSellerRegistrationConversation(args = {}) {
-  const request = parseAddQuotationItemRequest(args.message);
-  if (request) {
-    try {
-      const result = await addItemByHumanReference(request);
-      return {
-        handled: true,
-        completed: result?.status === 'completed',
-        outputText: result?.outputText || 'No fue posible completar la actualización de la cotización.'
-      };
-    } catch (error) {
-      return {
-        handled: true,
-        completed: true,
-        outputText: [
-          'No pude agregar el nuevo ítem a la cotización.',
-          `Error: ${error?.code || 'QUOTATION_ITEM_ADD_FAILED'}`,
-          error?.message ? `Detalle: ${error.message}` : '',
-          'No se creó ninguna cotización nueva.'
-        ].filter(Boolean).join('\n')
-      };
-    }
-  }
-
-  return originalProcessSellerRegistrationConversation(args);
-}
-
-businessCommands.detectOwnerBusinessCommand = detectOwnerBusinessCommand;
-businessCommands.executeOwnerBusinessCommand = executeOwnerBusinessCommand;
-businessCommands.BUSINESS_COMMANDS = Object.freeze({
-  ...(businessCommands.BUSINESS_COMMANDS || {}),
-  QUOTATION_ITEM_ADD
-});
-
-sellerRegistration.processSellerRegistrationConversation = processSellerRegistrationConversation;
+// Compatibilidad controlada:
+// este archivo sigue siendo el preload usado por npm/systemd bootstrap,
+// pero ya no modifica ownerSellerRegistrationService ni captura handlers internos.
+// Su única responsabilidad es instalar el gateway en el límite público de processMessage.
+gateway.installOwnerBusinessProcessMessageGateway();
 
 module.exports = {
-  QUOTATION_ITEM_ADD,
-  detectOwnerBusinessCommand,
-  executeOwnerBusinessCommand,
-  processSellerRegistrationConversation
+  QUOTATION_ITEM_ADD: gateway.QUOTATION_ITEM_ADD,
+  createOwnerBusinessProcessMessage: gateway.createOwnerBusinessProcessMessage,
+  detectOwnerBusinessCommand: gateway.detectOwnerBusinessCommand,
+  executeOwnerBusinessCommand: gateway.executeOwnerBusinessCommand,
+  installOwnerBusinessProcessMessageGateway: gateway.installOwnerBusinessProcessMessageGateway
 };
