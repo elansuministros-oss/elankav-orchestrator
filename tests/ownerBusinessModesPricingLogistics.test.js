@@ -22,6 +22,7 @@ const { OWNER_COMMANDS, detectOwnerCommand, detectOwnerModeCommand } = require('
 const {
   BUSINESS_COMMANDS,
   parseCustomerCreate,
+  parseLogisticsRule,
   parsePriceAuthorization
 } = require('../services/ownerBusinessCommandService');
 const { readContext, updateContext } = require('../services/ownerBusinessContextService');
@@ -73,6 +74,20 @@ test('Owner price authorization enables exact matching seller quote', () => {
   assert.equal(result.authorizationId, 'PA-001');
 });
 
+test('Official CONNECT price authorization fields match quotation scope', () => {
+  const result = resolveAuthorizedPrice({
+    role: 'VENDEDOR',
+    officialPrice: 340,
+    quote: { sellerId: 'VALENTINA', productDescription: 'Rótulo botón', width: 1, height: 1, quantity: 1, destination: 'granada' },
+    authorizations: [{
+      id: 'PA-002', status: 'active', sellerId: 'Valentina', productDescription: 'rotulo boton', width: 1, height: 1, quantity: 1, destination: 'Granada', price: 300
+    }]
+  });
+  assert.equal(result.allowed, true);
+  assert.equal(result.price, 300);
+  assert.equal(result.authorizationId, 'PA-002');
+});
+
 test('Installation quote requires location before logistics can be calculated', () => {
   const requirements = resolveMissingRequirements({ text: 'lona banner impresion UV 2x1 instalada', width: 2, height: 1, quantity: 1 });
   assert.equal(requirements.deliveryMethod, DELIVERY_METHODS.INSTALLATION);
@@ -122,6 +137,27 @@ test('Owner natural price authorization is scoped to seller dimensions destinati
   assert.equal(parsed.authorization.destination, 'Granada');
   assert.equal(parsed.authorization.price, 300);
   assert.equal(parsed.authorization.currency, 'USD');
+});
+
+test('Owner can teach Cargo Trans route tariff in natural language', () => {
+  const parsed = parseLogisticsRule('ELAN guarda que Cargo Trans cobra C$350 de Managua a Estelí.');
+  assert.equal(parsed.type, BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE);
+  assert.equal(parsed.rule.provider, 'Cargo Trans');
+  assert.equal(parsed.rule.serviceType, 'carrier');
+  assert.equal(parsed.rule.origin, 'Managua');
+  assert.equal(parsed.rule.destination, 'Estelí');
+  assert.equal(parsed.rule.pricingUnit, 'flat');
+  assert.equal(parsed.rule.rate, 350);
+  assert.equal(parsed.rule.currency, 'NIO');
+});
+
+test('Owner can teach a local delivery flat rate', () => {
+  const parsed = parseLogisticsRule('Guarda que delivery dentro de Managua cuesta US$8.');
+  assert.equal(parsed.type, BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE);
+  assert.equal(parsed.rule.serviceType, 'delivery');
+  assert.equal(parsed.rule.destination, 'Managua');
+  assert.equal(parsed.rule.rate, 8);
+  assert.equal(parsed.rule.currency, 'USD');
 });
 
 test('Business context persists references only and ignores arbitrary business payloads', async () => {
