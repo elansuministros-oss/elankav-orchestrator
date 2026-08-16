@@ -1,6 +1,7 @@
 'use strict';
 
 const { readContext, updateContext } = require('./ownerBusinessContextService');
+const { downloadWahaMedia } = require('./connectVoiceService');
 const {
   getQuotation,
   removeQuotationImage,
@@ -94,41 +95,27 @@ function safeWahaUrl(rawUrl) {
 }
 
 async function downloadImage(media, fetchImpl = fetch) {
-  const url = safeWahaUrl(media.url);
-  const headers = { Accept: 'image/jpeg,image/png,image/webp' };
-  const apiKey = String(process.env.WAHA_API_KEY || process.env.WAHA_API_TOKEN || '').trim();
-  if (apiKey) headers['X-Api-Key'] = apiKey;
-  const response = await fetchImpl(url, {
-    headers,
-    signal: AbortSignal.timeout(30_000)
-  });
-  if (!response.ok) {
-    const error = new Error(`WAHA_IMAGE_DOWNLOAD_HTTP_${response.status}`);
-    error.code = 'WAHA_IMAGE_DOWNLOAD_FAILED';
-    error.statusCode = response.status;
-    throw error;
-  }
-  const contentType = String(response.headers.get('content-type') || media.mimeType || '').split(';')[0].trim().toLowerCase();
+  const downloaded = await downloadWahaMedia({ url: media.url, fetchImpl });
+  const contentType = String(downloaded?.mimeType || media.mimeType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+
   if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
     const error = new Error('Formato de imagen no permitido. Usá JPG, PNG o WEBP.');
     error.code = 'UNSUPPORTED_IMAGE_TYPE';
     error.statusCode = 415;
     throw error;
   }
-  const announced = Number(response.headers.get('content-length') || 0);
-  if (announced > MAX_IMAGE_BYTES) {
-    const error = new Error('La imagen supera 8 MB.');
-    error.code = 'IMAGE_TOO_LARGE';
-    error.statusCode = 413;
-    throw error;
-  }
-  const buffer = Buffer.from(await response.arrayBuffer());
+
+  const buffer = Buffer.from(downloaded?.buffer || []);
   if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) {
     const error = new Error(buffer.length ? 'La imagen supera 8 MB.' : 'La imagen recibida está vacía.');
     error.code = buffer.length ? 'IMAGE_TOO_LARGE' : 'IMAGE_EMPTY';
     error.statusCode = buffer.length ? 413 : 422;
     throw error;
   }
+
   return { buffer, mimeType: contentType };
 }
 
