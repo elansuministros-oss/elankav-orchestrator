@@ -4,12 +4,14 @@ const { createCustomer, createLogisticsRule, searchCustomers } = require('./owne
 const { updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
+const { parseQuotationRequest, prepareAndCreateQuotation } = require('./ownerQuotationService');
 
 const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
   CUSTOMER_SEARCH: 'business_customer_search',
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
-  LOGISTICS_RULE_CREATE: 'business_logistics_rule_create'
+  LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
+  QUOTATION_CREATE: 'business_quotation_create'
 });
 
 function normalize(value) {
@@ -190,6 +192,8 @@ function parseLogisticsRule(message) {
 }
 
 function detectOwnerBusinessCommand(message) {
+  const quotation = parseQuotationRequest(message);
+  if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
   return parseCustomerCreate(message) || parseCustomerSearch(message) || parsePriceAuthorization(message) || parseLogisticsRule(message) || null;
 }
 
@@ -219,6 +223,22 @@ function formatLogisticsRule(rule) {
 }
 
 async function executeOwnerBusinessCommand(command) {
+  if (command.type === BUSINESS_COMMANDS.QUOTATION_CREATE) {
+    const result = await prepareAndCreateQuotation(command.input);
+    if (!result.ready) return { handled: true, outputText: result.question || 'Falta información para completar la cotización.', result };
+    await recordAuditSafely({
+      capability: 'business.quotation.create',
+      target: 'connect',
+      source: 'owner-whatsapp',
+      success: true,
+      metadata: {
+        projectId: result.quotation?.projectId || null,
+        quotationId: result.quotation?.quotationId || null
+      }
+    });
+    return { handled: true, outputText: result.summary, result };
+  }
+
   if (command.type === BUSINESS_COMMANDS.CUSTOMER_SEARCH) {
     const result = await searchCustomers(command.query);
     const rows = result?.data?.results || [];
