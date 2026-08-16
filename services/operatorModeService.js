@@ -68,6 +68,30 @@ const ROLE_PROFILES = Object.freeze({
   })
 });
 
+const TECHNICAL_OWNER_OPS_CAPABILITIES = Object.freeze([
+  'production.audit',
+  'server.summary',
+  'service.status',
+  'service.logs',
+  'git.status',
+  'file.inspect',
+  'test.run',
+  'service.restart',
+  'git.publish-prepared',
+  'repository.deploy',
+  'code.prepare'
+]);
+
+const MODE_TECHNICAL_CAPABILITIES = Object.freeze({
+  [MODES.OWNER_GENERAL]: Object.freeze([]),
+  [MODES.VENTAS]: Object.freeze([]),
+  [MODES.FINANZAS]: Object.freeze([]),
+  [MODES.PRODUCCION]: Object.freeze([]),
+  [MODES.COMPRAS]: Object.freeze([]),
+  [MODES.ADMINISTRACION]: Object.freeze([]),
+  [MODES.PROGRAMADOR]: TECHNICAL_OWNER_OPS_CAPABILITIES
+});
+
 const MODE_ALIASES = Object.freeze({
   general: MODES.OWNER_GENERAL,
   'asistente general': MODES.OWNER_GENERAL,
@@ -113,6 +137,32 @@ function canUseCapability(role, capability) {
   const profile = getRoleProfile(role);
   if (!profile) return false;
   return profile.capabilities.includes('*') || profile.capabilities.includes(capability);
+}
+
+function normalizeModeKey(mode) {
+  return resolveMode(mode) ||
+    String(mode || '').trim().toUpperCase();
+}
+
+function getModeTechnicalCapabilities(mode) {
+  const key = normalizeModeKey(mode);
+
+  return MODE_TECHNICAL_CAPABILITIES[key] ||
+    Object.freeze([]);
+}
+
+function isTechnicalOwnerOpsCapability(capability) {
+  return TECHNICAL_OWNER_OPS_CAPABILITIES.includes(
+    String(capability || '').trim()
+  );
+}
+
+function canUseModeCapability(mode, capability) {
+  const id = String(capability || '').trim();
+
+  if (!id) return false;
+
+  return getModeTechnicalCapabilities(mode).includes(id);
 }
 
 function getStorePath(env = process.env) {
@@ -203,7 +253,12 @@ module.exports = {
   DEFAULT_STORE_PATH,
   MODES,
   ROLE_PROFILES,
+  TECHNICAL_OWNER_OPS_CAPABILITIES,
+  MODE_TECHNICAL_CAPABILITIES,
   canUseCapability,
+  canUseModeCapability,
+  getModeTechnicalCapabilities,
+  isTechnicalOwnerOpsCapability,
   formatModeState,
   getOperatorState,
   getRoleProfile,

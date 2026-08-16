@@ -21,15 +21,20 @@ const {
 } = require('./ownerOpsReadService');
 const {
   createPendingOperation,
-  formatPendingOperation
+  formatPendingOperation,
+  loadPendingOperation
 } = require('./ownerOpsConfirmationService');
 const {
   executeConfirmedOperation,
   formatSensitiveResult
 } = require('./ownerOpsSensitiveExecutor');
 const {
+  TECHNICAL_OWNER_OPS_CAPABILITIES,
+  canUseModeCapability,
   formatModeState,
+  getModeTechnicalCapabilities,
   getOperatorState,
+  isTechnicalOwnerOpsCapability,
   resolveMode,
   setOperatorMode
 } = require('./operatorModeService');
@@ -40,6 +45,9 @@ const {
 const {
   learnAlias
 } = require('./ownerLanguageProfileService');
+const {
+  getCapability
+} = require('./ownerOpsCapabilityRegistry');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -56,6 +64,7 @@ const OWNER_COMMANDS = Object.freeze({
   OWNER_OPS_CONFIRM: 'owner_ops_confirm',
   MODE_GET: 'mode_get',
   MODE_SET: 'mode_set',
+  MODE_PERMISSIONS: 'mode_permissions',
   LANGUAGE_LEARN: 'language_learn',
   BUSINESS_TRANSACTION: 'business_transaction'
 });
@@ -82,6 +91,15 @@ const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|status|verifica|consul
 const PUBLISH_PREPARED_PATTERN = /\b(publica|publicar|publicalo|publicala|sube|subir|crea pr|crear pr|abre pr|abrir pr|pull request)\b/;
 const MODE_QUERY_PATTERN = /\b(en que modo|que modo|modo actual|cual es tu modo|que rol operativo|modo estas)\b/;
 const MODE_SET_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:actua como|trabaja como|ponte en modo|cambia a modo|cambiar a modo|cambia modo a|cambiar modo a|entra en modo|modo)\s+(.+)$/;
+
+const PERMISSION_QUERY_PATTERN =
+  /\b(permisos|accesos|capacidades|permitido|permitida|puedes|podes|podrias|puedo)\b/;
+
+const INFORMATION_ONLY_PATTERN =
+  /\b(solo informacion|no ejecutes|sin ejecutar|solo consulta|consulta solamente)\b/;
+
+const TECHNICAL_ACTION_QUERY_PATTERN =
+  /\b(service\.restart|service\.logs|git\.status|file\.inspect|test\.run|reiniciar|reinicia|restart|logs|git|tests?|pruebas?|deploy|archivo|repositorio)\b/;
 
 function normalizeCommand(value) {
   return String(value || '')
@@ -196,6 +214,110 @@ function resolveOwnerOpsTestSuite(normalizedMessage) {
   return null;
 }
 
+function detectOwnerPermissionAuditCommand(normalizedMessage) {
+  const asksPermissions =
+    PERMISSION_QUERY_PATTERN.test(normalizedMessage);
+
+  const informationOnly =
+    INFORMATION_ONLY_PATTERN.test(normalizedMessage);
+
+  const technicalQuestion =
+    TECHNICAL_ACTION_QUERY_PATTERN.test(normalizedMessage);
+
+  if (
+    asksPermissions ||
+    (informationOnly && technicalQuestion)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.MODE_PERMISSIONS
+    });
+  }
+
+  if (
+    /\b(audita|auditar|revisa|revisar|muestra|mostra|mostrar)\b/.test(normalizedMessage) &&
+    /\b(permisos|accesos)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.MODE_PERMISSIONS
+    });
+  }
+
+  return null;
+}
+
+function getCapabilityRisk(capability) {
+  if (capability === 'code.prepare') {
+    return 'LOW_RISK';
+  }
+
+  return getCapability(capability)?.risk || 'UNKNOWN';
+}
+
+function formatModePermissions(state) {
+  const allowed =
+    new Set(getModeTechnicalCapabilities(state.activeMode));
+
+  const direct = [];
+  const confirm = [];
+  const blocked = [];
+
+  for (const capability of TECHNICAL_OWNER_OPS_CAPABILITIES) {
+    if (!allowed.has(capability)) {
+      blocked.push(capability);
+      continue;
+    }
+
+    const risk = getCapabilityRisk(capability);
+
+    if (risk === 'CONFIRM_REQUIRED') {
+      confirm.push(capability);
+    } else {
+      direct.push(capability);
+    }
+  }
+
+  return [
+    `Modo activo: ${state.activeMode}`,
+    `Rol: ${state.role}`,
+    '',
+    'OWNER OPS — PERMITIDAS',
+    ...(direct.length ? direct.map(value => `- ${value}`) : ['- Ninguna']),
+    '',
+    'OWNER OPS — REQUIEREN CONFIRMACIÓN',
+    ...(confirm.length ? confirm.map(value => `- ${value}`) : ['- Ninguna']),
+    '',
+    'OWNER OPS — BLOQUEADAS EN ESTE MODO',
+    ...(blocked.length ? blocked.map(value => `- ${value}`) : ['- Ninguna'])
+  ].join('\n');
+}
+
+function formatTechnicalModeBlocked(state, capability) {
+  return [
+    '⛔ Operación bloqueada por modo.',
+    '',
+    `Modo activo: ${state.activeMode}`,
+    `Capacidad solicitada: ${capability}`,
+    '',
+    'Las operaciones técnicas Owner OPS requieren modo PROGRAMADOR.',
+    'No se ejecutó ni preparó ninguna operación.'
+  ].join('\n');
+}
+
+async function checkTechnicalMode(capability) {
+  const state = await getOperatorState({
+    operatorId: 'owner',
+    role: 'OWNER'
+  });
+
+  return {
+    state,
+    allowed: canUseModeCapability(
+      state.activeMode,
+      capability
+    )
+  };
+}
+
 function detectOwnerOpsReadCommand(normalizedMessage) {
   const target = resolveOwnerOpsTarget(normalizedMessage);
 
@@ -299,6 +421,12 @@ function detectOwnerCommand(message) {
 
   const confirmationCommand = detectOwnerOpsConfirmation(message);
   if (confirmationCommand) return confirmationCommand;
+
+  const permissionCommand =
+    detectOwnerPermissionAuditCommand(normalized);
+
+  if (permissionCommand) return permissionCommand;
+
   const modeCommand = detectOwnerModeCommand(message, normalized);
   if (modeCommand) return modeCommand;
   const businessCommand = detectOwnerBusinessCommand(message);
@@ -388,6 +516,20 @@ async function executeOwnerCommand({ command, platform }) {
     const state = await setOperatorMode({ operatorId: 'owner', role: 'OWNER', mode: command.mode });
     return { command: type, job: null, outputText: `Modo operativo actualizado.\n${formatModeState(state)}`, operatorMode: state };
   }
+
+  if (type === OWNER_COMMANDS.MODE_PERMISSIONS) {
+    const state = await getOperatorState({
+      operatorId: 'owner',
+      role: 'OWNER'
+    });
+
+    return {
+      command: type,
+      job: null,
+      outputText: formatModePermissions(state),
+      operatorMode: state
+    };
+  }
   if (type === OWNER_COMMANDS.LANGUAGE_LEARN) {
     const learned = await learnAlias({
       spoken: command.spoken,
@@ -412,10 +554,64 @@ async function executeOwnerCommand({ command, platform }) {
   }
   if (type === OWNER_COMMANDS.CANCEL_FLOW) return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
   if (type === OWNER_COMMANDS.OWNER_OPS_CONFIRM) {
-    const result = await executeConfirmedOperation(command.operationId);
-    return { command: type, job: result.job, outputText: formatSensitiveResult(result), ownerOps: result.execution };
+    const pending = await loadPendingOperation(
+      command.operationId
+    );
+
+    if (
+      isTechnicalOwnerOpsCapability(
+        pending.operation.capability
+      )
+    ) {
+      const access = await checkTechnicalMode(
+        pending.operation.capability
+      );
+
+      if (!access.allowed) {
+        return {
+          command: type,
+          job: pending.job,
+          outputText: formatTechnicalModeBlocked(
+            access.state,
+            pending.operation.capability
+          ),
+          ownerOps: null
+        };
+      }
+    }
+
+    const result = await executeConfirmedOperation(
+      command.operationId
+    );
+
+    return {
+      command: type,
+      job: result.job,
+      outputText: formatSensitiveResult(result),
+      ownerOps: result.execution
+    };
   }
   if (type === OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE) {
+    if (
+      isTechnicalOwnerOpsCapability(command.capability)
+    ) {
+      const access = await checkTechnicalMode(
+        command.capability
+      );
+
+      if (!access.allowed) {
+        return {
+          command: type,
+          job: null,
+          outputText: formatTechnicalModeBlocked(
+            access.state,
+            command.capability
+          ),
+          ownerOps: null
+        };
+      }
+    }
+
     const operation = await createPendingOperation({
       capability: command.capability,
       target: command.target,
@@ -427,8 +623,30 @@ async function executeOwnerCommand({ command, platform }) {
     return { command: type, job: operation, outputText: formatPendingOperation(operation), ownerOps: operation.result?.operation || null };
   }
   if (type === OWNER_COMMANDS.OWNER_OPS_READ) {
+    const access = await checkTechnicalMode(
+      command.capability
+    );
+
+    if (!access.allowed) {
+      return {
+        command: type,
+        job: null,
+        outputText: formatTechnicalModeBlocked(
+          access.state,
+          command.capability
+        ),
+        ownerOps: null
+      };
+    }
+
     const result = await executeReadOperation(command);
-    return { command: type, job: null, outputText: formatOwnerOpsResult(result), ownerOps: result };
+
+    return {
+      command: type,
+      job: null,
+      outputText: formatOwnerOpsResult(result),
+      ownerOps: result
+    };
   }
   if (type === OWNER_COMMANDS.CAPABILITY_CATALOG) return { command: type, job: null, outputText: formatCapabilityCatalog() };
   if (type === OWNER_COMMANDS.JOBS_LIST) {
@@ -448,6 +666,21 @@ async function executeOwnerCommand({ command, platform }) {
     return { command: type, job, outputText: formatJobStatusResult(job) };
   }
   if (type === OWNER_COMMANDS.CODE_JOB) {
+    const access = await checkTechnicalMode(
+      'code.prepare'
+    );
+
+    if (!access.allowed) {
+      return {
+        command: type,
+        job: null,
+        outputText: formatTechnicalModeBlocked(
+          access.state,
+          'code.prepare'
+        )
+      };
+    }
+
     const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE_PREPARE, task: command.task });
     executeJob(job.id).catch(error => console.error(`[OWNER_CODE_PREPARE_ERROR] ${job.id}: ${error.message}`));
     return { command: type, job, outputText: formatCodeJobAccepted(job) };
@@ -484,6 +717,7 @@ module.exports = {
   detectOwnerLanguageLearnCommand,
   detectOwnerModeCommand,
   detectOwnerOpsConfirmation,
+  detectOwnerPermissionAuditCommand,
   detectOwnerOpsReadCommand,
   detectOwnerOpsSensitiveCommand,
   resolveOwnerOpsFileAlias,
