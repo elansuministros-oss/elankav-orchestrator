@@ -100,7 +100,11 @@ async function executeConfirmedOperation(id) {
   const running = await markOperationRunning(id);
 
   try {
-    if (operation.capability === 'service.restart' && operation.target === 'orchestrator') {
+    const requiresSupervisor =
+      (operation.capability === 'service.restart' && operation.target === 'orchestrator') ||
+      operation.capability === 'repository.deploy';
+
+    if (requiresSupervisor) {
       const execution = await delegateToSupervisor(id, operation);
       return { job: running, execution, deferred: true };
     }
@@ -158,6 +162,7 @@ function formatSensitiveResult(result) {
       '',
       `Operación: ${result.job.id}`,
       `Objetivo: ${execution.target}`,
+      `Acción: ${execution.delegatedCapability}`,
       `Ejecución programada: ${execution.executeAfter}`,
       '',
       'El supervisor ejecutará la acción fuera del proceso del Orchestrator.',

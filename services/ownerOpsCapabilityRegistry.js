@@ -52,6 +52,11 @@ const CAPABILITIES = Object.freeze({
     id: 'git.publish-prepared',
     risk: RISK.CONFIRM_REQUIRED,
     description: 'Publica una rama local preparada y validada, y crea Pull Request sin merge ni deploy.'
+  }),
+  'repository.deploy': Object.freeze({
+    id: 'repository.deploy',
+    risk: RISK.CONFIRM_REQUIRED,
+    description: 'Actualiza un repositorio autorizado mediante fast-forward a un commit remoto exacto, crea backup y verifica el servicio.'
   })
 });
 
