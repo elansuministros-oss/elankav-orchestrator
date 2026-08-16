@@ -3,10 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-require('../services/ownerBusinessQuotationItemPatch');
 const {
   detectOwnerBusinessCommand
-} = require('../services/ownerBusinessCommandService');
+} = require('../services/ownerBusinessQuotationItemPatch');
 
 test('detecta agregar ítem a cotización por referencia humana', () => {
   const command = detectOwnerBusinessCommand(
