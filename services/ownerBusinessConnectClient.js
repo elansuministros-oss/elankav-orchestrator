@@ -68,6 +68,24 @@ function paramsFrom(filters = {}) {
   return params.toString() ? `?${params.toString()}` : '';
 }
 
+function normalizeQuotationSource(document) {
+  const input = document && typeof document === 'object' ? document : {};
+  const quotation = input.quotation && typeof input.quotation === 'object' ? input.quotation : {};
+  const source = quotation.source && typeof quotation.source === 'object' ? quotation.source : {};
+  if (String(source.type || '').trim().toLowerCase() !== 'owner-whatsapp') return input;
+  return {
+    ...input,
+    quotation: {
+      ...quotation,
+      source: {
+        ...source,
+        type: 'manual',
+        channel: source.channel || 'owner-whatsapp'
+      }
+    }
+  };
+}
+
 async function searchCustomers(term, env) { return requestConnect(`/api/v1/business/vqs/customers/directory-search?q=${query(term)}&limit=30`, {}, env); }
 async function listCustomers(env) { return requestConnect('/api/v1/business/vqs/customers/official', {}, env); }
 async function createCustomer(input, env) { return requestConnect('/api/v1/business/vqs/customers', { method: 'POST', body: input }, env); }
@@ -78,7 +96,8 @@ async function listQuotations(env) { return requestConnect('/api/v1/business/vqs
 async function getQuotation(projectId, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}`, {}, env); }
 async function createQuotation(document, idempotencyKey, env) {
   const key = String(idempotencyKey || '').trim();
-  return requestConnect('/api/v1/business/vqs/quotations', { method: 'POST', body: document, headers: key ? { 'Idempotency-Key': key } : {} }, env);
+  const body = normalizeQuotationSource(document);
+  return requestConnect('/api/v1/business/vqs/quotations', { method: 'POST', body, headers: key ? { 'Idempotency-Key': key } : {} }, env);
 }
 async function updateQuotation(projectId, document, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}`, { method: 'PATCH', body: document }, env); }
 async function sendQuotationWhatsApp(projectId, body = {}, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/send-whatsapp`, { method: 'POST', body }, env); }
@@ -110,6 +129,7 @@ module.exports = {
   listProviders,
   listQuotations,
   listWorkOrders,
+  normalizeQuotationSource,
   requestConnect,
   resolveCatalogPricing,
   revokePriceAuthorization,
