@@ -180,10 +180,15 @@ async function buildRepository(config) {
   return 'npm run build';
 }
 
+function porcelainPath(line) {
+  return String(line || '').replace(/^[A-Z?!]{1,2}\s+/, '').trim();
+}
+
 async function cleanGeneratedConnectCatalog(config) {
   const status = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
   const lines = status.stdout.split(/\r?\n/).map(line => line.trimEnd()).filter(Boolean);
-  if (lines.length !== 1 || lines[0].slice(3) !== GENERATED_CONNECT_CATALOG) {
+  const changedPaths = lines.map(porcelainPath);
+  if (changedPaths.length !== 1 || changedPaths[0] !== GENERATED_CONNECT_CATALOG) {
     const error = new Error('SUPERVISOR_CLEAN_SCOPE_MISMATCH');
     error.code = 'SUPERVISOR_CLEAN_SCOPE_MISMATCH';
     throw error;
@@ -387,6 +392,7 @@ module.exports = {
   deployRepository,
   executeRequest,
   installDependencies,
+  porcelainPath,
   recoverInterruptedOperations,
   restartService,
   sanitizeTechnicalError,
