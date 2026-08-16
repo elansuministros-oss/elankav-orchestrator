@@ -33,6 +33,9 @@ jobs:
           node --check services/operatorModeService.js
           node --check services/pricingAuthorizationPolicyService.js
           node --check services/quotationRequirementResolver.js
+          node --check services/ownerBusinessConnectClient.js
+          node --check services/ownerBusinessContextService.js
+          node --check services/ownerBusinessCommandService.js
           node --check services/ownerOperationalReadService.js
           node --check services/ownerOpsReadService.js
           node --check services/ownerOpsAuditService.js
