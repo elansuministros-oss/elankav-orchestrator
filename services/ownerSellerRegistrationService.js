@@ -11,6 +11,7 @@ const {
 } = require('./ownerSellerConnectClient');
 const { extractSellerIdentityFromImage } = require('./ownerSellerIdentityExtractionService');
 const { normalizeWhatsappE164 } = require('./phoneService');
+const { processOwnerQuotationMediaMessage } = require('./ownerQuotationMediaService');
 
 const STATE_FILE = process.env.CRM_COMMAND_STATE_FILE || '/opt/elankav/state/crm-command-state.json';
 const STATE_TTL_MS = Number(process.env.CRM_COMMAND_STATE_TTL_MS || 30 * 60 * 1000);
@@ -518,6 +519,23 @@ async function processSellerRegistrationConversation({ message, externalUserId, 
     delete states[key];
     writeStates(states);
     state = null;
+  }
+
+  if (!state) {
+    const quotationMedia = await processOwnerQuotationMediaMessage({
+      message,
+      metadata,
+      externalUserId,
+      phone,
+      fetchImpl: dependencies.fetchImpl || fetch
+    });
+    if (quotationMedia.handled) {
+      return {
+        handled: true,
+        completed: quotationMedia.status === 'completed',
+        outputText: quotationMedia.outputText
+      };
+    }
   }
 
   if (isSellerAccessRequest(message)) {
