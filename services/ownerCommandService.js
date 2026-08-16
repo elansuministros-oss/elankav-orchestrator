@@ -33,6 +33,10 @@ const {
   resolveMode,
   setOperatorMode
 } = require('./operatorModeService');
+const {
+  detectOwnerBusinessCommand,
+  executeOwnerBusinessCommand
+} = require('./ownerBusinessCommandService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -48,7 +52,8 @@ const OWNER_COMMANDS = Object.freeze({
   OWNER_OPS_PREPARE_SENSITIVE: 'owner_ops_prepare_sensitive',
   OWNER_OPS_CONFIRM: 'owner_ops_confirm',
   MODE_GET: 'mode_get',
-  MODE_SET: 'mode_set'
+  MODE_SET: 'mode_set',
+  BUSINESS_TRANSACTION: 'business_transaction'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -98,10 +103,7 @@ function resolveOwnerOpsTarget(normalizedMessage) {
 }
 
 function detectOwnerModeCommand(message, normalizedMessage = normalizeCommand(message)) {
-  if (MODE_QUERY_PATTERN.test(normalizedMessage)) {
-    return Object.freeze({ type: OWNER_COMMANDS.MODE_GET });
-  }
-
+  if (MODE_QUERY_PATTERN.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.MODE_GET });
   const match = normalizedMessage.match(MODE_SET_PATTERN);
   if (!match) return null;
   const mode = resolveMode(match[1]);
@@ -111,27 +113,11 @@ function detectOwnerModeCommand(message, normalizedMessage = normalizeCommand(me
 
 function detectOwnerOpsReadCommand(normalizedMessage) {
   const target = resolveOwnerOpsTarget(normalizedMessage);
-
-  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) && /\b(produccion)\b/.test(normalizedMessage)) {
-    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'production.audit' });
-  }
-
-  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(servidor|vps|sistema)\b/.test(normalizedMessage)) {
-    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'server.summary' });
-  }
-
-  if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) {
-    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.logs', target, lines: 100 });
-  }
-
-  if (target && /\b(git|repo|repositorio|rama|branch|commit|cambios locales|diff)\b/.test(normalizedMessage)) {
-    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'git.status', target });
-  }
-
-  if (target && /\b(estado|status|activo|activa|corriendo|levantado|levantada|servicio|health|salud|revisa|revisar|verifica|verificar)\b/.test(normalizedMessage)) {
-    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.status', target });
-  }
-
+  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) && /\b(produccion)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'production.audit' });
+  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(servidor|vps|sistema)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'server.summary' });
+  if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.logs', target, lines: 100 });
+  if (target && /\b(git|repo|repositorio|rama|branch|commit|cambios locales|diff)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'git.status', target });
+  if (target && /\b(estado|status|activo|activa|corriendo|levantado|levantada|servicio|health|salud|revisa|revisar|verifica|verificar)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.status', target });
   return null;
 }
 
@@ -153,10 +139,8 @@ function detectPreparedPublishCommand(message, normalizedMessage) {
 function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
   const preparedPublish = detectPreparedPublishCommand(message, normalizedMessage);
   if (preparedPublish) return preparedPublish;
-
   const target = resolveOwnerOpsTarget(normalizedMessage);
   if (!target) return null;
-
   if (/\b(reinicia|reiniciar|restart|rearranca|rearrancar)\b/.test(normalizedMessage)) {
     return Object.freeze({
       type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
@@ -195,41 +179,29 @@ function detectSendDesignLinkCommand(message, normalizedMessage) {
 
 function detectOwnerCommand(message) {
   const normalized = normalizeCommand(message);
-
   const confirmationCommand = detectOwnerOpsConfirmation(message);
   if (confirmationCommand) return confirmationCommand;
-
   const modeCommand = detectOwnerModeCommand(message, normalized);
   if (modeCommand) return modeCommand;
-
+  const businessCommand = detectOwnerBusinessCommand(message);
+  if (businessCommand) return Object.freeze({ type: OWNER_COMMANDS.BUSINESS_TRANSACTION, businessCommand });
   const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
   if (sensitiveCommand) return sensitiveCommand;
-
   const jobStatusCommand = detectJobStatusCommand(message, normalized);
   if (jobStatusCommand) return jobStatusCommand;
-
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
-
   const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
   if (ownerOpsReadCommand) return ownerOpsReadCommand;
-
   if (CAPABILITY_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
   if (JOBS_LIST_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.JOBS_LIST });
   if (WAHA_STATUS_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.WAHA_STATUS });
-
   if (['context sync', 'sync context', 'sincronizar contexto', 'cargar contexto'].includes(normalized)) return OWNER_COMMANDS.CONTEXT_SYNC;
   if (CANCEL_PATTERN.test(normalized)) return OWNER_COMMANDS.CANCEL_FLOW;
 
   const platform = resolvePlatformFromMessage(normalized);
-  if (platform && CODE_ACTION_PATTERN.test(normalized) && !READ_ONLY_PATTERN.test(normalized)) {
-    return Object.freeze({ type: OWNER_COMMANDS.CODE_JOB, platform, task: String(message || '').trim() });
-  }
-
-  if (String(process.env.QUOTE_CORE_RUNTIME_ENABLED || '').toLowerCase() === 'true' && resolveQuoteRuntimeIntent(message)) {
-    return Object.freeze({ type: OWNER_COMMANDS.QUOTE_QUERY, message: String(message || '').trim() });
-  }
-
+  if (platform && CODE_ACTION_PATTERN.test(normalized) && !READ_ONLY_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.CODE_JOB, platform, task: String(message || '').trim() });
+  if (String(process.env.QUOTE_CORE_RUNTIME_ENABLED || '').toLowerCase() === 'true' && resolveQuoteRuntimeIntent(message)) return Object.freeze({ type: OWNER_COMMANDS.QUOTE_QUERY, message: String(message || '').trim() });
   return null;
 }
 
@@ -298,9 +270,12 @@ async function executeOwnerCommand({ command, platform }) {
     const state = await setOperatorMode({ operatorId: 'owner', role: 'OWNER', mode: command.mode });
     return { command: type, job: null, outputText: `Modo operativo actualizado.\n${formatModeState(state)}`, operatorMode: state };
   }
-  if (type === OWNER_COMMANDS.CANCEL_FLOW) {
-    return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
+  if (type === OWNER_COMMANDS.BUSINESS_TRANSACTION) {
+    const result = await executeOwnerBusinessCommand(command.businessCommand);
+    if (!result.handled) throw Object.assign(new Error('OWNER_BUSINESS_COMMAND_NOT_HANDLED'), { code: 'OWNER_BUSINESS_COMMAND_NOT_HANDLED' });
+    return { command: type, job: result.result?.id ? result.result : null, outputText: result.outputText, business: result.result };
   }
+  if (type === OWNER_COMMANDS.CANCEL_FLOW) return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
   if (type === OWNER_COMMANDS.OWNER_OPS_CONFIRM) {
     const result = await executeConfirmedOperation(command.operationId);
     return { command: type, job: result.job, outputText: formatSensitiveResult(result), ownerOps: result.execution };
