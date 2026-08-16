@@ -4,8 +4,12 @@ const { generateText } = require('./openaiService');
 const { routeContext } = require('./context/index');
 const {
   detectOwnerCommand,
+  detectOwnerLanguageLearnCommand,
   executeOwnerCommand
 } = require('./ownerCommandService');
+const {
+  normalizeOwnerLanguage
+} = require('./ownerLanguageProfileService');
 const {
   loadCrmContext
 } = require('./crmContextService');
@@ -259,7 +263,16 @@ async function processMessage({
         });
       }
 
-      const ownerCommand = detectOwnerCommand(normalizedMessage);
+      const ownerLanguageLearnCommand =
+        detectOwnerLanguageLearnCommand(normalizedMessage);
+
+      const ownerLanguageMessage = ownerLanguageLearnCommand
+        ? normalizedMessage
+        : await normalizeOwnerLanguage(normalizedMessage);
+
+      const ownerCommand =
+        ownerLanguageLearnCommand ||
+        detectOwnerCommand(ownerLanguageMessage);
       if (ownerCommand) {
         const commandResult = await executeOwnerCommand({
           command: ownerCommand,

@@ -37,6 +37,9 @@ const {
   detectOwnerBusinessCommand,
   executeOwnerBusinessCommand
 } = require('./ownerBusinessCommandService');
+const {
+  learnAlias
+} = require('./ownerLanguageProfileService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -53,6 +56,7 @@ const OWNER_COMMANDS = Object.freeze({
   OWNER_OPS_CONFIRM: 'owner_ops_confirm',
   MODE_GET: 'mode_get',
   MODE_SET: 'mode_set',
+  LANGUAGE_LEARN: 'language_learn',
   BUSINESS_TRANSACTION: 'business_transaction'
 });
 
@@ -87,6 +91,41 @@ function normalizeCommand(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[.!?]+$/g, '')
     .replace(/\s+/g, ' ');
+}
+
+function cleanOwnerLanguageLearnValue(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+    .trim();
+}
+
+function detectOwnerLanguageLearnCommand(
+  message,
+  normalizedMessage = normalizeCommand(message)
+) {
+  const patterns = [
+    /^(?:elan\s*[,;:]?\s*)?cuando digo\s+(.+?)\s+quiero decir\s+(.+)$/,
+    /^(?:elan\s*[,;:]?\s*)?aprende que\s+(.+?)\s+significa\s+(.+)$/
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalizedMessage.match(pattern);
+    if (!match) continue;
+
+    const spoken = cleanOwnerLanguageLearnValue(match[1]);
+    const canonical = cleanOwnerLanguageLearnValue(match[2]);
+
+    if (!spoken || !canonical || spoken === canonical) return null;
+
+    return Object.freeze({
+      type: OWNER_COMMANDS.LANGUAGE_LEARN,
+      spoken,
+      canonical
+    });
+  }
+
+  return null;
 }
 
 function resolvePlatformFromMessage(normalizedMessage) {
@@ -179,6 +218,12 @@ function detectSendDesignLinkCommand(message, normalizedMessage) {
 
 function detectOwnerCommand(message) {
   const normalized = normalizeCommand(message);
+
+  const languageLearnCommand =
+    detectOwnerLanguageLearnCommand(message, normalized);
+
+  if (languageLearnCommand) return languageLearnCommand;
+
   const confirmationCommand = detectOwnerOpsConfirmation(message);
   if (confirmationCommand) return confirmationCommand;
   const modeCommand = detectOwnerModeCommand(message, normalized);
@@ -270,6 +315,23 @@ async function executeOwnerCommand({ command, platform }) {
     const state = await setOperatorMode({ operatorId: 'owner', role: 'OWNER', mode: command.mode });
     return { command: type, job: null, outputText: `Modo operativo actualizado.\n${formatModeState(state)}`, operatorMode: state };
   }
+  if (type === OWNER_COMMANDS.LANGUAGE_LEARN) {
+    const learned = await learnAlias({
+      spoken: command.spoken,
+      canonical: command.canonical
+    });
+
+    return {
+      command: type,
+      job: null,
+      outputText: [
+        'Aprendizaje lingüístico guardado.',
+        `Cuando digás: ${learned.spoken}`,
+        `Interpretaré: ${learned.canonical}`
+      ].join('\n'),
+      languageLearning: learned
+    };
+  }
   if (type === OWNER_COMMANDS.BUSINESS_TRANSACTION) {
     const result = await executeOwnerBusinessCommand(command.businessCommand);
     if (!result.handled) throw Object.assign(new Error('OWNER_BUSINESS_COMMAND_NOT_HANDLED'), { code: 'OWNER_BUSINESS_COMMAND_NOT_HANDLED' });
@@ -346,6 +408,7 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectOwnerLanguageLearnCommand,
   detectOwnerModeCommand,
   detectOwnerOpsConfirmation,
   detectOwnerOpsReadCommand,
