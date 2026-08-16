@@ -213,3 +213,57 @@ test('Business context persists references only and ignores arbitrary business p
   assert.equal(context.customerName, undefined);
   assert.equal(context.total, undefined);
 });
+
+test('Owner mode router accepts ELAN comma natural activation and cambia modo a', () => {
+  const {
+    detectOwnerCommand,
+    OWNER_COMMANDS
+  } = require('../services/ownerCommandService');
+
+  const natural = detectOwnerCommand(
+    'ELAN, actúa como asistente de ventas.'
+  );
+
+  assert.equal(natural?.type, OWNER_COMMANDS.MODE_SET);
+  assert.equal(natural?.mode, 'VENTAS');
+
+  const canonical = detectOwnerCommand(
+    'ELAN, cambia modo a VENTAS.'
+  );
+
+  assert.equal(canonical?.type, OWNER_COMMANDS.MODE_SET);
+  assert.equal(canonical?.mode, 'VENTAS');
+});
+
+test('Owner mode router accepts common voice transcription variants', () => {
+  const {
+    detectOwnerCommand,
+    OWNER_COMMANDS
+  } = require('../services/ownerCommandService');
+
+  const samples = [
+    'elan actua como asistente de ventas',
+    'elan, actua como asistente de ventas',
+    'ELAN actúa como asistente de ventas.',
+    'elan cambia modo a ventas',
+    'cambia modo a ventas',
+    'ponte en modo ventas',
+    'entra en modo ventas'
+  ];
+
+  for (const sample of samples) {
+    const parsed = detectOwnerCommand(sample);
+
+    assert.equal(
+      parsed?.type,
+      OWNER_COMMANDS.MODE_SET,
+      `No reconoció como MODE_SET: ${sample}`
+    );
+
+    assert.equal(
+      parsed?.mode,
+      'VENTAS',
+      `No resolvió VENTAS: ${sample}`
+    );
+  }
+});

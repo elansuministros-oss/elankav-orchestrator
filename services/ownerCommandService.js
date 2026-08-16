@@ -77,7 +77,7 @@ const JOBS_LIST_PATTERN = /\b(ultimos|recientes|lista|listar|mostra|mostrar)\b.*
 const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|status|verifica|consulta|consultar)\b|\b(estado|sesion|status)\b.*\b(waha)\b/;
 const PUBLISH_PREPARED_PATTERN = /\b(publica|publicar|publicalo|publicala|sube|subir|crea pr|crear pr|abre pr|abrir pr|pull request)\b/;
 const MODE_QUERY_PATTERN = /\b(en que modo|que modo|modo actual|cual es tu modo|que rol operativo|modo estas)\b/;
-const MODE_SET_PATTERN = /^(?:elan\s+)?(?:actua como|trabaja como|ponte en modo|cambia a modo|cambiar a modo|entra en modo|modo)\s+(.+)$/;
+const MODE_SET_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:actua como|trabaja como|ponte en modo|cambia a modo|cambiar a modo|cambia modo a|cambiar modo a|entra en modo|modo)\s+(.+)$/;
 
 function normalizeCommand(value) {
   return String(value || '')
