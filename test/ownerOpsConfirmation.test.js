@@ -2,9 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {
-  setJobStoreAdapterForTests
-} = require('../services/jobs/jobQueue');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const {
   createPendingOperation,
   loadPendingOperation,
@@ -16,33 +16,16 @@ const {
   OWNER_COMMANDS
 } = require('../services/ownerCommandService');
 
-function createMemoryAdapter() {
-  const rows = new Map();
-  return {
-    async saveJob(job) {
-      const copy = JSON.parse(JSON.stringify(job));
-      rows.set(copy.id, copy);
-      return copy;
-    },
-    async getJob(id) {
-      const value = rows.get(id);
-      return value ? JSON.parse(JSON.stringify(value)) : null;
-    },
-    async listJobs() {
-      return [...rows.values()].map(value => JSON.parse(JSON.stringify(value)));
-    },
-    async markInterruptedJobs() {
-      return [];
-    }
-  };
-}
+let testDir;
 
-test.beforeEach(() => {
-  setJobStoreAdapterForTests(createMemoryAdapter());
+test.beforeEach(async () => {
+  testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'owner-ops-'));
+  process.env.OWNER_OPS_STORE_PATH = path.join(testDir, 'operations.json');
 });
 
-test.after(() => {
-  setJobStoreAdapterForTests(null);
+test.afterEach(async () => {
+  delete process.env.OWNER_OPS_STORE_PATH;
+  if (testDir) await fs.rm(testDir, { recursive: true, force: true });
 });
 
 test('restart request is prepared, never executed directly by routing', () => {
@@ -59,15 +42,8 @@ test('confirmation requires explicit OPS id', () => {
   assert.equal(command.operationId, 'OPS-1234567890-ABC123');
 });
 
-test('pending operation persists and can transition to completed', async () => {
-  const pending = await createPendingOperation({
-    capability: 'service.restart',
-    target: 'connect',
-    summary: 'Reiniciar CONNECT',
-    impact: 'Interrupción breve',
-    ttlMs: 60_000
-  });
-
+test('pending operation persists locally and can transition to completed', async () => {
+  const pending = await createPendingOperation({ capability: 'service.restart', target: 'connect', summary: 'Reiniciar CONNECT', impact: 'Interrupción breve', ttlMs: 60_000 });
   assert.match(pending.id, /^OPS-/);
   assert.equal(pending.status, 'pending');
   assert.equal(pending.result.operation.state, 'awaiting_confirmation');
@@ -79,10 +55,7 @@ test('pending operation persists and can transition to completed', async () => {
   assert.equal(running.status, 'running');
   assert.equal(running.result.operation.state, 'confirmed');
 
-  const completed = await markOperationCompleted(pending.id, {
-    capability: 'service.restart',
-    status: 'active'
-  });
+  const completed = await markOperationCompleted(pending.id, { capability: 'service.restart', status: 'active' });
   assert.equal(completed.status, 'completed');
   assert.equal(completed.result.operation.state, 'completed');
   assert.equal(completed.result.operation.execution.status, 'active');
