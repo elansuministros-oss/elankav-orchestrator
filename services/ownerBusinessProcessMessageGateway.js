@@ -4,7 +4,7 @@ const { buildContext } = require('./context/contextBuilder');
 const businessCommands = require('./ownerBusinessCommandService');
 const {
   addItemByHumanReference
-} = require('./ownerQuotationMediaService');
+} = require('./ownerQuotationHomonymResolver');
 const {
   parseAddQuotationItemRequest
 } = require('./ownerQuotationHumanReferenceParser');
