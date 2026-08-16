@@ -57,16 +57,17 @@ async function extractSellerIdentityFromImage({ buffer, mimeType, env = process.
       'Analizás una fotografía enviada por el propietario de ELANKAV durante el alta guiada de un vendedor.',
       'Extraé únicamente datos mínimos necesarios para identificar el borrador.',
       'NO devuelvas número de cédula, fecha de nacimiento, domicilio, códigos, QR, firmas ni otros datos sensibles.',
-      'Si es un documento de identidad y el nombre completo es claramente visible, devolvelo.',
+      'Si es un documento de identidad y el nombre completo es claramente visible, devolvé dos formas: printedName exactamente en el orden visible y naturalName en orden natural de uso personal (nombres primero, apellidos después) solamente si el orden se puede inferir con alta confianza.',
+      'En documentos nicaragüenses es frecuente que el documento muestre apellidos primero y nombres después; no reordenes si existe duda.',
       'No inventes caracteres ni completes nombres dudosos.',
       'Respondé únicamente JSON válido con esta forma:',
-      '{"documentDetected":true,"side":"front|back|unknown","fullName":"texto o null","confidence":0.0}',
-      'confidence debe estar entre 0 y 1.'
+      '{"documentDetected":true,"side":"front|back|unknown","printedName":"texto o null","naturalName":"texto o null","confidence":0.0,"naturalOrderConfidence":0.0}',
+      'confidence y naturalOrderConfidence deben estar entre 0 y 1.'
     ].join(' '),
     input: [{
       role: 'user',
       content: [
-        { type: 'input_text', text: 'Identificá si esta imagen corresponde a una cédula/documento de identidad y extraé solamente el nombre completo visible.' },
+        { type: 'input_text', text: 'Identificá si esta imagen corresponde a una cédula/documento de identidad y extraé solamente el nombre completo visible. Si podés inferir con alta confianza el orden natural, devolvelo también.' },
         { type: 'input_image', image_url: dataUrl }
       ]
     }]
@@ -77,12 +78,19 @@ async function extractSellerIdentityFromImage({ buffer, mimeType, env = process.
     ? String(parsed.side).toLowerCase()
     : 'unknown';
   const confidence = Number(parsed.confidence);
+  const naturalOrderConfidence = Number(parsed.naturalOrderConfidence);
+  const printedName = cleanName(parsed.printedName);
+  const naturalName = cleanName(parsed.naturalName);
+  const useNatural = naturalName && Number.isFinite(naturalOrderConfidence) && naturalOrderConfidence >= 0.8;
 
   return Object.freeze({
     documentDetected: parsed.documentDetected === true,
     side,
-    fullName: cleanName(parsed.fullName),
+    printedName,
+    naturalName: useNatural ? naturalName : '',
+    fullName: useNatural ? naturalName : printedName,
     confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    naturalOrderConfidence: Number.isFinite(naturalOrderConfidence) ? Math.max(0, Math.min(1, naturalOrderConfidence)) : 0,
     model: response.model || model
   });
 }
