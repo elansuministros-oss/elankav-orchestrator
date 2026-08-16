@@ -113,12 +113,13 @@ function parseAddQuotationItemRequest(message) {
   }
 
   const dimensions = parseDimensionsWithUnit(requestedDescription);
-  const productQuery = cleanProductText(
-    requestedDescription
-      .replace(/\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:cm|cms|centimetros|centímetros|m|mts|metros)?(?=\s|[.,;]|$)/gi, '')
-      .replace(/\bde\s*$/i, '')
-      .replace(/\s+/g, ' ')
-  );
+  const queryWithoutDimensions = requestedDescription
+    .replace(/\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:cm|cms|centimetros|centímetros|m|mts|metros)?(?=\s|[.,;]|$)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\s+de\s*$/i, '')
+    .trim();
+  const productQuery = normalize(cleanProductText(queryWithoutDimensions));
 
   return {
     customerReference: parseCustomerReference(raw),
