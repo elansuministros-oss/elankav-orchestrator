@@ -27,49 +27,41 @@ jobs:
           message_file = Path('services/messageService.js')
           message = message_file.read_text()
 
-          import_needle = """const {
-            processCrmConversation
-          } = require('./crmConversationService');
-          """
-          import_replacement = import_needle + """const {
-            processSellerRegistrationConversation
-          } = require('./ownerSellerRegistrationService');
-          """
+          import_needle = "const {\n  processCrmConversation\n} = require('./crmConversationService');\n"
+          import_replacement = import_needle + "const {\n  processSellerRegistrationConversation\n} = require('./ownerSellerRegistrationService');\n"
           if message.count(import_needle) != 1:
               raise SystemExit('MESSAGE_SERVICE_IMPORT_NEEDLE_NOT_UNIQUE')
           message = message.replace(import_needle, import_replacement, 1)
 
-          routing_needle = """      const ownerLanguageLearnCommand =
-                detectOwnerLanguageLearnCommand(normalizedMessage);
-          """
+          routing_needle = "      const ownerLanguageLearnCommand =\n        detectOwnerLanguageLearnCommand(normalizedMessage);\n"
           routing_replacement = """      const sellerConversation = await processSellerRegistrationConversation({
-                message: normalizedMessage,
-                externalUserId: context.externalUserId || externalUserId || null,
-                phone: context.phone || phone || null,
-                metadata: metadata && typeof metadata === 'object' ? metadata : {}
-              });
+            message: normalizedMessage,
+            externalUserId: context.externalUserId || externalUserId || null,
+            phone: context.phone || phone || null,
+            metadata: metadata && typeof metadata === 'object' ? metadata : {}
+          });
 
-              if (sellerConversation.handled) {
-                console.log('[OWNER_SELLER_REGISTRATION]', {
-                  platform: context.platform || platform || 'elanvisual',
-                  completed: Boolean(sellerConversation.completed),
-                  phone: 'OWNER_RECOGNIZED'
-                });
+          if (sellerConversation.handled) {
+            console.log('[OWNER_SELLER_REGISTRATION]', {
+              platform: context.platform || platform || 'elanvisual',
+              completed: Boolean(sellerConversation.completed),
+              phone: 'OWNER_RECOGNIZED'
+            });
 
-                return {
-                  outputText: sellerConversation.outputText,
-                  model: 'elankav-seller-registration',
-                  id: null,
-                  status: sellerConversation.completed ? 'completed' : 'in_progress',
-                  usage: null,
-                  crmAction: true,
-                  ownerCrmCommand: true
-                };
-              }
+            return {
+              outputText: sellerConversation.outputText,
+              model: 'elankav-seller-registration',
+              id: null,
+              status: sellerConversation.completed ? 'completed' : 'in_progress',
+              usage: null,
+              crmAction: true,
+              ownerCrmCommand: true
+            };
+          }
 
-              const ownerLanguageLearnCommand =
-                detectOwnerLanguageLearnCommand(normalizedMessage);
-          """
+          const ownerLanguageLearnCommand =
+            detectOwnerLanguageLearnCommand(normalizedMessage);
+"""
           if message.count(routing_needle) != 1:
               raise SystemExit('MESSAGE_SERVICE_ROUTING_NEEDLE_NOT_UNIQUE')
           message = message.replace(routing_needle, routing_replacement, 1)
@@ -77,13 +69,8 @@ jobs:
 
           webhook_file = Path('api/wahaWebhookApi.js')
           webhook = webhook_file.read_text()
-          media_needle = """        messageType: incoming.messageType, originalText: incoming.text || null,
-                  transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
-          """
-          media_replacement = """        messageType: incoming.messageType, originalText: incoming.text || null,
-                  media: incoming.media || null,
-                  transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
-          """
+          media_needle = "        messageType: incoming.messageType, originalText: incoming.text || null,\n        transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,\n"
+          media_replacement = "        messageType: incoming.messageType, originalText: incoming.text || null,\n        media: incoming.media || null,\n        transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,\n"
           if webhook.count(media_needle) != 1:
               raise SystemExit('WAHA_MEDIA_NEEDLE_NOT_UNIQUE')
           webhook = webhook.replace(media_needle, media_replacement, 1)
