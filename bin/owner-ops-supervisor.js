@@ -71,6 +71,37 @@ async function ensureDirs() {
   }
 }
 
+async function recoverInterruptedOperations() {
+  await ensureDirs();
+  const files = await fs.readdir(PROCESSING_DIR);
+  let recovered = 0;
+
+  for (const fileName of files.sort()) {
+    if (!/^OPS-\d+-[A-Z0-9]{6}\.json$/.test(fileName)) continue;
+
+    const processingPath = path.join(PROCESSING_DIR, fileName);
+    const requestPath = path.join(REQUEST_DIR, fileName);
+    const resultPath = path.join(RESULT_DIR, fileName);
+
+    try {
+      await fs.access(resultPath);
+      await fs.unlink(processingPath).catch(() => {});
+      continue;
+    } catch (_) {}
+
+    try {
+      await fs.access(requestPath);
+      await fs.unlink(processingPath).catch(() => {});
+      continue;
+    } catch (_) {}
+
+    await fs.rename(processingPath, requestPath);
+    recovered += 1;
+  }
+
+  return recovered;
+}
+
 function assertRequest(request) {
   if (!request || request.schemaVersion !== 1) throw new Error('SUPERVISOR_INVALID_SCHEMA');
   if (!/^OPS-\d+-[A-Z0-9]{6}$/.test(String(request.id || ''))) throw new Error('SUPERVISOR_INVALID_ID');
@@ -291,7 +322,8 @@ async function tick() {
 
 async function main() {
   await ensureDirs();
-  console.log('[OWNER_OPS_SUPERVISOR] READY');
+  const recovered = await recoverInterruptedOperations();
+  console.log(`[OWNER_OPS_SUPERVISOR] READY recovered=${recovered}`);
   for (;;) {
     try {
       await tick();
@@ -316,6 +348,7 @@ module.exports = {
   deployRepository,
   executeRequest,
   installDependencies,
+  recoverInterruptedOperations,
   restartService,
   sanitizeTechnicalError,
   verifyPort,
