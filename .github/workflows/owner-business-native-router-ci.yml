@@ -9,6 +9,8 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -18,7 +20,7 @@ jobs:
           node-version: 22
 
       - name: Install
-        run: npm install
+        run: npm install --ignore-scripts
 
       - name: Syntax
         run: |
