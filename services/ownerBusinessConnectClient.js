@@ -62,7 +62,7 @@ function paramsFrom(filters = {}) {
 }
 
 async function searchCustomers(term, env) { return requestConnect(`/api/v1/business/vqs/customers/directory-search?q=${query(term)}&limit=30`, {}, env); }
-async function listCustomers(env) { return requestConnect('/api/v1/business/vqs/customers/directory-search?q=&limit=100', {}, env); }
+async function listCustomers(env) { return requestConnect('/api/v1/business/vqs/customers/official', {}, env); }
 async function createCustomer(input, env) { return requestConnect('/api/v1/business/vqs/customers', { method: 'POST', body: input }, env); }
 async function resolveCatalogPricing(input, env) { return requestConnect('/api/v1/business/vqs/pricing/resolve', { method: 'POST', body: input }, env); }
 async function listQuotations(env) { return requestConnect('/api/v1/business/vqs/quotations?limit=200', {}, env); }
