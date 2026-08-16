@@ -48,8 +48,17 @@ function expired(state, now = Date.now()) {
   return !Number.isFinite(updated) || now - updated > STATE_TTL_MS;
 }
 
+function isSellerAccessRequest(message) {
+  const value = normalizeCommand(message);
+  const asksAccess = /\b(genera|generar|generame|generame|habilita|habilitar|habilitame|provisiona|provisionar|crea|crear)\b.{0,40}\bacceso\b/.test(value)
+    || /\bacceso\b.{0,40}\b(vendedor|vendedora)\b/.test(value);
+  return asksAccess && /\b(vendedor|vendedora)\b/.test(value) && Boolean(parsePlatform(message));
+}
+
 function isSellerStart(message) {
   const value = normalizeCommand(message);
+  if (/\b(no|sin)\s+(?:registra|registrar|agrega|agregar|crea|crear|carga|cargar|dar de alta)\b.{0,45}\b(vendedor|vendedora)\b/.test(value)) return false;
+  if (isSellerAccessRequest(message)) return false;
   return /\b(registra|registrar|agrega|agregar|crea|crear|carga|cargar|dar de alta|alta)\b.{0,35}\b(vendedor|vendedora)\b/.test(value)
     || /\b(vendedor|vendedora)\b.{0,35}\b(registra|registrar|agrega|agregar|crea|crear|carga|cargar|dar de alta|alta)\b/.test(value)
     || /\bquiero (?:cargar|registrar|agregar|crear) (?:un |una )?vendedor(?:a)?\b/.test(value);
@@ -196,16 +205,96 @@ function normalizeName(value) {
   return normalizeCommand(value).replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function nameTokenKey(value) {
+  return normalizeName(value).split(/\s+/).filter(Boolean).sort().join('|');
+}
+
+function parseAccessTargetName(message) {
+  const labeled = parseName(message);
+  if (labeled) return safeName(labeled);
+  const raw = normalize(message);
+  const patterns = [
+    /(?:para\s+el\s+)?vendedor(?:a)?\s+existente\s+([^\n.]+)/i,
+    /(?:del|de la)\s+vendedor(?:a)?\s+([^\n.]+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match) return safeName(match[1].replace(/\s+(?:no\s+crear|sin\s+crear).*$/i, '').trim());
+  }
+  return '';
+}
+
 async function findExistingSeller(data) {
   const payload = await listSellers();
   const sellers = normalizeSellerRows(payload);
   const expectedPhone = digits(data.whatsapp);
+  const expectedEmail = normalize(data.email).toLowerCase();
   const expectedName = normalizeName(data.displayName);
+  const expectedNameTokens = nameTokenKey(data.displayName);
   return sellers.find(seller => {
     const phone = digits(seller.whatsapp || seller.phone);
-    const name = normalizeName(seller.display_name || seller.displayName || seller.legal_name || seller.legalName);
-    return (expectedPhone && phone === expectedPhone) || (expectedName && name === expectedName);
+    const email = normalize(seller.email).toLowerCase();
+    const rawName = seller.display_name || seller.displayName || seller.legal_name || seller.legalName;
+    const name = normalizeName(rawName);
+    const nameTokens = nameTokenKey(rawName);
+    return (expectedEmail && email === expectedEmail)
+      || (expectedPhone && phone === expectedPhone)
+      || (expectedName && name === expectedName)
+      || (expectedNameTokens && nameTokens === expectedNameTokens);
   }) || null;
+}
+
+async function processExistingSellerAccessRequest(message) {
+  const platform = parsePlatform(message);
+  const email = parseEmail(message);
+  const displayName = parseAccessTargetName(message);
+  const seller = await findExistingSeller({ email, displayName });
+  if (!seller) {
+    const requested = email || displayName || 'el vendedor indicado';
+    return {
+      handled: true,
+      completed: true,
+      outputText: `No encontré un vendedor oficial que coincida con ${requested}. No creé ningún vendedor nuevo. Indicame el correo oficial o el código de vendedor para identificarlo.`
+    };
+  }
+
+  const sellerId = normalize(seller.id);
+  const sellerName = normalize(seller.display_name || seller.displayName || seller.legal_name || seller.legalName);
+  const code = normalize(seller.seller_code || seller.sellerCode);
+  try {
+    const payload = await provisionSellerAccess(sellerId, platform);
+    const access = payload?.data || payload || {};
+    return {
+      handled: true,
+      completed: true,
+      outputText: [
+        '✅ Acceso generado reutilizando el vendedor existente.',
+        '',
+        `Nombre: ${sellerName}`,
+        code ? `Código: ${code}` : '',
+        `Plataforma: ${platform}`,
+        access.loginUrl ? `Link: ${access.loginUrl}` : '',
+        access.username ? `Usuario: ${access.username}` : '',
+        access.password ? `Contraseña temporal: ${access.password}` : '',
+        access.password ? 'La contraseña temporal se muestra una sola vez.' : '',
+        '',
+        'No se creó ningún vendedor duplicado.'
+      ].filter(Boolean).join('\n')
+    };
+  } catch (error) {
+    return {
+      handled: true,
+      completed: true,
+      outputText: [
+        '⚠️ Encontré y reutilicé el vendedor existente, pero no pude generar el acceso.',
+        `Nombre: ${sellerName}`,
+        code ? `Código: ${code}` : '',
+        `Plataforma: ${platform}`,
+        `Error: ${error?.message || 'No fue posible completar la operación.'}`,
+        'No se creó ningún vendedor duplicado.'
+      ].filter(Boolean).join('\n')
+    };
+  }
 }
 
 async function persistSeller(state) {
@@ -431,6 +520,14 @@ async function processSellerRegistrationConversation({ message, externalUserId, 
     state = null;
   }
 
+  if (isSellerAccessRequest(message)) {
+    if (state?.type === 'seller') {
+      delete states[key];
+      writeStates(states);
+    }
+    return processExistingSellerAccessRequest(message);
+  }
+
   if (state && state.type !== 'seller') return { handled: false };
 
   if (!state) {
@@ -457,6 +554,7 @@ module.exports = {
   STATE_FILE,
   STATE_TTL_MS,
   SUPPORTED_PLATFORMS,
+  isSellerAccessRequest,
   isSellerStart,
   parseSellerFields,
   parseNameCorrection,
