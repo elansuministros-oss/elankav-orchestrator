@@ -60,7 +60,9 @@ function detectSupervisorCommand(message) {
       capability: 'repository.deploy',
       target,
       summary: `Desplegar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'} al commit ${commit.slice(0, 7)}`,
-      impact: 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio.',
+      impact: target === 'connect'
+        ? 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, npm ci con dependencias de desarrollo, build TypeScript, reinicio y verificación del servicio y puerto 4400.'
+        : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio. El supervisor externo se refrescará automáticamente después del despliegue.',
       parameters: Object.freeze({
         expectedCommit: commit,
         install: true,
@@ -70,10 +72,6 @@ function detectSupervisorCommand(message) {
   }
 
   return null;
-}
-
-function detectOwnerCommand(message) {
-  return detectSupervisorCommand(message) || ORIGINAL_DETECT(message);
 }
 
 function formatSupervisorStatus(result) {
@@ -99,8 +97,11 @@ function formatSupervisorStatus(result) {
     `Objetivo: ${execution.target || 'no disponible'}`,
     execution.after ? `Commit activo: ${execution.after}` : null,
     execution.backup ? `Backup: ${execution.backup}` : null,
+    execution.installCommand ? `Dependencias: ${execution.installCommand}` : null,
+    execution.buildCommand ? `Build: ${execution.buildCommand}` : null,
     execution.service ? `Servicio: ${execution.service}` : null,
-    execution.status ? `Estado: ${execution.status}` : null
+    execution.status ? `Estado: ${execution.status}` : null,
+    execution.listening ? `Puerto verificado: ${execution.listening}` : null
   ].filter(Boolean).join('\n');
 }
 
