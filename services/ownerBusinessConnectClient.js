@@ -41,7 +41,7 @@ function assertAllowedPath(path, method) {
 async function requestConnect(path, options = {}, env = process.env) {
   const { baseUrl, token } = config(env);
   const method = String(options.method || 'GET').toUpperCase();
-  if (!['GET', 'POST', 'PATCH'].includes(method)) throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED', 'Método no autorizado para Owner Business Gateway.', 405);
+  if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED', 'Método no autorizado para Owner Business Gateway.', 405);
   assertAllowedPath(path, method);
 
   const response = await fetch(`${baseUrl}${path}`, {
@@ -100,6 +100,8 @@ async function createQuotation(document, idempotencyKey, env) {
   return requestConnect('/api/v1/business/vqs/quotations', { method: 'POST', body, headers: key ? { 'Idempotency-Key': key } : {} }, env);
 }
 async function updateQuotation(projectId, document, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}`, { method: 'PATCH', body: document }, env); }
+async function uploadQuotationImage(projectId, body, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/media`, { method: 'POST', body }, env); }
+async function removeQuotationImage(projectId, body = {}, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/media`, { method: 'DELETE', body }, env); }
 async function sendQuotationWhatsApp(projectId, body = {}, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/send-whatsapp`, { method: 'POST', body }, env); }
 async function listPayments(projectId, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/payments`, {}, env); }
 async function applyPayment(projectId, body, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/payments`, { method: 'POST', body }, env); }
@@ -130,11 +132,13 @@ module.exports = {
   listQuotations,
   listWorkOrders,
   normalizeQuotationSource,
+  removeQuotationImage,
   requestConnect,
   resolveCatalogPricing,
   revokePriceAuthorization,
   searchCustomers,
   searchProviders,
   sendQuotationWhatsApp,
-  updateQuotation
+  updateQuotation,
+  uploadQuotationImage
 };
