@@ -10,6 +10,10 @@
 
 const enabled = String(process.env.VOICE_PIPELINE_V2_ENABLED || '').toLowerCase() === 'true';
 
+// Preload the OWNER OPS supervisor bridge before any webhook/message service is
+// required so WhatsApp Owner commands can use the external supervisor safely.
+require('./services/ownerOpsSupervisorCommandPatch');
+
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
   const v2Exports = require('./api/wahaWebhookApiV2');
