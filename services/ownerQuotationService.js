@@ -43,8 +43,46 @@ function parseCarrier(message) {
 
 function parseDestination(message) {
   const raw = String(message || '');
-  const match = raw.match(/\b(?:instalad[oa]|instalacion|instalación|delivery|entrega|entregar|enviar)\s+(?:en|a|hacia)\s+([^,.\n]+?)(?=[,.\n]|$)/i);
+  const match = raw.match(/\b(?:instalad[oa]|instalacion|instalación|delivery|entrega|entregar|enviar)\s+(?:en|a|hacia)\s+([^,.\n]+?)(?=\s+(?:precio|por)\b|\s+condiciones?\b|[,.\n]|$)/i);
   return match ? match[1].trim() : '';
+}
+
+function parseExplicitPrice(message) {
+  const raw = String(message || '');
+  const patterns = [
+    /\b(?:precio|total)\s*[:=]?\s*(us\$|usd|c\$|nio|\$)?\s*([0-9]+(?:[.,][0-9]{1,2})?)\s*(dolares|dólares|usd|cordobas|córdobas|nio)?\b/i,
+    /\bpor\s+(us\$|usd|c\$|nio|\$)\s*([0-9]+(?:[.,][0-9]{1,2})?)\b/i,
+    /\bpor\s+([0-9]+(?:[.,][0-9]{1,2})?)\s*(dolares|dólares|usd|cordobas|córdobas|nio)\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (!match) continue;
+    const amountToken = match[2] && /\d/.test(match[2]) ? match[2] : match[1];
+    const amount = Number(String(amountToken).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const currencyText = normalize([match[1], match[3], match[2]].join(' '));
+    const currency = /(?:c\$|nio|cordoba)/i.test(currencyText) ? 'NIO' : 'USD';
+    return { amount, currency };
+  }
+  return null;
+}
+
+function parsePaymentTerms(message) {
+  const raw = String(message || '');
+  const split = raw.match(/\b(\d{1,3})\s*%?\s*[/\\-]\s*(\d{1,3})\s*%?\b/);
+  if (split) {
+    const depositPercent = Number(split[1]);
+    const balancePercent = Number(split[2]);
+    if (depositPercent > 0 && balancePercent >= 0 && depositPercent + balancePercent === 100) {
+      return { depositPercent, balancePercent };
+    }
+  }
+  const deposit = raw.match(/\b(?:anticipo|inicial|adelanto)\s*(?:de)?\s*(\d{1,3})\s*%/i);
+  if (deposit) {
+    const depositPercent = Number(deposit[1]);
+    if (depositPercent > 0 && depositPercent <= 100) return { depositPercent, balancePercent: 100 - depositPercent };
+  }
+  return { depositPercent: 60, balancePercent: 40 };
 }
 
 function parseProductQuery(message) {
@@ -53,6 +91,8 @@ function parseProductQuery(message) {
   value = value.replace(/\b(?:cantidad|cant|qty)\s*[:=]?\s*\d+(?:[.,]\d+)?\b/gi, '');
   value = value.replace(/\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:m|mts|metros|cm)?\b/gi, '');
   value = value.replace(/\b(?:instalad[oa]|instalacion|instalación|delivery|entrega|entregar|enviar)\b.*$/i, '');
+  value = value.replace(/\b(?:precio|total)\s*[:=]?.*$/i, '');
+  value = value.replace(/\bcondiciones?(?:\s+de\s+pago)?\b.*$/i, '');
   value = value.replace(/\b(?:con|sin)\s+(?:instalacion|instalación|delivery)\b.*$/i, '');
   return value.replace(/\s+/g, ' ').replace(/[,:;-]+$/g, '').trim();
 }
@@ -64,6 +104,8 @@ function parseQuotationRequest(message) {
   const carrier = parseCarrier(message);
   const destination = carrier.destination || parseDestination(message);
   const productQuery = parseProductQuery(message);
+  const explicitPrice = parseExplicitPrice(message);
+  const paymentTerms = parsePaymentTerms(message);
   if (!productQuery) return null;
   return {
     message: String(message || '').trim(),
@@ -72,7 +114,10 @@ function parseQuotationRequest(message) {
     height: dimensions.height,
     quantity: parseQuantity(message),
     destination: destination || undefined,
-    carrier: carrier.carrier || (/cargo\s*trans/i.test(message) ? 'Cargo Trans' : undefined)
+    carrier: carrier.carrier || (/cargo\s*trans/i.test(message) ? 'Cargo Trans' : undefined),
+    explicitPrice: explicitPrice || undefined,
+    paymentTerms,
+    priceIncludesLogistics: Boolean(explicitPrice && /\b(instalad[oa]|entregad[oa]|delivery incluido|incluye instalacion|incluye instalación)\b/i.test(message))
   };
 }
 
@@ -103,6 +148,16 @@ function selectDistanceRule(rules) {
 }
 
 async function resolveLogistics(input) {
+  if (input.explicitPrice && input.priceIncludesLogistics) {
+    return {
+      ready: true,
+      amount: 0,
+      currency: input.explicitPrice.currency,
+      description: input.destination ? `Precio Owner incluye instalación/entrega en ${input.destination}` : 'Precio Owner incluye logística indicada',
+      details: { includedInOwnerPrice: true, destination: input.destination || null }
+    };
+  }
+
   const request = buildLogisticsRequest({
     text: input.message,
     width: input.width,
@@ -137,19 +192,13 @@ async function resolveLogistics(input) {
   }
 
   if (logistics.method === DELIVERY_METHODS.CARRIER) {
-    return {
-      ready: false,
-      question: `No tengo una tarifa vigente de ${logistics.carrier || 'ese transportista'} para ${logistics.destination || 'ese destino'}. Podés indicármela por mensaje para registrarla.`
-    };
+    return { ready: false, question: `No tengo una tarifa vigente de ${logistics.carrier || 'ese transportista'} para ${logistics.destination || 'ese destino'}. Podés indicármela por mensaje para registrarla.` };
   }
 
   const route = await computeRoadRoute(logistics.coordinates || logistics.destination);
   const distanceRule = selectDistanceRule(rules);
   if (!distanceRule) {
-    return {
-      ready: false,
-      question: `Tengo la ruta (${route.oneWayKm.toFixed(2)} km por trayecto), pero no hay una tarifa por km vigente en la biblioteca logística.`
-    };
+    return { ready: false, question: `Tengo la ruta (${route.oneWayKm.toFixed(2)} km por trayecto), pero no hay una tarifa por km vigente en la biblioteca logística.` };
   }
   const roundTripKm = Number((route.oneWayKm * 2 * Math.max(1, Number(logistics.trips) || 1)).toFixed(2));
   const amount = Number((roundTripKm * Number(distanceRule.rate)).toFixed(2));
@@ -167,9 +216,7 @@ async function resolveLogistics(input) {
 
 async function resolveActiveCustomer() {
   const context = await readContext();
-  if (!context.activeCustomerId) {
-    return { ready: false, question: '¿Para qué cliente preparo la cotización? Primero indicame o buscá el cliente.' };
-  }
+  if (!context.activeCustomerId) return { ready: false, question: '¿Para qué cliente preparo la cotización? Primero indicame o buscá el cliente.' };
   const result = await searchCustomers(context.activeCustomerId);
   const rows = result?.data?.results || [];
   const match = rows.find(row => String(row?.customer?.customerId || row?.customer?.id || row?.sourceId || '') === String(context.activeCustomerId)) || rows[0];
@@ -188,59 +235,65 @@ async function prepareAndCreateQuotation(input) {
   const logisticsResult = await resolveLogistics(input);
   if (!logisticsResult.ready) return logisticsResult;
 
-  const pricingResponse = await resolveCatalogPricing({
-    query: input.productQuery,
-    width: input.width,
-    height: input.height,
-    quantity: input.quantity
-  });
-  const pricing = pricingResponse.data || {};
-  if (pricing.status === 'NOT_FOUND') {
-    return { ready: false, question: `No encontré “${input.productQuery}” en la biblioteca oficial. Necesito identificar el producto o servicio correcto antes de cotizar.` };
-  }
-  if (pricing.status === 'MULTIPLE') {
-    const names = (pricing.matches || []).slice(0, 5).map(item => item.name).filter(Boolean);
-    return { ready: false, question: `Encontré varias opciones en la biblioteca: ${names.join(', ')}. Indicame cuál corresponde.` };
-  }
-  if (pricing.status === 'REQUIRES_INPUT') {
-    return { ready: false, question: 'Faltan medidas necesarias para calcular el precio de este producto.' };
-  }
-  if (pricing.status !== 'FOUND') {
-    return { ready: false, question: 'El producto existe, pero no tiene un precio de venta vigente en la biblioteca oficial.' };
+  let pricing = {};
+  try {
+    const pricingResponse = await resolveCatalogPricing({
+      query: input.productQuery,
+      width: input.width,
+      height: input.height,
+      quantity: input.quantity
+    });
+    pricing = pricingResponse.data || {};
+  } catch (error) {
+    if (!input.explicitPrice) throw error;
+    pricing = { status: 'NOT_FOUND' };
   }
 
-  if (pricing.calculation.currency !== logisticsResult.currency && Number(logisticsResult.amount) > 0) {
-    return {
-      ready: false,
-      question: `El producto está en ${pricing.calculation.currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio; necesito una regla de conversión oficial antes de cerrar la cotización.`
-    };
+  if (!input.explicitPrice) {
+    if (pricing.status === 'NOT_FOUND') return { ready: false, question: `No encontré “${input.productQuery}” en la biblioteca oficial. Necesito identificar el producto o servicio correcto antes de cotizar.` };
+    if (pricing.status === 'MULTIPLE') {
+      const names = (pricing.matches || []).slice(0, 5).map(item => item.name).filter(Boolean);
+      return { ready: false, question: `Encontré varias opciones en la biblioteca: ${names.join(', ')}. Indicame cuál corresponde.` };
+    }
+    if (pricing.status === 'REQUIRES_INPUT') return { ready: false, question: 'Faltan medidas necesarias para calcular el precio de este producto.' };
+    if (pricing.status !== 'FOUND') return { ready: false, question: 'El producto existe, pero no tiene un precio de venta vigente en la biblioteca oficial.' };
   }
 
-  const currency = pricing.calculation.currency;
-  const subtotal = Number(pricing.calculation.subtotal || 0);
+  const explicit = input.explicitPrice || null;
+  const catalogFound = pricing.status === 'FOUND' && pricing.item && pricing.calculation;
+  const currency = explicit?.currency || pricing.calculation?.currency || 'USD';
+  if (currency !== 'USD') return { ready: false, question: `El precio indicado está en ${currency}. El VQS oficial consolida el total principal en USD; necesito una conversión oficial antes de crear la cotización.` };
+
   const logisticsAmount = Number(logisticsResult.amount || 0);
-  const total = Number((subtotal + logisticsAmount).toFixed(2));
-  if (currency !== 'USD') {
-    return {
-      ready: false,
-      question: `La biblioteca devolvió ${currency}. El VQS oficial consolida el total principal en USD; necesito una conversión oficial antes de crear la cotización.`
-    };
+  if (logisticsAmount > 0 && logisticsResult.currency !== currency) {
+    return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio.` };
   }
 
+  const baseSubtotal = explicit ? Number(explicit.amount) : Number(pricing.calculation.subtotal || 0);
+  const total = Number((baseSubtotal + logisticsAmount).toFixed(2));
   const customer = customerResult.customer;
-  const item = pricing.item;
+  const item = catalogFound ? pricing.item : {
+    id: `OWNER-${randomUUID()}`,
+    code: 'OWNER-CUSTOM',
+    name: input.productQuery,
+    description: input.productQuery,
+    unit: 'servicio',
+    unitPrice: baseSubtotal
+  };
+
   const items = [{
     itemId: item.id,
-    catalogItemId: item.id,
+    ...(catalogFound ? { catalogItemId: item.id } : {}),
     code: item.code,
     title: item.name,
     description: item.description || input.productQuery,
-    quantity: Number(pricing.calculation.billableUnits || input.quantity || 1),
-    unit: item.unit,
-    unitPriceUsd: Number(item.unitPrice),
-    subtotalUsd: subtotal,
-    source: 'MASTER_CATALOG'
+    quantity: explicit ? 1 : Number(pricing.calculation.billableUnits || input.quantity || 1),
+    unit: item.unit || 'servicio',
+    unitPriceUsd: explicit ? baseSubtotal : Number(item.unitPrice),
+    subtotalUsd: baseSubtotal,
+    source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
   }];
+
   if (logisticsAmount > 0) {
     items.push({
       itemId: `LOG-${randomUUID()}`,
@@ -254,6 +307,9 @@ async function prepareAndCreateQuotation(input) {
     });
   }
 
+  const terms = input.paymentTerms || { depositPercent: 60, balancePercent: 40 };
+  const depositUsd = Number((total * terms.depositPercent / 100).toFixed(2));
+  const balanceUsd = Number((total - depositUsd).toFixed(2));
   const document = {
     quotation: {
       status: 'draft',
@@ -274,23 +330,21 @@ async function prepareAndCreateQuotation(input) {
       address: customer.address || '',
       city: customer.city || ''
     },
-    executiveSnapshot: {
-      executiveId: 'owner-whatsapp',
-      name: 'ELAN Owner'
-    },
+    executiveSnapshot: { executiveId: 'owner-whatsapp', name: 'ELAN Owner' },
     items,
-    pricing: {
-      subtotalUsd: total,
-      discountUsd: 0,
-      taxUsd: 0,
-      totalUsd: total
-    },
+    pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total },
     paymentTerms: {
-      depositPercent: 60,
-      balancePercent: 40,
-      depositUsd: Number((total * 0.6).toFixed(2)),
-      balanceUsd: Number((total * 0.4).toFixed(2))
+      depositPercent: terms.depositPercent,
+      balancePercent: terms.balancePercent,
+      depositUsd,
+      balanceUsd
     },
+    ownerCommercialOverride: explicit ? {
+      applied: true,
+      amountUsd: baseSubtotal,
+      includesLogistics: Boolean(input.priceIncludesLogistics),
+      source: 'owner-whatsapp'
+    } : undefined,
     contractVersion: '1.0.0'
   };
 
@@ -299,7 +353,10 @@ async function prepareAndCreateQuotation(input) {
   await updateContext({
     activeCustomerId: customer.customerId || customer.id,
     activeQuotationId: created.quotationId || null,
+    activeQuotationNumber: created.quotationNumber || null,
+    activeQuotationPublicUrl: created.publicUrl || null,
     activeProjectId: created.projectId || null,
+    lastQuotationTotalUsd: total,
     lastEntityType: 'quotation',
     lastEntityId: created.quotationId || created.projectId || null
   });
@@ -315,11 +372,14 @@ async function prepareAndCreateQuotation(input) {
       `Concepto: ${item.name}`,
       input.width && input.height ? `Medida: ${input.width} × ${input.height}` : '',
       logisticsResult.description ? `Logística: ${logisticsResult.description}` : '',
+      explicit ? 'Precio: autorizado directamente por Owner' : '',
       `Total: ${money(total, currency)}`,
-      `Anticipo 60%: ${money(total * 0.6, currency)}`,
-      `Saldo 40%: ${money(total * 0.4, currency)}`,
+      `Anticipo ${terms.depositPercent}%: ${money(depositUsd, currency)}`,
+      `Saldo ${terms.balancePercent}%: ${money(balanceUsd, currency)}`,
       `Cotización: ${created.quotationNumber || created.quotationId}`,
-      created.publicUrl ? `Enlace: ${created.publicUrl}` : ''
+      created.publicUrl ? `Enlace: ${created.publicUrl}` : '',
+      '',
+      'Podés revisarla y luego decir: “mandásela”.'
     ].filter(Boolean).join('\n')
   };
 }
@@ -327,6 +387,8 @@ async function prepareAndCreateQuotation(input) {
 module.exports = {
   parseCarrier,
   parseDestination,
+  parseExplicitPrice,
+  parsePaymentTerms,
   parseProductQuery,
   parseQuotationRequest,
   prepareAndCreateQuotation,
