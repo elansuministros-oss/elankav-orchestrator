@@ -26,6 +26,12 @@ const {
   parsePriceAuthorization
 } = require('../services/ownerBusinessCommandService');
 const { readContext, updateContext } = require('../services/ownerBusinessContextService');
+const {
+  parseQuotationRequest,
+  selectDistanceRule,
+  selectLogisticsRule
+} = require('../services/ownerQuotationService');
+const { waypoint } = require('../services/ownerRoutingService');
 
 test('Owner can persistently change operating mode', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'elan-mode-'));
@@ -106,6 +112,43 @@ test('Delivery and carrier are separate logistics modes', () => {
   assert.equal(carrier.ready, true);
   assert.equal(carrier.logistics.method, DELIVERY_METHODS.CARRIER);
   assert.equal(carrier.logistics.requiresCarrierRate, true);
+});
+
+test('Natural quote request extracts product dimensions and asks logistics separately', () => {
+  const parsed = parseQuotationRequest('Cotízame una impresión en lona banner impresión UV tamaño 2x1 instalada');
+  assert.ok(parsed);
+  assert.equal(parsed.width, 2);
+  assert.equal(parsed.height, 1);
+  assert.equal(parsed.quantity, 1);
+  assert.match(parsed.productQuery, /lona banner/i);
+  assert.equal(parsed.destination, undefined);
+  const routed = detectOwnerCommand('Cotízame una impresión en lona banner impresión UV tamaño 2x1 instalada');
+  assert.equal(routed.type, OWNER_COMMANDS.BUSINESS_TRANSACTION);
+  assert.equal(routed.businessCommand.type, BUSINESS_COMMANDS.QUOTATION_CREATE);
+});
+
+test('Natural carrier quote extracts Cargo Trans and destination', () => {
+  const parsed = parseQuotationRequest('Cotiza lona banner UV 2x1 enviar por Cargo Trans a Estelí');
+  assert.ok(parsed);
+  assert.equal(parsed.carrier, 'Cargo Trans');
+  assert.equal(parsed.destination, 'Estelí');
+});
+
+test('Logistics rule selection respects carrier destination and distance policy', () => {
+  const rules = [
+    { id: 'distance-1', serviceType: 'distance', pricingUnit: 'per_km', rate: 0.6, currency: 'USD' },
+    { id: 'carrier-1', serviceType: 'carrier', provider: 'Cargo Trans', destination: 'Estelí', pricingUnit: 'flat', rate: 350, currency: 'NIO' }
+  ];
+  const carrier = selectLogisticsRule(rules, { method: DELIVERY_METHODS.CARRIER, carrier: 'cargo trans', destination: 'esteli' });
+  assert.equal(carrier.id, 'carrier-1');
+  assert.equal(selectDistanceRule(rules).id, 'distance-1');
+});
+
+test('Routing adapter accepts both address and GPS coordinates without exposing credentials', () => {
+  assert.deepEqual(waypoint('Granada, Nicaragua'), { address: 'Granada, Nicaragua' });
+  assert.deepEqual(waypoint({ latitude: 11.9344, longitude: -85.956 }), {
+    location: { latLng: { latitude: 11.9344, longitude: -85.956 } }
+  });
 });
 
 test('Owner mode natural language commands are detected', () => {
