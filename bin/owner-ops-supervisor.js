@@ -3,6 +3,7 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const net = require('node:net');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -17,12 +18,18 @@ const TARGETS = Object.freeze({
   connect: Object.freeze({
     service: 'elankav-connect.service',
     repo: '/opt/elankav/connect',
-    branch: 'main'
+    branch: 'main',
+    installMode: 'ci-dev',
+    build: true,
+    port: 4400
   }),
   orchestrator: Object.freeze({
     service: 'elankav-orchestrator.service',
     repo: '/opt/elankav/orchestrator',
-    branch: 'fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01'
+    branch: 'fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01',
+    installMode: 'install',
+    build: false,
+    port: null
   })
 });
 
@@ -77,6 +84,33 @@ async function verifyService(target) {
   return state.stdout;
 }
 
+async function verifyPort(port, timeoutMs = 8_000) {
+  if (!port) return null;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const listening = await new Promise(resolve => {
+      const socket = net.createConnection({ host: '127.0.0.1', port });
+      const finish = value => {
+        socket.removeAllListeners();
+        socket.destroy();
+        resolve(value);
+      };
+      socket.setTimeout(800);
+      socket.once('connect', () => finish(true));
+      socket.once('timeout', () => finish(false));
+      socket.once('error', () => finish(false));
+    });
+
+    if (listening) return `127.0.0.1:${port}`;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  const error = new Error(`SUPERVISOR_PORT_NOT_LISTENING:${port}`);
+  error.code = 'SUPERVISOR_PORT_NOT_LISTENING';
+  throw error;
+}
+
 async function restartService(target) {
   const config = TARGETS[target];
   await run('systemctl', ['restart', config.service], { timeout: 30_000 });
@@ -87,7 +121,30 @@ async function restartService(target) {
     error.code = 'SUPERVISOR_SERVICE_NOT_ACTIVE';
     throw error;
   }
-  return { capability: 'service.restart', target, service: config.service, status: state };
+  const listening = await verifyPort(config.port);
+  return {
+    capability: 'service.restart',
+    target,
+    service: config.service,
+    status: state,
+    listening
+  };
+}
+
+async function installDependencies(config) {
+  if (config.installMode === 'ci-dev') {
+    await run('npm', ['ci', '--include=dev'], { cwd: config.repo, timeout: 240_000 });
+    return 'npm ci --include=dev';
+  }
+
+  await run('npm', ['install'], { cwd: config.repo, timeout: 240_000 });
+  return 'npm install';
+}
+
+async function buildRepository(config) {
+  if (!config.build) return null;
+  await run('npm', ['run', 'build'], { cwd: config.repo, timeout: 240_000 });
+  return 'npm run build';
 }
 
 async function deployRepository(target, parameters = {}) {
@@ -115,6 +172,7 @@ async function deployRepository(target, parameters = {}) {
   }
 
   const before = (await run('git', ['-C', config.repo, 'rev-parse', 'HEAD'])).stdout;
+
   await run('git', ['-C', config.repo, 'fetch', 'origin', branch], { timeout: 60_000 });
   const remote = (await run('git', ['-C', config.repo, 'rev-parse', `origin/${branch}`])).stdout.toLowerCase();
   if (remote !== expectedCommit) {
@@ -135,16 +193,26 @@ async function deployRepository(target, parameters = {}) {
   await run('git', ['-C', config.repo, 'branch', backup, before]);
   await run('git', ['-C', config.repo, 'merge', '--ff-only', `origin/${branch}`], { timeout: 60_000 });
 
-  if (parameters.install === true) {
-    await run('npm', ['install'], { cwd: config.repo, timeout: 180_000 });
+  let installCommand = null;
+  let buildCommand = null;
+
+  if (target === 'connect' || parameters.install === true) {
+    installCommand = await installDependencies(config);
   }
 
+  if (config.build) {
+    buildCommand = await buildRepository(config);
+  }
+
+  let restart = null;
   if (parameters.restart !== false) {
-    await restartService(target);
+    restart = await restartService(target);
   }
 
   const after = (await run('git', ['-C', config.repo, 'rev-parse', 'HEAD'])).stdout;
-  const serviceStatus = parameters.restart === false ? await verifyService(target) : 'active';
+  const serviceStatus = restart?.status || await verifyService(target);
+  const listening = restart?.listening || await verifyPort(config.port);
+
   return {
     capability: 'repository.deploy',
     target,
@@ -152,8 +220,11 @@ async function deployRepository(target, parameters = {}) {
     before,
     after,
     backup,
+    installCommand,
+    buildCommand,
     service: config.service,
-    status: serviceStatus
+    status: serviceStatus,
+    listening
   };
 }
 
@@ -241,8 +312,12 @@ if (require.main === module) {
 module.exports = {
   TARGETS,
   assertRequest,
+  buildRepository,
   deployRepository,
   executeRequest,
+  installDependencies,
   restartService,
-  sanitizeTechnicalError
+  sanitizeTechnicalError,
+  verifyPort,
+  verifyService
 };
