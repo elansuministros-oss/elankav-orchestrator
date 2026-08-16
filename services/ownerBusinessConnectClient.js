@@ -53,6 +53,13 @@ async function requestConnect(path, options = {}, env = process.env) {
 }
 
 function query(value) { return encodeURIComponent(String(value || '').trim()); }
+function paramsFrom(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && String(value).trim()) params.set(key, String(value));
+  }
+  return params.toString() ? `?${params.toString()}` : '';
+}
 
 async function searchCustomers(term, env) { return requestConnect(`/api/v1/business/vqs/customers/directory-search?q=${query(term)}&limit=30`, {}, env); }
 async function createCustomer(input, env) { return requestConnect('/api/v1/business/vqs/customers', { method: 'POST', body: input }, env); }
@@ -69,26 +76,23 @@ async function applyPayment(projectId, body, env) { return requestConnect(`/api/
 async function getPayment(projectId, paymentId, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/payments/${query(paymentId)}`, {}, env); }
 async function listWorkOrders(projectId, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/work-orders`, {}, env); }
 async function createWorkOrder(projectId, body = {}, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/work-orders`, { method: 'POST', body }, env); }
-async function listPriceAuthorizations(filters = {}, env) {
-  const params = new URLSearchParams();
-  if (filters.sellerId) params.set('sellerId', String(filters.sellerId));
-  if (filters.customerId) params.set('customerId', String(filters.customerId));
-  if (filters.status) params.set('status', String(filters.status));
-  const suffix = params.toString() ? `?${params.toString()}` : '';
-  return requestConnect(`/api/v1/business/vqs/price-authorizations${suffix}`, {}, env);
-}
+async function listPriceAuthorizations(filters = {}, env) { return requestConnect(`/api/v1/business/vqs/price-authorizations${paramsFrom(filters)}`, {}, env); }
 async function createPriceAuthorization(input, env) { return requestConnect('/api/v1/business/vqs/price-authorizations', { method: 'POST', body: input }, env); }
 async function revokePriceAuthorization(authorizationId, env) { return requestConnect(`/api/v1/business/vqs/price-authorizations/${query(authorizationId)}/revoke`, { method: 'POST', body: {} }, env); }
+async function listLogisticsRules(filters = {}, env) { return requestConnect(`/api/v1/business/vqs/logistics-rules${paramsFrom(filters)}`, {}, env); }
+async function createLogisticsRule(input, env) { return requestConnect('/api/v1/business/vqs/logistics-rules', { method: 'POST', body: input }, env); }
 
 module.exports = {
   OwnerBusinessConnectError,
   applyPayment,
   createCustomer,
+  createLogisticsRule,
   createPriceAuthorization,
   createQuotation,
   createWorkOrder,
   getPayment,
   getQuotation,
+  listLogisticsRules,
   listPayments,
   listPriceAuthorizations,
   listQuotations,
