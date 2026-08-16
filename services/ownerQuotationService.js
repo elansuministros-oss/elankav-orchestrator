@@ -48,6 +48,10 @@ function parseDestination(message) {
   return match ? match[1].trim() : '';
 }
 
+function hasLogisticsIntent(message) {
+  return /\b(instalad[oa]|instalacion|instalación|delivery|entrega|entregar|enviar|envio|envío|retiro|recoger|transport(?:e|ar)|cargo\s*trans)\b/i.test(String(message || ''));
+}
+
 function parseExplicitPrice(message) {
   const raw = String(message || '');
   const patterns = [
@@ -93,6 +97,7 @@ function parseQuotationSendFollowup(message) {
 function parseProductQuery(message) {
   let value = String(message || '').trim();
   value = value.replace(/^(?:elan[, ]+)?(?:cotiza|cotizame|cotízame|cotizar|realiza una cotizacion|realiza una cotización)\s*/i, '');
+  value = value.replace(/^para\s+(?:(?:la|el)\s+)?(?:dra\.?|dr\.?|sra\.?|sr\.?)\s+[A-Za-zÁÉÍÓÚÑáéíóúñ .'-]+?\s+(?=(?:un|una|el|la)\s+)/i, '');
   value = value.replace(/\b(?:cantidad|cant|qty)\s*[:=]?\s*\d+(?:[.,]\d+)?\b/gi, '');
   value = value.replace(/\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:m|mts|metros|cm)?\b/gi, '');
   value = value.replace(/\b(?:instalad[oa]|instalacion|instalación|delivery|entrega|entregar|enviar)\b.*$/i, '');
@@ -123,6 +128,7 @@ function parseQuotationRequest(message) {
     carrier: carrier.carrier || (/cargo\s*trans/i.test(message) ? 'Cargo Trans' : undefined),
     explicitPrice: explicitPrice || undefined,
     paymentTerms,
+    logisticsRequested: hasLogisticsIntent(message),
     priceIncludesLogistics: Boolean(explicitPrice && /\b(instalad[oa]|entregad[oa]|delivery incluido|incluye instalacion|incluye instalación)\b/i.test(message))
   };
 }
@@ -158,10 +164,20 @@ async function resolveLogistics(input) {
     };
   }
 
+  if (input.explicitPrice && !input.logisticsRequested) {
+    return {
+      ready: true,
+      amount: 0,
+      currency: input.explicitPrice.currency,
+      description: '',
+      details: { fixedOwnerPrice: true, logisticsRequested: false }
+    };
+  }
+
   const request = buildLogisticsRequest({ text: input.message, width: input.width, height: input.height, quantity: input.quantity, destination: input.destination, carrier: input.carrier });
   if (!request.ready) return { ready: false, question: request.question, requirements: request.requirements };
   const logistics = request.logistics;
-  if (logistics.method === DELIVERY_METHODS.PICKUP || !logistics.method) return { ready: true, amount: 0, currency: 'USD', description: 'Retiro / sin logística adicional', details: logistics };
+  if (logistics.method === DELIVERY_METHODS.PICKUP || !logistics.method) return { ready: true, amount: 0, currency: input.explicitPrice?.currency || 'USD', description: 'Retiro / sin logística adicional', details: logistics };
 
   const response = await listLogisticsRules({});
   const rules = response.data || [];
@@ -306,6 +322,7 @@ async function prepareAndCreateQuotation(input) {
 }
 
 module.exports = {
+  hasLogisticsIntent,
   parseCarrier,
   parseDestination,
   parseExplicitPrice,
