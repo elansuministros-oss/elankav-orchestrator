@@ -7,6 +7,7 @@ on:
       - feature/OWNER-OPS-GATEWAY-READONLY-01
       - feature/OWNER-OPS-SUPERVISOR-01
       - feature/OWNER-OPS-REMOTE-DEPLOY-01
+      - feature/OWNER-BUSINESS-MODES-PRICING-LOGISTICS-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
 
 jobs:
@@ -29,6 +30,9 @@ jobs:
           node --check server.js
           node --check server.voice-pipeline-v2.js
           node --check services/ownerCommandService.js
+          node --check services/operatorModeService.js
+          node --check services/pricingAuthorizationPolicyService.js
+          node --check services/quotationRequirementResolver.js
           node --check services/ownerOperationalReadService.js
           node --check services/ownerOpsReadService.js
           node --check services/ownerOpsAuditService.js
@@ -51,7 +55,8 @@ jobs:
             test/ownerOpsAudit.test.js \
             test/ownerOpsSupervisor.test.js \
             test/ownerOpsSupervisorCommandPatch.test.js \
-            test/codePrepareJob.test.js
+            test/codePrepareJob.test.js \
+            tests/ownerBusinessModesPricingLogistics.test.js
 
       - name: Success
         run: echo "ELANKAV ORCHESTRATOR OWNER OPS OK"
