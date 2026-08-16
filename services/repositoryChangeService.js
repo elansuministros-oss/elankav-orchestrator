@@ -2,8 +2,8 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const {
-  codexModifyWorkspace
-} = require('./jobs/jobCodex');
+  modifyWorkspaceWithNativeAI
+} = require('./nativeCodeExecutorService');
 
 const execFileAsync = promisify(execFile);
 
@@ -49,16 +49,15 @@ async function applyJobChanges({
     workspace.workspacePath
   );
 
-  const codexResult =
-    await codexModifyWorkspace({
-      task: job.task,
-      workspacePath: workspace.workspacePath
-    });
+  const executorResult = await modifyWorkspaceWithNativeAI({
+    task: job.task,
+    workspacePath: workspace.workspacePath
+  });
 
-  if (!codexResult.healthy) {
+  if (!executorResult.healthy) {
     throw new Error(
-      codexResult.error ||
-      'Codex no pudo modificar el workspace'
+      executorResult.error ||
+      'ELAN Native Code no pudo modificar el workspace'
     );
   }
 
@@ -94,13 +93,13 @@ async function applyJobChanges({
 
   if (branchAfter !== job.branch) {
     throw new Error(
-      'Codex cambió la rama activa'
+      'ELAN Native Code cambió la rama activa'
     );
   }
 
   if (headAfter !== headBefore) {
     throw new Error(
-      'Codex creó o movió un commit'
+      'ELAN Native Code creó o movió un commit'
     );
   }
 
@@ -114,10 +113,15 @@ async function applyJobChanges({
     status,
     diffStat,
     diffCheck: diffCheck.stdout.trim(),
-    codex: {
-      model: codexResult.model,
-      sandbox: codexResult.sandbox,
-      output: codexResult.output
+    executor: {
+      engine: executorResult.engine,
+      model: executorResult.model,
+      responseId: executorResult.responseId,
+      usage: executorResult.usage,
+      changedFiles: executorResult.changedFiles,
+      contextFiles: executorResult.contextFiles,
+      contextChars: executorResult.contextChars,
+      summary: executorResult.summary
     },
     finishedAt: new Date().toISOString()
   };
