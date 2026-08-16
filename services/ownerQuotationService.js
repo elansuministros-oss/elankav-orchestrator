@@ -8,6 +8,7 @@ const {
   searchCustomers
 } = require('./ownerBusinessConnectClient');
 const { readContext, updateContext } = require('./ownerBusinessContextService');
+const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { buildLogisticsRequest, DELIVERY_METHODS } = require('./quotationRequirementResolver');
 const { computeRoadRoute } = require('./ownerRoutingService');
 
@@ -73,9 +74,7 @@ function parsePaymentTerms(message) {
   if (split) {
     const depositPercent = Number(split[1]);
     const balancePercent = Number(split[2]);
-    if (depositPercent > 0 && balancePercent >= 0 && depositPercent + balancePercent === 100) {
-      return { depositPercent, balancePercent };
-    }
+    if (depositPercent > 0 && balancePercent >= 0 && depositPercent + balancePercent === 100) return { depositPercent, balancePercent };
   }
   const deposit = raw.match(/\b(?:anticipo|inicial|adelanto)\s*(?:de)?\s*(\d{1,3})\s*%/i);
   if (deposit) {
@@ -83,6 +82,12 @@ function parsePaymentTerms(message) {
     if (depositPercent > 0 && depositPercent <= 100) return { depositPercent, balancePercent: 100 - depositPercent };
   }
   return { depositPercent: 60, balancePercent: 40 };
+}
+
+function parseQuotationSendFollowup(message) {
+  const text = normalize(message).replace(/^elan[\s,;:]+/, '').replace(/[.!?]+$/g, '').trim();
+  if (/^(mandasela|enviasela|mandala|enviala)$/.test(text)) return true;
+  return /^(manda|mandale|envia|enviale|comparte|compartile)\s+(?:esa\s+|la\s+)?cotizacion(?:\s+al\s+cliente)?$/.test(text);
 }
 
 function parseProductQuery(message) {
@@ -98,6 +103,7 @@ function parseProductQuery(message) {
 }
 
 function parseQuotationRequest(message) {
+  if (parseQuotationSendFollowup(message)) return { sendActive: true, message: String(message || '').trim() };
   const normalized = normalize(message);
   if (!/^(?:elan\s+)?(?:cotiza|cotizame|cotizar|realiza una cotizacion)\b/.test(normalized)) return null;
   const dimensions = parseDimensions(message);
@@ -131,15 +137,9 @@ function matchesText(left, right) {
 function selectLogisticsRule(rules, logistics) {
   const rows = Array.isArray(rules) ? rules : [];
   if (logistics.method === DELIVERY_METHODS.CARRIER) {
-    return rows.find(rule =>
-      rule.serviceType === 'carrier' &&
-      matchesText(rule.provider, logistics.carrier) &&
-      matchesText(rule.destination, logistics.destination)
-    ) || null;
+    return rows.find(rule => rule.serviceType === 'carrier' && matchesText(rule.provider, logistics.carrier) && matchesText(rule.destination, logistics.destination)) || null;
   }
-  if (logistics.method === DELIVERY_METHODS.DELIVERY) {
-    return rows.find(rule => rule.serviceType === 'delivery' && matchesText(rule.destination, logistics.destination)) || null;
-  }
+  if (logistics.method === DELIVERY_METHODS.DELIVERY) return rows.find(rule => rule.serviceType === 'delivery' && matchesText(rule.destination, logistics.destination)) || null;
   return null;
 }
 
@@ -158,60 +158,26 @@ async function resolveLogistics(input) {
     };
   }
 
-  const request = buildLogisticsRequest({
-    text: input.message,
-    width: input.width,
-    height: input.height,
-    quantity: input.quantity,
-    destination: input.destination,
-    carrier: input.carrier
-  });
+  const request = buildLogisticsRequest({ text: input.message, width: input.width, height: input.height, quantity: input.quantity, destination: input.destination, carrier: input.carrier });
   if (!request.ready) return { ready: false, question: request.question, requirements: request.requirements };
-
   const logistics = request.logistics;
-  if (logistics.method === DELIVERY_METHODS.PICKUP || !logistics.method) {
-    return { ready: true, amount: 0, currency: 'USD', description: 'Retiro / sin logística adicional', details: logistics };
-  }
+  if (logistics.method === DELIVERY_METHODS.PICKUP || !logistics.method) return { ready: true, amount: 0, currency: 'USD', description: 'Retiro / sin logística adicional', details: logistics };
 
   const response = await listLogisticsRules({});
   const rules = response.data || [];
   const directRule = selectLogisticsRule(rules, logistics);
   if (directRule) {
-    if (directRule.pricingUnit !== 'flat') {
-      return { ready: false, question: `La regla ${directRule.ruleCode || ''} requiere una unidad logística adicional antes de cotizar.`.trim() };
-    }
-    return {
-      ready: true,
-      amount: Number(directRule.rate),
-      currency: directRule.currency,
-      description: directRule.provider ? `${directRule.provider}: ${directRule.origin || ''} → ${directRule.destination || ''}` : `Delivery ${directRule.destination || ''}`,
-      ruleId: directRule.id,
-      ruleCode: directRule.ruleCode,
-      details: logistics
-    };
+    if (directRule.pricingUnit !== 'flat') return { ready: false, question: `La regla ${directRule.ruleCode || ''} requiere una unidad logística adicional antes de cotizar.`.trim() };
+    return { ready: true, amount: Number(directRule.rate), currency: directRule.currency, description: directRule.provider ? `${directRule.provider}: ${directRule.origin || ''} → ${directRule.destination || ''}` : `Delivery ${directRule.destination || ''}`, ruleId: directRule.id, ruleCode: directRule.ruleCode, details: logistics };
   }
-
-  if (logistics.method === DELIVERY_METHODS.CARRIER) {
-    return { ready: false, question: `No tengo una tarifa vigente de ${logistics.carrier || 'ese transportista'} para ${logistics.destination || 'ese destino'}. Podés indicármela por mensaje para registrarla.` };
-  }
+  if (logistics.method === DELIVERY_METHODS.CARRIER) return { ready: false, question: `No tengo una tarifa vigente de ${logistics.carrier || 'ese transportista'} para ${logistics.destination || 'ese destino'}. Podés indicármela por mensaje para registrarla.` };
 
   const route = await computeRoadRoute(logistics.coordinates || logistics.destination);
   const distanceRule = selectDistanceRule(rules);
-  if (!distanceRule) {
-    return { ready: false, question: `Tengo la ruta (${route.oneWayKm.toFixed(2)} km por trayecto), pero no hay una tarifa por km vigente en la biblioteca logística.` };
-  }
+  if (!distanceRule) return { ready: false, question: `Tengo la ruta (${route.oneWayKm.toFixed(2)} km por trayecto), pero no hay una tarifa por km vigente en la biblioteca logística.` };
   const roundTripKm = Number((route.oneWayKm * 2 * Math.max(1, Number(logistics.trips) || 1)).toFixed(2));
   const amount = Number((roundTripKm * Number(distanceRule.rate)).toFixed(2));
-  return {
-    ready: true,
-    amount,
-    currency: distanceRule.currency,
-    description: `Logística por carretera: ${roundTripKm.toFixed(2)} km facturables`,
-    ruleId: distanceRule.id,
-    ruleCode: distanceRule.ruleCode,
-    route: { ...route, roundTripKm },
-    details: logistics
-  };
+  return { ready: true, amount, currency: distanceRule.currency, description: `Logística por carretera: ${roundTripKm.toFixed(2)} km facturables`, ruleId: distanceRule.id, ruleCode: distanceRule.ruleCode, route: { ...route, roundTripKm }, details: logistics };
 }
 
 async function resolveActiveCustomer() {
@@ -228,21 +194,33 @@ function money(amount, currency) {
   return `${currency} ${Number(amount || 0).toFixed(2)}`;
 }
 
+async function prepareActiveQuotationDelivery() {
+  const context = await readContext();
+  if (!context.activeProjectId || !context.activeQuotationId) {
+    return { ready: false, question: 'No tengo una cotización activa en esta conversación para enviar. Primero creá o buscá la cotización.' };
+  }
+  const operation = await createPendingOperation({
+    capability: 'business.quotation.send-whatsapp',
+    target: 'connect',
+    requestedBy: 'owner-whatsapp',
+    summary: `Enviar ${context.activeQuotationNumber || context.activeQuotationId} al cliente por WhatsApp`,
+    impact: 'Envía externamente la cotización oficial activa. Requiere confirmación explícita del Owner.',
+    parameters: { projectId: context.activeProjectId, delivery: {} }
+  });
+  return { ready: false, question: formatPendingOperation(operation), operation, sendPending: true };
+}
+
 async function prepareAndCreateQuotation(input) {
+  if (input?.sendActive === true) return prepareActiveQuotationDelivery();
+
   const customerResult = await resolveActiveCustomer();
   if (!customerResult.ready) return customerResult;
-
   const logisticsResult = await resolveLogistics(input);
   if (!logisticsResult.ready) return logisticsResult;
 
   let pricing = {};
   try {
-    const pricingResponse = await resolveCatalogPricing({
-      query: input.productQuery,
-      width: input.width,
-      height: input.height,
-      quantity: input.quantity
-    });
+    const pricingResponse = await resolveCatalogPricing({ query: input.productQuery, width: input.width, height: input.height, quantity: input.quantity });
     pricing = pricingResponse.data || {};
   } catch (error) {
     if (!input.explicitPrice) throw error;
@@ -265,21 +243,12 @@ async function prepareAndCreateQuotation(input) {
   if (currency !== 'USD') return { ready: false, question: `El precio indicado está en ${currency}. El VQS oficial consolida el total principal en USD; necesito una conversión oficial antes de crear la cotización.` };
 
   const logisticsAmount = Number(logisticsResult.amount || 0);
-  if (logisticsAmount > 0 && logisticsResult.currency !== currency) {
-    return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio.` };
-  }
+  if (logisticsAmount > 0 && logisticsResult.currency !== currency) return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio.` };
 
   const baseSubtotal = explicit ? Number(explicit.amount) : Number(pricing.calculation.subtotal || 0);
   const total = Number((baseSubtotal + logisticsAmount).toFixed(2));
   const customer = customerResult.customer;
-  const item = catalogFound ? pricing.item : {
-    id: `OWNER-${randomUUID()}`,
-    code: 'OWNER-CUSTOM',
-    name: input.productQuery,
-    description: input.productQuery,
-    unit: 'servicio',
-    unitPrice: baseSubtotal
-  };
+  const item = catalogFound ? pricing.item : { id: `OWNER-${randomUUID()}`, code: 'OWNER-CUSTOM', name: input.productQuery, description: input.productQuery, unit: 'servicio', unitPrice: baseSubtotal };
 
   const items = [{
     itemId: item.id,
@@ -293,81 +262,34 @@ async function prepareAndCreateQuotation(input) {
     subtotalUsd: baseSubtotal,
     source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
   }];
-
-  if (logisticsAmount > 0) {
-    items.push({
-      itemId: `LOG-${randomUUID()}`,
-      title: logisticsResult.description || 'Logística',
-      description: logisticsResult.description || 'Logística',
-      quantity: 1,
-      unit: 'servicio',
-      unitPriceUsd: logisticsAmount,
-      subtotalUsd: logisticsAmount,
-      source: 'LOGISTICS_LIBRARY'
-    });
-  }
+  if (logisticsAmount > 0) items.push({ itemId: `LOG-${randomUUID()}`, title: logisticsResult.description || 'Logística', description: logisticsResult.description || 'Logística', quantity: 1, unit: 'servicio', unitPriceUsd: logisticsAmount, subtotalUsd: logisticsAmount, source: 'LOGISTICS_LIBRARY' });
 
   const terms = input.paymentTerms || { depositPercent: 60, balancePercent: 40 };
   const depositUsd = Number((total * terms.depositPercent / 100).toFixed(2));
   const balanceUsd = Number((total - depositUsd).toFixed(2));
   const document = {
-    quotation: {
-      status: 'draft',
-      source: { type: 'owner-whatsapp', sourceId: `OWNER-${randomUUID()}` }
-    },
-    project: {
-      title: item.name,
-      status: 'pending_activation',
-      currentStage: 'quotation'
-    },
+    quotation: { status: 'draft', source: { type: 'owner-whatsapp', sourceId: `OWNER-${randomUUID()}` } },
+    project: { title: item.name, status: 'pending_activation', currentStage: 'quotation' },
     relations: { customerId: customer.customerId || customer.id },
-    customerSnapshot: {
-      customerId: customer.customerId || customer.id,
-      name: customer.name || customer.companyName,
-      companyName: customer.companyName || '',
-      phone: customer.phone || '',
-      email: customer.email || '',
-      address: customer.address || '',
-      city: customer.city || ''
-    },
+    customerSnapshot: { customerId: customer.customerId || customer.id, name: customer.name || customer.companyName, companyName: customer.companyName || '', phone: customer.phone || '', email: customer.email || '', address: customer.address || '', city: customer.city || '' },
     executiveSnapshot: { executiveId: 'owner-whatsapp', name: 'ELAN Owner' },
     items,
     pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total },
-    paymentTerms: {
-      depositPercent: terms.depositPercent,
-      balancePercent: terms.balancePercent,
-      depositUsd,
-      balanceUsd
-    },
-    ownerCommercialOverride: explicit ? {
-      applied: true,
-      amountUsd: baseSubtotal,
-      includesLogistics: Boolean(input.priceIncludesLogistics),
-      source: 'owner-whatsapp'
-    } : undefined,
+    paymentTerms: { depositPercent: terms.depositPercent, balancePercent: terms.balancePercent, depositUsd, balanceUsd },
+    ownerCommercialOverride: explicit ? { applied: true, amountUsd: baseSubtotal, includesLogistics: Boolean(input.priceIncludesLogistics), source: 'owner-whatsapp' } : undefined,
     contractVersion: '1.0.0'
   };
 
   const createdResponse = await createQuotation(document, `owner-${randomUUID()}`);
   const created = createdResponse.data || createdResponse;
-  await updateContext({
-    activeCustomerId: customer.customerId || customer.id,
-    activeQuotationId: created.quotationId || null,
-    activeQuotationNumber: created.quotationNumber || null,
-    activeQuotationPublicUrl: created.publicUrl || null,
-    activeProjectId: created.projectId || null,
-    lastQuotationTotalUsd: total,
-    lastEntityType: 'quotation',
-    lastEntityId: created.quotationId || created.projectId || null
-  });
+  await updateContext({ activeCustomerId: customer.customerId || customer.id, activeQuotationId: created.quotationId || null, activeQuotationNumber: created.quotationNumber || null, activeQuotationPublicUrl: created.publicUrl || null, activeProjectId: created.projectId || null, lastQuotationTotalUsd: total, lastEntityType: 'quotation', lastEntityId: created.quotationId || created.projectId || null });
 
   return {
     ready: true,
     created: true,
     quotation: created,
     summary: [
-      '✅ Cotización oficial creada.',
-      '',
+      '✅ Cotización oficial creada.', '',
       `Cliente: ${customer.name || customer.companyName}`,
       `Concepto: ${item.name}`,
       input.width && input.height ? `Medida: ${input.width} × ${input.height}` : '',
@@ -377,8 +299,7 @@ async function prepareAndCreateQuotation(input) {
       `Anticipo ${terms.depositPercent}%: ${money(depositUsd, currency)}`,
       `Saldo ${terms.balancePercent}%: ${money(balanceUsd, currency)}`,
       `Cotización: ${created.quotationNumber || created.quotationId}`,
-      created.publicUrl ? `Enlace: ${created.publicUrl}` : '',
-      '',
+      created.publicUrl ? `Enlace: ${created.publicUrl}` : '', '',
       'Podés revisarla y luego decir: “mandásela”.'
     ].filter(Boolean).join('\n')
   };
@@ -391,6 +312,8 @@ module.exports = {
   parsePaymentTerms,
   parseProductQuery,
   parseQuotationRequest,
+  parseQuotationSendFollowup,
+  prepareActiveQuotationDelivery,
   prepareAndCreateQuotation,
   resolveLogistics,
   selectDistanceRule,
