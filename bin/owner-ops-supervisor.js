@@ -12,7 +12,9 @@ const BASE_DIR = process.env.OWNER_OPS_SUPERVISOR_DIR || '/var/lib/elankav-owner
 const REQUEST_DIR = path.join(BASE_DIR, 'requests');
 const RESULT_DIR = path.join(BASE_DIR, 'results');
 const PROCESSING_DIR = path.join(BASE_DIR, 'processing');
+const BACKUP_DIR = path.join(BASE_DIR, 'backups');
 const POLL_MS = Math.max(250, Number(process.env.OWNER_OPS_SUPERVISOR_POLL_MS) || 750);
+const GENERATED_CONNECT_CATALOG = 'data/elanvisual-commercial-catalog-2026-08-16.tsv';
 
 const TARGETS = Object.freeze({
   connect: Object.freeze({
@@ -66,7 +68,7 @@ async function run(file, args, options = {}) {
 }
 
 async function ensureDirs() {
-  for (const dir of [BASE_DIR, REQUEST_DIR, RESULT_DIR, PROCESSING_DIR]) {
+  for (const dir of [BASE_DIR, REQUEST_DIR, RESULT_DIR, PROCESSING_DIR, BACKUP_DIR]) {
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   }
 }
@@ -178,6 +180,30 @@ async function buildRepository(config) {
   return 'npm run build';
 }
 
+async function cleanGeneratedConnectCatalog(config) {
+  const status = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
+  const lines = status.stdout.split(/\r?\n/).map(line => line.trimEnd()).filter(Boolean);
+  if (lines.length !== 1 || lines[0].slice(3) !== GENERATED_CONNECT_CATALOG) {
+    const error = new Error('SUPERVISOR_CLEAN_SCOPE_MISMATCH');
+    error.code = 'SUPERVISOR_CLEAN_SCOPE_MISMATCH';
+    throw error;
+  }
+
+  const source = path.join(config.repo, GENERATED_CONNECT_CATALOG);
+  const backupName = `connect-generated-catalog-${Date.now()}.tsv`;
+  const backupPath = path.join(BACKUP_DIR, backupName);
+  await fs.copyFile(source, backupPath);
+  await fs.chmod(backupPath, 0o600);
+  await run('git', ['-C', config.repo, 'restore', '--source=HEAD', '--', GENERATED_CONNECT_CATALOG]);
+  const after = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
+  if (after.stdout) {
+    const error = new Error('SUPERVISOR_REPOSITORY_STILL_DIRTY_AFTER_CLEAN');
+    error.code = 'SUPERVISOR_REPOSITORY_STILL_DIRTY_AFTER_CLEAN';
+    throw error;
+  }
+  return backupPath;
+}
+
 async function deployRepository(target, parameters = {}) {
   const config = TARGETS[target];
   const expectedCommit = String(parameters.expectedCommit || '').trim().toLowerCase();
@@ -185,6 +211,16 @@ async function deployRepository(target, parameters = {}) {
     const error = new Error('SUPERVISOR_EXPECTED_COMMIT_REQUIRED');
     error.code = 'SUPERVISOR_EXPECTED_COMMIT_REQUIRED';
     throw error;
+  }
+
+  let cleanupBackup = null;
+  if (parameters.cleanGeneratedCatalog === true) {
+    if (target !== 'connect') {
+      const error = new Error('SUPERVISOR_CLEAN_TARGET_DENIED');
+      error.code = 'SUPERVISOR_CLEAN_TARGET_DENIED';
+      throw error;
+    }
+    cleanupBackup = await cleanGeneratedConnectCatalog(config);
   }
 
   const branch = config.branch;
@@ -251,6 +287,8 @@ async function deployRepository(target, parameters = {}) {
     before,
     after,
     backup,
+    cleanedGeneratedCatalog: Boolean(cleanupBackup),
+    cleanupBackup,
     installCommand,
     buildCommand,
     service: config.service,
@@ -345,6 +383,7 @@ module.exports = {
   TARGETS,
   assertRequest,
   buildRepository,
+  cleanGeneratedConnectCatalog,
   deployRepository,
   executeRequest,
   installDependencies,
