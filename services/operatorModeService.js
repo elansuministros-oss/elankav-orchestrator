@@ -78,8 +78,7 @@ const TECHNICAL_OWNER_OPS_CAPABILITIES = Object.freeze([
   'test.run',
   'service.restart',
   'git.publish-prepared',
-  'repository.deploy',
-  'code.prepare'
+  'repository.deploy'
 ]);
 
 const MODE_TECHNICAL_CAPABILITIES = Object.freeze({

@@ -668,24 +668,24 @@ async function executeOwnerCommand({ command, platform }) {
     return { command: type, job, outputText: formatJobStatusResult(job) };
   }
   if (type === OWNER_COMMANDS.CODE_JOB) {
-    const access = await checkTechnicalMode(
-      'code.prepare'
-    );
-
-    if (!access.allowed) {
-      return {
-        command: type,
-        job: null,
-        outputText: formatTechnicalModeBlocked(
-          access.state,
-          'code.prepare'
-        )
-      };
-    }
-
-    const job = await createJob({ platform: command.platform, type: JOB_TYPES.CODE_PREPARE, task: command.task });
-    executeJob(job.id).catch(error => console.error(`[OWNER_CODE_PREPARE_ERROR] ${job.id}: ${error.message}`));
-    return { command: type, job, outputText: formatCodeJobAccepted(job) };
+    return {
+      command: type,
+      job: null,
+      outputText: [
+        'Solicitud técnica detectada.',
+        '',
+        'La generación automática de código desde WhatsApp está deshabilitada por decisión del Owner.',
+        'Las correcciones de código se preparan en la conversación de ChatGPT del Owner.',
+        'Si una corrección requiere acceso al VPS, se ejecutará únicamente el bloque técnico preparado y revisado en ChatGPT.',
+        '',
+        'Orchestrator no creó Job de programación, no ejecutó Codex y no llamó a ningún generador automático de código.'
+      ].join('\\n'),
+      developmentHandoff: {
+        platform: command.platform,
+        task: command.task,
+        automaticCodeGeneration: false
+      }
+    };
   }
   if (type === OWNER_COMMANDS.QUOTE_QUERY) {
     const result = await processQuoteRuntimeCommand({ message: command.message, actor: { role: 'owner' } });
