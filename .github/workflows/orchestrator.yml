@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/OWNER-OPS-GATEWAY-READONLY-01
+      - feature/OWNER-OPS-SUPERVISOR-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
 
 jobs:
@@ -33,6 +34,8 @@ jobs:
           node --check services/ownerOpsConfirmationService.js
           node --check services/ownerOpsSensitiveExecutor.js
           node --check services/ownerOpsCodePublishService.js
+          node --check services/ownerOpsSupervisorClient.js
+          node --check bin/owner-ops-supervisor.js
           node --check services/jobs/jobPipeline.js
           node --check adapters/repositoryWorkspaceAdapter.js
 
@@ -43,6 +46,7 @@ jobs:
             test/ownerOpsReadService.test.js \
             test/ownerOpsConfirmation.test.js \
             test/ownerOpsAudit.test.js \
+            test/ownerOpsSupervisor.test.js \
             test/codePrepareJob.test.js
 
       - name: Success
