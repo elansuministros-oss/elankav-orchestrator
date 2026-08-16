@@ -1,6 +1,6 @@
 'use strict';
 
-const { createCustomer, searchCustomers } = require('./ownerBusinessConnectClient');
+const { createCustomer, createLogisticsRule, searchCustomers } = require('./ownerBusinessConnectClient');
 const { updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
@@ -8,7 +8,8 @@ const { recordAuditSafely } = require('./ownerOpsAuditService');
 const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
   CUSTOMER_SEARCH: 'business_customer_search',
-  PRICE_AUTH_CREATE: 'business_price_authorization_create'
+  PRICE_AUTH_CREATE: 'business_price_authorization_create',
+  LOGISTICS_RULE_CREATE: 'business_logistics_rule_create'
 });
 
 function normalize(value) {
@@ -62,15 +63,32 @@ function parseCustomerSearch(message) {
   return { type: BUSINESS_COMMANDS.CUSTOMER_SEARCH, query: match[1].trim() };
 }
 
+function parseCurrencyAmount(rawValue, currencyWord = '') {
+  const amount = Number(String(rawValue || '').replace(',', '.'));
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const normalizedCurrency = normalize(currencyWord);
+  const currency = /(cordoba|nio)/.test(normalizedCurrency) ? 'NIO' : 'USD';
+  return { amount, currency };
+}
+
 function parseMoney(message) {
   const raw = String(message || '');
-  const match = raw.match(/(?:por|precio(?:\s+de)?|a)\s*(?:us\$|usd|c\$|nio|\$)?\s*([0-9]+(?:[.,][0-9]{1,2})?)\s*(dolares|dólares|usd|cordobas|córdobas|nio)?/i);
+  const match = raw.match(/(?:por|precio(?:\s+de)?|a)\s*(us\$|usd|c\$|nio|\$)?\s*([0-9]+(?:[.,][0-9]{1,2})?)\s*(dolares|dólares|usd|cordobas|córdobas|nio)?/i);
   if (!match) return null;
-  const amount = Number(match[1].replace(',', '.'));
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  const currencyWord = normalize(match[2] || '');
-  const currency = /(cordoba|nio)/.test(currencyWord) || /c\$\s*[0-9]/i.test(raw) ? 'NIO' : 'USD';
-  return { amount, currency };
+  const result = parseCurrencyAmount(match[2], match[3] || match[1]);
+  if (!result || result.amount <= 0) return null;
+  if (/^c\$$/i.test(match[1] || '')) result.currency = 'NIO';
+  return result;
+}
+
+function parseExplicitRate(message) {
+  const raw = String(message || '');
+  const match = raw.match(/(?:cuesta|cobra|tarifa(?:\s+de)?|vale|es)\s*(us\$|usd|c\$|nio|\$)?\s*([0-9]+(?:[.,][0-9]{1,4})?)\s*(dolares|dólares|usd|cordobas|córdobas|nio)?/i);
+  if (!match) return null;
+  const result = parseCurrencyAmount(match[2], match[3] || match[1]);
+  if (!result) return null;
+  if (/^c\$$/i.test(match[1] || '')) result.currency = 'NIO';
+  return result;
 }
 
 function parseDimensions(message) {
@@ -113,8 +131,66 @@ function parsePriceAuthorization(message) {
   };
 }
 
+function parseLogisticsRule(message) {
+  const raw = String(message || '').trim();
+  const normalized = normalize(raw);
+  if (!/\b(guarda|guardar|registra|registrar|anota|aprende|actualiza)\b/.test(normalized)) return null;
+  const rate = parseExplicitRate(raw);
+  if (!rate) return null;
+
+  const carrierMatch = raw.match(/(?:que\s+)?([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{1,50}?)\s+(?:cobra|cuesta|tiene\s+tarifa)/i);
+  const routeMatch = raw.match(/\bde\s+([A-Za-zÁÉÍÓÚÑáéíóúñ ]+?)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ ]+?)(?=[,.]|\s+(?:cuesta|cobra|por|a)\s*(?:us\$|usd|c\$|nio|\$)?\s*\d|$)/i);
+  const deliveryMatch = raw.match(/\bdelivery\s+(?:dentro\s+de|en|para)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ ]+?)(?=\s+(?:cuesta|cobra|vale|es)\b|[,.]|$)/i);
+  const perKm = /\b(?:por|cada)\s*(?:km|kilometro|kilómetro)s?\b|\bpor\s+km\b/i.test(raw);
+
+  if (carrierMatch && routeMatch) {
+    return {
+      type: BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE,
+      rule: {
+        provider: carrierMatch[1].replace(/^(?:elan\s+)?(?:guarda|guardar|registra|registrar|anota|aprende|actualiza)\s+(?:que\s+)?/i, '').trim(),
+        serviceType: 'carrier',
+        origin: routeMatch[1].trim(),
+        destination: routeMatch[2].trim(),
+        pricingUnit: perKm ? 'per_km' : 'flat',
+        rate: rate.amount,
+        currency: rate.currency,
+        metadata: { requestedFromNaturalLanguage: true }
+      }
+    };
+  }
+
+  if (deliveryMatch) {
+    return {
+      type: BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE,
+      rule: {
+        serviceType: 'delivery',
+        destination: deliveryMatch[1].trim(),
+        pricingUnit: perKm ? 'per_km' : 'flat',
+        rate: rate.amount,
+        currency: rate.currency,
+        metadata: { requestedFromNaturalLanguage: true }
+      }
+    };
+  }
+
+  if (perKm) {
+    return {
+      type: BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE,
+      rule: {
+        serviceType: 'distance',
+        pricingUnit: 'per_km',
+        rate: rate.amount,
+        currency: rate.currency,
+        metadata: { requestedFromNaturalLanguage: true }
+      }
+    };
+  }
+
+  return null;
+}
+
 function detectOwnerBusinessCommand(message) {
-  return parseCustomerCreate(message) || parseCustomerSearch(message) || parsePriceAuthorization(message) || null;
+  return parseCustomerCreate(message) || parseCustomerSearch(message) || parsePriceAuthorization(message) || parseLogisticsRule(message) || null;
 }
 
 function formatCustomer(customer, idempotent = false) {
@@ -126,6 +202,19 @@ function formatCustomer(customer, idempotent = false) {
     customer.phone ? `WhatsApp: ${customer.phone}` : '',
     customer.address ? `Dirección: ${customer.address}` : '',
     `ID oficial: ${customer.customerId || customer.id}`
+  ].filter(Boolean).join('\n');
+}
+
+function formatLogisticsRule(rule) {
+  return [
+    '✅ Regla logística registrada en CONNECT.',
+    '',
+    `Regla: ${rule.ruleCode || rule.id}`,
+    rule.provider ? `Proveedor: ${rule.provider}` : '',
+    `Tipo: ${rule.serviceType}`,
+    rule.origin ? `Origen: ${rule.origin}` : '',
+    rule.destination ? `Destino: ${rule.destination}` : '',
+    `Tarifa: ${rule.currency} ${Number(rule.rate || 0).toFixed(2)} ${rule.pricingUnit}`
   ].filter(Boolean).join('\n');
 }
 
@@ -153,6 +242,19 @@ async function executeOwnerBusinessCommand(command) {
     return { handled: true, outputText: formatCustomer(customer, Boolean(result.idempotent)), result };
   }
 
+  if (command.type === BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE) {
+    const result = await createLogisticsRule(command.rule);
+    const rule = result.data || result;
+    await recordAuditSafely({
+      capability: 'business.logistics.rule.write',
+      target: 'connect',
+      source: 'owner-whatsapp',
+      success: true,
+      metadata: { ruleId: rule.id || null, ruleCode: rule.ruleCode || null }
+    });
+    return { handled: true, outputText: formatLogisticsRule(rule), result };
+  }
+
   if (command.type === BUSINESS_COMMANDS.PRICE_AUTH_CREATE) {
     const operation = await createPendingOperation({
       capability: 'business.price-authorization.create',
@@ -176,6 +278,8 @@ module.exports = {
   parseCustomerCreate,
   parseCustomerSearch,
   parseDimensions,
+  parseExplicitRate,
+  parseLogisticsRule,
   parseMoney,
   parsePriceAuthorization,
   parseSellerName
