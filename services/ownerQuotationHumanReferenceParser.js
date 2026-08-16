@@ -37,8 +37,8 @@ function parseDimensionsWithUnit(message) {
 function parseCustomerReference(message) {
   const raw = String(message || '');
   const patterns = [
-    /\bcotizaci[oó]n\s+(?:de|para)\s+(.+?)(?=\s+(?:y|despu[eé]s|donde|que|para|luego)(?=\s|[,. ;]|$)|[,.;]|$)/i,
-    /\bcliente\s+(.+?)(?=\s+(?:y|despu[eé]s|donde|que|para|luego)(?=\s|[,. ;]|$)|[,.;]|$)/i
+    /\bcotizaci[oó]n\s+(?:de|para)\s+(.+?)(?=\s+(?:y|despu[eé]s|donde|que|para|luego)(?=\s|[,;:]|$)|[,;]|$)/i,
+    /\bcliente\s+(.+?)(?=\s+(?:y|despu[eé]s|donde|que|para|luego)(?=\s|[,;:]|$)|[,;]|$)/i
   ];
 
   for (const pattern of patterns) {
