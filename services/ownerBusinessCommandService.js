@@ -1,6 +1,6 @@
 'use strict';
 
-const { createCustomer, createLogisticsRule, searchCustomers } = require('./ownerBusinessConnectClient');
+const { createCustomer, createLogisticsRule, listCustomers, searchCustomers } = require('./ownerBusinessConnectClient');
 const { updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
@@ -9,6 +9,7 @@ const { parseQuotationRequest, prepareAndCreateQuotation } = require('./ownerQuo
 const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
   CUSTOMER_SEARCH: 'business_customer_search',
+  CUSTOMER_LIST: 'business_customer_list',
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
   LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
   QUOTATION_CREATE: 'business_quotation_create'
@@ -55,6 +56,27 @@ function parseCustomerCreate(message) {
       ...(city ? { city } : {}),
       ...(email ? { email } : {})
     }
+  };
+}
+
+function parseCustomerList(message) {
+  const normalized = normalize(message);
+  const hasCustomer = /\bclientes?\b/.test(normalized);
+  if (!hasCustomer) return null;
+
+  const asksList = /\b(lista|listar|muestra|mostrar|busca|buscar|dime|decime|cuales|registrados|tenemos)\b/.test(normalized);
+  const asksCount = /\b(cuantos|cantidad|total)\b/.test(normalized);
+  const genericCollection = /\b(clientes?\s+(?:que\s+)?tenemos|clientes?\s+registrados|todos\s+los\s+clientes?|lista\s+(?:de\s+)?clientes?)\b/.test(normalized);
+
+  if (!asksList && !asksCount && !genericCollection) return null;
+
+  const specificSearch = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?cliente\s+(.+)$/);
+  if (specificSearch) return null;
+
+  return {
+    type: BUSINESS_COMMANDS.CUSTOMER_LIST,
+    sort: 'alphabetical',
+    countOnly: asksCount && !asksList && !genericCollection
   };
 }
 
@@ -194,7 +216,7 @@ function parseLogisticsRule(message) {
 function detectOwnerBusinessCommand(message) {
   const quotation = parseQuotationRequest(message);
   if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
-  return parseCustomerCreate(message) || parseCustomerSearch(message) || parsePriceAuthorization(message) || parseLogisticsRule(message) || null;
+  return parseCustomerCreate(message) || parseCustomerList(message) || parseCustomerSearch(message) || parsePriceAuthorization(message) || parseLogisticsRule(message) || null;
 }
 
 function formatCustomer(customer, idempotent = false) {
@@ -207,6 +229,33 @@ function formatCustomer(customer, idempotent = false) {
     customer.address ? `Dirección: ${customer.address}` : '',
     `ID oficial: ${customer.customerId || customer.id}`
   ].filter(Boolean).join('\n');
+}
+
+function customerDisplayName(customer) {
+  return String(customer?.name || customer?.companyName || customer?.displayName || 'Sin nombre').trim();
+}
+
+function formatCustomerList(result, countOnly = false) {
+  const rawRows = Array.isArray(result?.data?.results) ? result.data.results : [];
+  const customers = rawRows
+    .map(row => row?.customer || row)
+    .filter(Boolean)
+    .sort((a, b) => customerDisplayName(a).localeCompare(customerDisplayName(b), 'es', { sensitivity: 'base' }));
+
+  const count = Number(result?.data?.count ?? customers.length);
+  const capped = count >= 100 && customers.length >= 100;
+  const header = capped ? `Clientes oficiales encontrados: ${count}+` : `Clientes oficiales registrados: ${count}`;
+
+  if (countOnly) return header;
+  if (!customers.length) return 'No hay clientes oficiales registrados en CONNECT.';
+
+  const lines = customers.map((customer, index) => {
+    const name = customerDisplayName(customer);
+    const company = customer.companyName && customer.companyName !== name ? ` — ${customer.companyName}` : '';
+    return `${index + 1}. ${name}${company}`;
+  });
+
+  return [header, '', 'Orden alfabético:', '', ...lines].join('\n');
 }
 
 function formatLogisticsRule(rule) {
@@ -237,6 +286,11 @@ async function executeOwnerBusinessCommand(command) {
       }
     });
     return { handled: true, outputText: result.summary, result };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.CUSTOMER_LIST) {
+    const result = await listCustomers();
+    return { handled: true, outputText: formatCustomerList(result, command.countOnly === true), result };
   }
 
   if (command.type === BUSINESS_COMMANDS.CUSTOMER_SEARCH) {
@@ -294,8 +348,10 @@ module.exports = {
   BUSINESS_COMMANDS,
   detectOwnerBusinessCommand,
   executeOwnerBusinessCommand,
+  formatCustomerList,
   labeledValue,
   parseCustomerCreate,
+  parseCustomerList,
   parseCustomerSearch,
   parseDimensions,
   parseExplicitRate,
