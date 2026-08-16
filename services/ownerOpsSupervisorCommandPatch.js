@@ -55,18 +55,24 @@ function detectSupervisorCommand(message) {
     target && commit &&
     /\b(despliega|desplegar|deploy|actualiza|actualizar)\b/.test(normalized)
   ) {
+    const cleanGeneratedCatalog = target === 'connect' && /\b(limpia|limpiar|limpieza|restaura|restaurar)\b/.test(normalized);
     return Object.freeze({
       type: ownerCommands.OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
       capability: 'repository.deploy',
       target,
-      summary: `Desplegar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'} al commit ${commit.slice(0, 7)}`,
+      summary: cleanGeneratedCatalog
+        ? `Limpiar catálogo generado y desplegar CONNECT al commit ${commit.slice(0, 7)}`
+        : `Desplegar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'} al commit ${commit.slice(0, 7)}`,
       impact: target === 'connect'
-        ? 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, npm ci con dependencias de desarrollo, build TypeScript, reinicio y verificación del servicio y puerto 4400.'
+        ? cleanGeneratedCatalog
+          ? 'El supervisor verificará que el único cambio local sea el catálogo generado autorizado, guardará respaldo, restaurará únicamente ese archivo al HEAD actual, exigirá repositorio limpio y después hará fast-forward al commit remoto exacto, npm ci, build, reinicio y verificación del puerto 4400.'
+          : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, npm ci con dependencias de desarrollo, build TypeScript, reinicio y verificación del servicio y puerto 4400.'
         : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio. El supervisor externo se refrescará automáticamente después del despliegue.',
       parameters: Object.freeze({
         expectedCommit: commit,
         install: true,
-        restart: true
+        restart: true,
+        ...(cleanGeneratedCatalog ? { cleanGeneratedCatalog: true } : {})
       })
     });
   }
@@ -99,6 +105,8 @@ function formatSupervisorStatus(result) {
     `Operación: ${result.id}`,
     `Acción: ${execution.capability || 'completada'}`,
     `Objetivo: ${execution.target || 'no disponible'}`,
+    execution.cleanedGeneratedCatalog ? 'Catálogo generado local: respaldado y restaurado de forma controlada' : null,
+    execution.cleanupBackup ? `Respaldo catálogo local: ${execution.cleanupBackup}` : null,
     execution.after ? `Commit activo: ${execution.after}` : null,
     execution.backup ? `Backup: ${execution.backup}` : null,
     execution.installCommand ? `Dependencias: ${execution.installCommand}` : null,
