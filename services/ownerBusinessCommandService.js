@@ -1,6 +1,13 @@
 'use strict';
 
-const { createCustomer, createLogisticsRule, listCustomers, searchCustomers } = require('./ownerBusinessConnectClient');
+const {
+  createCustomer,
+  createLogisticsRule,
+  listCustomers,
+  listProviders,
+  searchCustomers,
+  searchProviders
+} = require('./ownerBusinessConnectClient');
 const { updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
@@ -10,6 +17,8 @@ const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
   CUSTOMER_SEARCH: 'business_customer_search',
   CUSTOMER_LIST: 'business_customer_list',
+  PROVIDER_SEARCH: 'business_provider_search',
+  PROVIDER_LIST: 'business_provider_list',
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
   LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
   QUOTATION_CREATE: 'business_quotation_create'
@@ -85,6 +94,34 @@ function parseCustomerSearch(message) {
   const match = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?cliente\s+(.+)$/);
   if (!match) return null;
   return { type: BUSINESS_COMMANDS.CUSTOMER_SEARCH, query: match[1].trim() };
+}
+
+function parseProviderList(message) {
+  const normalized = normalize(message);
+  const hasProvider = /\b(proveedor|proveedores|provedor|provedores)\b/.test(normalized);
+  if (!hasProvider) return null;
+
+  const specificSearch = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?(?:proveedor|provedor)\s+(.+)$/);
+  if (specificSearch) return null;
+
+  const asksList = /\b(lista|listar|muestra|mostrar|dime|decime|cuales|registrados|registradas|tenemos|audita|auditar|revisa|revisar)\b/.test(normalized);
+  const asksCount = /\b(cuantos|cantidad|total)\b/.test(normalized);
+  const genericCollection = /\b(proveedores?\s+(?:que\s+)?tenemos|provedores?\s+(?:que\s+)?tenemos|proveedores?\s+registrados|provedores?\s+registrados|todos\s+los\s+(?:proveedores|provedores)|lista\s+(?:de\s+)?(?:proveedores|provedores))\b/.test(normalized);
+
+  if (!asksList && !asksCount && !genericCollection) return null;
+
+  return {
+    type: BUSINESS_COMMANDS.PROVIDER_LIST,
+    sort: 'alphabetical',
+    countOnly: asksCount && !asksList && !genericCollection
+  };
+}
+
+function parseProviderSearch(message) {
+  const normalized = normalize(message);
+  const match = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?(?:proveedor|provedor)\s+(.+)$/);
+  if (!match) return null;
+  return { type: BUSINESS_COMMANDS.PROVIDER_SEARCH, query: match[1].trim() };
 }
 
 function parseCurrencyAmount(rawValue, currencyWord = '') {
@@ -216,7 +253,14 @@ function parseLogisticsRule(message) {
 function detectOwnerBusinessCommand(message) {
   const quotation = parseQuotationRequest(message);
   if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
-  return parseCustomerCreate(message) || parseCustomerList(message) || parseCustomerSearch(message) || parsePriceAuthorization(message) || parseLogisticsRule(message) || null;
+  return parseCustomerCreate(message)
+    || parseCustomerList(message)
+    || parseCustomerSearch(message)
+    || parseProviderList(message)
+    || parseProviderSearch(message)
+    || parsePriceAuthorization(message)
+    || parseLogisticsRule(message)
+    || null;
 }
 
 function formatCustomer(customer, idempotent = false) {
@@ -256,6 +300,39 @@ function formatCustomerList(result, countOnly = false) {
   });
 
   return [header, '', 'Orden alfabético:', '', ...lines].join('\n');
+}
+
+function providerDisplayName(provider) {
+  return String(provider?.tradeName || provider?.legalName || 'Sin nombre').trim();
+}
+
+function formatProvider(provider, index = null) {
+  const prefix = index === null ? '' : `${index}. `;
+  const categories = Array.isArray(provider?.categories) && provider.categories.length ? provider.categories.join(', ') : 'Sin clasificar';
+  const specialties = Array.isArray(provider?.specialties) && provider.specialties.length ? provider.specialties.join(', ') : 'Sin registrar';
+  const platforms = Array.isArray(provider?.platforms) && provider.platforms.length ? provider.platforms.join(', ') : 'Sin plataforma';
+  return [
+    `${prefix}${providerDisplayName(provider)}`,
+    `   Contacto: ${provider?.contactName || 'No registrado'}`,
+    `   WhatsApp: ${provider?.whatsapp || 'No registrado'}`,
+    `   Teléfono: ${provider?.phone || 'No registrado'}`,
+    `   Correo: ${provider?.email || 'No registrado'}`,
+    `   Categorías: ${categories}`,
+    `   Especialidades: ${specialties}`,
+    `   Plataformas: ${platforms}`,
+    `   Estado: ${provider?.status || 'sin estado'}`
+  ].join('\n');
+}
+
+function formatProviderList(result, countOnly = false) {
+  const providers = (Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [])
+    .filter(Boolean)
+    .sort((a, b) => providerDisplayName(a).localeCompare(providerDisplayName(b), 'es', { sensitivity: 'base' }));
+
+  const header = `Proveedores oficiales registrados: ${providers.length}`;
+  if (countOnly) return header;
+  if (!providers.length) return 'No hay proveedores oficiales activos registrados en CONNECT.';
+  return [header, '', ...providers.map((provider, index) => formatProvider(provider, index + 1))].join('\n\n');
 }
 
 function formatLogisticsRule(rule) {
@@ -300,6 +377,18 @@ async function executeOwnerBusinessCommand(command) {
     const top = rows[0].customer || rows[0];
     await updateContext({ activeCustomerId: top.customerId || top.id, lastEntityType: 'customer', lastEntityId: top.customerId || top.id });
     return { handled: true, outputText: formatCustomer(top, true), result };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.PROVIDER_LIST) {
+    const result = await listProviders();
+    return { handled: true, outputText: formatProviderList(result, command.countOnly === true), result };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.PROVIDER_SEARCH) {
+    const result = await searchProviders(command.query);
+    const rows = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [];
+    if (!rows.length) return { handled: true, outputText: `No encontré un proveedor oficial que coincida con “${command.query}”.`, result };
+    return { handled: true, outputText: formatProvider(rows[0]), result };
   }
 
   if (command.type === BUSINESS_COMMANDS.CUSTOMER_CREATE) {
@@ -349,6 +438,8 @@ module.exports = {
   detectOwnerBusinessCommand,
   executeOwnerBusinessCommand,
   formatCustomerList,
+  formatProvider,
+  formatProviderList,
   labeledValue,
   parseCustomerCreate,
   parseCustomerList,
@@ -358,5 +449,7 @@ module.exports = {
   parseLogisticsRule,
   parseMoney,
   parsePriceAuthorization,
+  parseProviderList,
+  parseProviderSearch,
   parseSellerName
 };
