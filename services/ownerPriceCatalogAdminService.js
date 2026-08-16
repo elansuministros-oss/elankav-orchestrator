@@ -22,7 +22,7 @@ function inferFormula(text) {
   if (/m2|m²|metro cuadrado|metros cuadrados/.test(n)) return 'AREA_M2';
   if (/metro lineal|metros lineales|\/\s*m\b/.test(n)) return 'METRO_LINEAL';
   if (/unidad|unidades|pliego|pliegos|pieza|piezas/.test(n)) return 'UNIDAD';
-  return 'PRECIO_FIJO';
+  return null;
 }
 
 function inferTechnology(value) {
@@ -48,7 +48,7 @@ function detectOwnerPriceCatalogCommand(message) {
   const create = raw.match(/(?:agrega|agregar|crea|crear)\s+(?:una\s+)?(?:tarifa|precio)(?:\s+nuev[ao])?\s+(?:para|de)\s+(.+?)\s+a\s+((?:USD|US\$|U\$|C\$|NIO)?\s*[0-9]+(?:[.,][0-9]+)?)(.*)$/i);
   if (create) {
     const money = parseMoney(create[2]);
-    if (money) return Object.freeze({ type: COMMAND_TYPE, action: 'create_price', name: create[1].trim(), technology: inferTechnology(create[1]), amount: money.amount, currency: money.currency, formulaType: inferFormula(`${create[2]} ${create[3] || ''}`) });
+    if (money) return Object.freeze({ type: COMMAND_TYPE, action: 'create_price', name: create[1].trim(), technology: inferTechnology(create[1]), amount: money.amount, currency: money.currency, formulaType: inferFormula(`${create[2]} ${create[3] || ''}`) || 'PRECIO_FIJO' });
   }
 
   const update = raw.match(/(?:cambia|cambiar|actualiza|actualizar|modifica|modificar)\s+(?:el\s+)?precio\s+de\s+(.+?)\s+a\s+((?:USD|US\$|U\$|C\$|NIO)?\s*[0-9]+(?:[.,][0-9]+)?)(.*)$/i);
@@ -91,7 +91,8 @@ async function executeOwnerPriceCatalogCommand(command, requestConnectImpl = req
   }
 
   if (command.action === 'update_price') {
-    const payload = await requestConnectImpl('/api/v1/business/vqs/pricing/catalog-admin/update-price', { method: 'POST', body: { query: command.query, amount: command.amount, currency: command.currency, formulaType: command.formulaType } });
+    const body = { query: command.query, amount: command.amount, currency: command.currency, ...(command.formulaType ? { formulaType: command.formulaType } : {}) };
+    const payload = await requestConnectImpl('/api/v1/business/vqs/pricing/catalog-admin/update-price', { method: 'POST', body });
     const d = payload?.data || payload || {};
     if (d.status === 'MULTIPLE' || d.status === 'NOT_FOUND') return { handled: true, outputText: d.status === 'MULTIPLE' ? `Encontré varias tarifas compatibles. Especificá tecnología o variante:\n${formatMatches(d.matches)}` : `No encontré una tarifa única para “${command.query}”. No modifiqué precios.`, result: d };
     const product = d.product || d?.data?.product || {};
