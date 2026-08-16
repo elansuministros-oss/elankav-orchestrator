@@ -8,44 +8,35 @@ const {
   executeConnectRuntimeAudit
 } = require('./ownerConnectRuntimeAuditService');
 const {
-  addItemByHumanReference
-} = require('./ownerQuotationHomonymResolver');
-const {
-  parseAddQuotationItemRequest
-} = require('./ownerQuotationHumanReferenceParser');
+  COMMAND_TYPE: OFFICIAL_PRICE_PUBLISH,
+  detectOfficialPricePublish,
+  executeOfficialPricePublish
+} = require('./ownerOfficialPricePublishService');
+const { addItemByHumanReference } = require('./ownerQuotationHomonymResolver');
+const { parseAddQuotationItemRequest } = require('./ownerQuotationHumanReferenceParser');
 
 const QUOTATION_ITEM_ADD = 'business_quotation_item_add';
 const INSTALL_MARK = Symbol.for('elankav.ownerBusinessProcessMessageGateway.installed');
 
 function detectOwnerBusinessCommand(message) {
+  const pricePublish = detectOfficialPricePublish(message);
+  if (pricePublish) return pricePublish;
+
   const runtimeAudit = detectConnectRuntimeAudit(message);
   if (runtimeAudit) return runtimeAudit;
 
   const quotationItemRequest = parseAddQuotationItemRequest(message);
-  if (quotationItemRequest) {
-    return {
-      type: QUOTATION_ITEM_ADD,
-      input: quotationItemRequest
-    };
-  }
-
+  if (quotationItemRequest) return { type: QUOTATION_ITEM_ADD, input: quotationItemRequest };
   return businessCommands.detectOwnerBusinessCommand(message);
 }
 
 async function executeOwnerBusinessCommand(command) {
-  if (command?.type === CONNECT_RUNTIME_AUDIT) {
-    return executeConnectRuntimeAudit(command.query || null);
-  }
-
+  if (command?.type === OFFICIAL_PRICE_PUBLISH) return executeOfficialPricePublish(command);
+  if (command?.type === CONNECT_RUNTIME_AUDIT) return executeConnectRuntimeAudit(command.query || null);
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
-    return {
-      handled: true,
-      outputText: result?.outputText || 'Cotización actualizada.',
-      result
-    };
+    return { handled: true, outputText: result?.outputText || 'Cotización actualizada.', result };
   }
-
   return businessCommands.executeOwnerBusinessCommand(command);
 }
 
@@ -64,131 +55,48 @@ function buildOwnerContext(args, buildContextImpl = buildContext) {
 function transactionalFailure({ args, context, command, error }) {
   const errorCode = error?.code || 'OWNER_BUSINESS_COMMAND_FAILED';
   const detail = error?.message || 'No fue posible completar la operación empresarial.';
-
-  console.error('[OWNER_BUSINESS_RESULT]', {
-    handler: command?.type || null,
-    status: 'failed',
-    errorCode,
-    platform: context?.platform || args?.platform || 'elanvisual'
-  });
-
+  console.error('[OWNER_BUSINESS_RESULT]', { handler: command?.type || null, status: 'failed', errorCode, platform: context?.platform || args?.platform || 'elanvisual' });
   return {
     message: String(args?.message || '').trim(),
-    reply: [
-      'No pude completar la operación empresarial solicitada.',
-      `Error: ${errorCode}`,
-      detail,
-      'No ejecuté una respuesta generativa ni creé una cotización nueva como alternativa.'
-    ].join('\n'),
-    provider: 'elankav',
-    model: 'elankav-owner-business-command',
-    responseId: null,
-    status: 'failed',
-    usage: null,
-    suppressDelivery: false,
-    command: command?.type || null,
-    jobId: null,
-    ownerCommercialQuery: true,
-    ownerCrmCommand: false,
-    ownerBusinessCommand: true,
-    actorRole: 'owner',
-    actorId: null,
-    accessScopes: null,
-    runtimeVersion: null,
-    knowledgeAvailable: null,
-    historyMessages: null,
-    context: {
-      version: context?.version || null,
-      platform: context?.platform || null,
-      channel: context?.channel || null,
-      externalUserId: context?.externalUserId || null,
-      ownerMode: Boolean(context?.owner?.isOwner)
-    }
+    reply: ['No pude completar la operación empresarial solicitada.', `Error: ${errorCode}`, detail, 'No ejecuté una respuesta generativa ni creé una cotización nueva como alternativa.'].join('\n'),
+    provider: 'elankav', model: 'elankav-owner-business-command', responseId: null, status: 'failed', usage: null,
+    suppressDelivery: false, command: command?.type || null, jobId: null, ownerCommercialQuery: true, ownerCrmCommand: false,
+    ownerBusinessCommand: true, actorRole: 'owner', actorId: null, accessScopes: null, runtimeVersion: null,
+    knowledgeAvailable: null, historyMessages: null,
+    context: { version: context?.version || null, platform: context?.platform || null, channel: context?.channel || null, externalUserId: context?.externalUserId || null, ownerMode: Boolean(context?.owner?.isOwner) }
   };
 }
 
 function transactionalSuccess({ args, context, command, execution }) {
   const resultStatus = execution?.result?.status;
   const status = resultStatus === 'in_progress' ? 'in_progress' : 'completed';
-
-  console.log('[OWNER_BUSINESS_RESULT]', {
-    handler: command?.type || null,
-    status,
-    platform: context?.platform || args?.platform || 'elanvisual'
-  });
-
+  console.log('[OWNER_BUSINESS_RESULT]', { handler: command?.type || null, status, platform: context?.platform || args?.platform || 'elanvisual' });
   return {
-    message: String(args?.message || '').trim(),
-    reply: String(execution?.outputText || '').trim(),
-    provider: 'elankav',
-    model: 'elankav-owner-business-command',
-    responseId: null,
-    status,
-    usage: null,
-    suppressDelivery: false,
-    command: command?.type || null,
-    jobId: null,
-    ownerCommercialQuery: true,
-    ownerCrmCommand: false,
-    ownerBusinessCommand: true,
-    actorRole: 'owner',
-    actorId: null,
-    accessScopes: null,
-    runtimeVersion: null,
-    knowledgeAvailable: null,
-    historyMessages: null,
-    context: {
-      version: context?.version || null,
-      platform: context?.platform || null,
-      channel: context?.channel || null,
-      externalUserId: context?.externalUserId || null,
-      ownerMode: Boolean(context?.owner?.isOwner)
-    }
+    message: String(args?.message || '').trim(), reply: String(execution?.outputText || '').trim(), provider: 'elankav',
+    model: 'elankav-owner-business-command', responseId: null, status, usage: null, suppressDelivery: false,
+    command: command?.type || null, jobId: null, ownerCommercialQuery: true, ownerCrmCommand: false, ownerBusinessCommand: true,
+    actorRole: 'owner', actorId: null, accessScopes: null, runtimeVersion: null, knowledgeAvailable: null, historyMessages: null,
+    context: { version: context?.version || null, platform: context?.platform || null, channel: context?.channel || null, externalUserId: context?.externalUserId || null, ownerMode: Boolean(context?.owner?.isOwner) }
   };
 }
 
-function createOwnerBusinessProcessMessage({
-  originalProcessMessage,
-  buildContextImpl = buildContext,
-  detectCommandImpl = detectOwnerBusinessCommand,
-  executeCommandImpl = executeOwnerBusinessCommand
-} = {}) {
-  if (typeof originalProcessMessage !== 'function') {
-    throw new TypeError('originalProcessMessage es obligatorio');
-  }
-
+function createOwnerBusinessProcessMessage({ originalProcessMessage, buildContextImpl = buildContext, detectCommandImpl = detectOwnerBusinessCommand, executeCommandImpl = executeOwnerBusinessCommand } = {}) {
+  if (typeof originalProcessMessage !== 'function') throw new TypeError('originalProcessMessage es obligatorio');
   return async function processMessageWithOwnerBusinessGateway(args = {}) {
     const context = buildOwnerContext(args, buildContextImpl);
-
-    if (!context?.owner?.isOwner) {
-      return originalProcessMessage(args);
-    }
-
+    if (!context?.owner?.isOwner) return originalProcessMessage(args);
     const command = detectCommandImpl(args.message);
-    if (!command) {
-      return originalProcessMessage(args);
-    }
+    if (!command) return originalProcessMessage(args);
 
-    console.log('[OWNER_ROUTE_SELECTED]', {
-      handler: command.type,
-      platform: context.platform || args.platform || 'elanvisual',
-      ownerMode: true
-    });
-
-    console.log('[OWNER_BUSINESS_EXECUTE]', {
-      handler: command.type,
-      platform: context.platform || args.platform || 'elanvisual'
-    });
-
+    console.log('[OWNER_ROUTE_SELECTED]', { handler: command.type, platform: context.platform || args.platform || 'elanvisual', ownerMode: true });
+    console.log('[OWNER_BUSINESS_EXECUTE]', { handler: command.type, platform: context.platform || args.platform || 'elanvisual' });
     try {
       const execution = await executeCommandImpl(command);
-
       if (!execution?.handled) {
         const error = new Error(`Handler empresarial ${command.type} fue detectado pero no ejecutado.`);
         error.code = 'OWNER_BUSINESS_HANDLER_NOT_EXECUTED';
         return transactionalFailure({ args, context, command, error });
       }
-
       return transactionalSuccess({ args, context, command, execution });
     } catch (error) {
       return transactionalFailure({ args, context, command, error });
@@ -197,37 +105,19 @@ function createOwnerBusinessProcessMessage({
 }
 
 function installOwnerBusinessProcessMessageGateway(messageService = require('./messageService')) {
-  if (!messageService || typeof messageService.processMessage !== 'function') {
-    throw new TypeError('messageService.processMessage no está disponible');
-  }
-
-  if (messageService[INSTALL_MARK]) {
-    return messageService.processMessage;
-  }
-
+  if (!messageService || typeof messageService.processMessage !== 'function') throw new TypeError('messageService.processMessage no está disponible');
+  if (messageService[INSTALL_MARK]) return messageService.processMessage;
   const originalProcessMessage = messageService.processMessage;
   const wrappedProcessMessage = createOwnerBusinessProcessMessage({ originalProcessMessage });
-
-  Object.defineProperty(messageService, INSTALL_MARK, {
-    value: true,
-    enumerable: false,
-    configurable: false,
-    writable: false
-  });
-
+  Object.defineProperty(messageService, INSTALL_MARK, { value: true, enumerable: false, configurable: false, writable: false });
   messageService.processMessage = wrappedProcessMessage;
-
-  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', {
-    boundary: 'processMessage',
-    quotationItemAdd: true,
-    connectRuntimeAudit: true
-  });
-
+  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, officialPricePublish: true });
   return wrappedProcessMessage;
 }
 
 module.exports = {
   CONNECT_RUNTIME_AUDIT,
+  OFFICIAL_PRICE_PUBLISH,
   QUOTATION_ITEM_ADD,
   createOwnerBusinessProcessMessage,
   detectOwnerBusinessCommand,
