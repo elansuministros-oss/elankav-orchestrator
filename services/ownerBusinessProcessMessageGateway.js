@@ -3,6 +3,11 @@
 const { buildContext } = require('./context/contextBuilder');
 const businessCommands = require('./ownerBusinessCommandService');
 const {
+  COMMAND_TYPE: CONNECT_RUNTIME_AUDIT,
+  detectConnectRuntimeAudit,
+  executeConnectRuntimeAudit
+} = require('./ownerConnectRuntimeAuditService');
+const {
   addItemByHumanReference
 } = require('./ownerQuotationHomonymResolver');
 const {
@@ -13,6 +18,9 @@ const QUOTATION_ITEM_ADD = 'business_quotation_item_add';
 const INSTALL_MARK = Symbol.for('elankav.ownerBusinessProcessMessageGateway.installed');
 
 function detectOwnerBusinessCommand(message) {
+  const runtimeAudit = detectConnectRuntimeAudit(message);
+  if (runtimeAudit) return runtimeAudit;
+
   const quotationItemRequest = parseAddQuotationItemRequest(message);
   if (quotationItemRequest) {
     return {
@@ -25,6 +33,10 @@ function detectOwnerBusinessCommand(message) {
 }
 
 async function executeOwnerBusinessCommand(command) {
+  if (command?.type === CONNECT_RUNTIME_AUDIT) {
+    return executeConnectRuntimeAudit();
+  }
+
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
     return {
@@ -207,13 +219,15 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
 
   console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', {
     boundary: 'processMessage',
-    quotationItemAdd: true
+    quotationItemAdd: true,
+    connectRuntimeAudit: true
   });
 
   return wrappedProcessMessage;
 }
 
 module.exports = {
+  CONNECT_RUNTIME_AUDIT,
   QUOTATION_ITEM_ADD,
   createOwnerBusinessProcessMessage,
   detectOwnerBusinessCommand,
