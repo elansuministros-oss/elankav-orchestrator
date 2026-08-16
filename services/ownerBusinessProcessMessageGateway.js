@@ -8,10 +8,10 @@ const {
   executeConnectRuntimeAudit
 } = require('./ownerConnectRuntimeAuditService');
 const {
-  COMMAND_TYPE: OFFICIAL_PRICE_PUBLISH,
-  detectOfficialPricePublish,
-  executeOfficialPricePublish
-} = require('./ownerOfficialPricePublishService');
+  COMMAND_TYPE: PRICE_CATALOG_ADMIN,
+  detectOwnerPriceCatalogCommand,
+  executeOwnerPriceCatalogCommand
+} = require('./ownerPriceCatalogAdminService');
 const { addItemByHumanReference } = require('./ownerQuotationHomonymResolver');
 const { parseAddQuotationItemRequest } = require('./ownerQuotationHumanReferenceParser');
 
@@ -19,8 +19,8 @@ const QUOTATION_ITEM_ADD = 'business_quotation_item_add';
 const INSTALL_MARK = Symbol.for('elankav.ownerBusinessProcessMessageGateway.installed');
 
 function detectOwnerBusinessCommand(message) {
-  const pricePublish = detectOfficialPricePublish(message);
-  if (pricePublish) return pricePublish;
+  const priceAdmin = detectOwnerPriceCatalogCommand(message);
+  if (priceAdmin) return priceAdmin;
 
   const runtimeAudit = detectConnectRuntimeAudit(message);
   if (runtimeAudit) return runtimeAudit;
@@ -31,7 +31,7 @@ function detectOwnerBusinessCommand(message) {
 }
 
 async function executeOwnerBusinessCommand(command) {
-  if (command?.type === OFFICIAL_PRICE_PUBLISH) return executeOfficialPricePublish(command);
+  if (command?.type === PRICE_CATALOG_ADMIN) return executeOwnerPriceCatalogCommand(command);
   if (command?.type === CONNECT_RUNTIME_AUDIT) return executeConnectRuntimeAudit(command.query || null);
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
@@ -111,13 +111,13 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
   const wrappedProcessMessage = createOwnerBusinessProcessMessage({ originalProcessMessage });
   Object.defineProperty(messageService, INSTALL_MARK, { value: true, enumerable: false, configurable: false, writable: false });
   messageService.processMessage = wrappedProcessMessage;
-  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, officialPricePublish: true });
+  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, priceCatalogAdmin: true });
   return wrappedProcessMessage;
 }
 
 module.exports = {
   CONNECT_RUNTIME_AUDIT,
-  OFFICIAL_PRICE_PUBLISH,
+  PRICE_CATALOG_ADMIN,
   QUOTATION_ITEM_ADD,
   createOwnerBusinessProcessMessage,
   detectOwnerBusinessCommand,
