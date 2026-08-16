@@ -26,17 +26,36 @@ const TARGETS = Object.freeze({
   })
 });
 
+function sanitizeTechnicalError(value) {
+  return String(value || '')
+    .replace(/https:\/\/[^@\s]+@/gi, 'https://***@')
+    .replace(/\b(authorization|token|password|passwd|secret)\s*[:=]\s*\S+/gi, '$1=[REDACTED]')
+    .trim()
+    .slice(0, 1800);
+}
+
 async function run(file, args, options = {}) {
-  const result = await execFileAsync(file, args, {
-    cwd: options.cwd,
-    env: process.env,
-    timeout: options.timeout || 45_000,
-    maxBuffer: 1024 * 1024
-  });
-  return {
-    stdout: String(result.stdout || '').trim(),
-    stderr: String(result.stderr || '').trim()
-  };
+  try {
+    const result = await execFileAsync(file, args, {
+      cwd: options.cwd,
+      env: process.env,
+      timeout: options.timeout || 45_000,
+      maxBuffer: 1024 * 1024
+    });
+    return {
+      stdout: String(result.stdout || '').trim(),
+      stderr: String(result.stderr || '').trim()
+    };
+  } catch (cause) {
+    const command = [file, ...args].join(' ');
+    const stderr = sanitizeTechnicalError(cause?.stderr);
+    const stdout = sanitizeTechnicalError(cause?.stdout);
+    const detail = stderr || stdout || sanitizeTechnicalError(cause?.message) || `exit ${cause?.code || 'unknown'}`;
+    const error = new Error(`${command}: ${detail}`);
+    error.code = 'SUPERVISOR_COMMAND_FAILED';
+    error.exitCode = cause?.code ?? null;
+    throw error;
+  }
 }
 
 async function ensureDirs() {
@@ -183,7 +202,9 @@ async function processFile(fileName) {
     await writeResult(id, {
       id,
       status: 'failed',
-      error: error.code || error.message || 'SUPERVISOR_OPERATION_FAILED',
+      error: sanitizeTechnicalError(error.message) || String(error.code || 'SUPERVISOR_OPERATION_FAILED'),
+      errorCode: String(error.code || 'SUPERVISOR_OPERATION_FAILED'),
+      exitCode: error.exitCode ?? null,
       completedAt: new Date().toISOString()
     }).catch(() => {});
   } finally {
@@ -222,5 +243,6 @@ module.exports = {
   assertRequest,
   deployRepository,
   executeRequest,
-  restartService
+  restartService,
+  sanitizeTechnicalError
 };
