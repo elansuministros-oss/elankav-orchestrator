@@ -10,6 +10,7 @@ on:
       - feature/OWNER-BUSINESS-MODES-PRICING-LOGISTICS-01
       - audit/OWNER-CONNECT-RUNTIME-DATASOURCE-01
       - audit/OWNER-CONNECT-PRODUCT-PRICE-DETAIL-01
+      - fix/OWNER-PUBLISH-OFFICIAL-PRICE-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
 
 jobs:
@@ -44,6 +45,7 @@ jobs:
           node --check services/ownerBusinessCommandService.js
           node --check services/ownerBusinessProcessMessageGateway.js
           node --check services/ownerConnectRuntimeAuditService.js
+          node --check services/ownerOfficialPricePublishService.js
           node --check services/ownerSellerConnectClient.js
           node --check services/ownerSellerIdentityExtractionService.js
           node --check services/ownerSellerRegistrationService.js
@@ -74,7 +76,8 @@ jobs:
             test/codePrepareJob.test.js \
             test/ownerSellerRegistration.test.js \
             tests/ownerBusinessModesPricingLogistics.test.js \
-            tests/ownerConnectRuntimeAuditService.test.js
+            tests/ownerConnectRuntimeAuditService.test.js \
+            tests/ownerOfficialPricePublishService.test.js
 
       - name: Success
         run: echo "ELANKAV ORCHESTRATOR OWNER OPS OK"
