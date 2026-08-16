@@ -74,7 +74,9 @@ const PLATFORM_ALIASES = Object.freeze([
   { id: 'elanvisual', aliases: ['elanvisual', 'elan visual'] },
   { id: 'elanpet', aliases: ['elanpet', 'elan pet'] },
   { id: 'elankav-core', aliases: ['elankav core', 'elan core', 'elankav-core'] },
-  { id: 'elankav-platform', aliases: ['elankav platform', 'plataforma elankav', 'elankav-platform'] }
+  { id: 'elankav-platform', aliases: ['elankav platform', 'plataforma elankav', 'elankav-platform'] },
+  { id: 'orchestrator', aliases: ['orchestrator', 'orquestador', 'elankav orchestrator'] },
+  { id: 'connect', aliases: ['connect', 'elankav connect'] }
 ]);
 
 const CODE_ACTION_PATTERN = /\b(audita|auditar|revisa|revisar|corrige|corregir|programa|programar|implementa|implementar|crea|crear|modifica|modificar|repara|reparar|actualiza|actualizar)\b/;
