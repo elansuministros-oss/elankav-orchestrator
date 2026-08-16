@@ -24,9 +24,13 @@ function sameNumber(left, right, tolerance = 0.0001) {
 function matchesAuthorization(authorization = {}, quote = {}) {
   if (String(authorization.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return false;
 
-  if (authorization.sellerId && String(authorization.sellerId) !== String(quote.sellerId || '')) return false;
+  if (authorization.sellerId && normalizeText(authorization.sellerId) !== normalizeText(quote.sellerId)) return false;
   if (authorization.customerId && String(authorization.customerId) !== String(quote.customerId || '')) return false;
-  if (authorization.product && normalizeText(authorization.product) !== normalizeText(quote.product)) return false;
+
+  const authorizationProduct = authorization.productKey || authorization.productDescription || authorization.product;
+  const quoteProduct = quote.productKey || quote.productDescription || quote.product;
+  if (authorizationProduct && normalizeText(authorizationProduct) !== normalizeText(quoteProduct)) return false;
+
   if (authorization.destination && normalizeText(authorization.destination) !== normalizeText(quote.destination)) return false;
   if (authorization.width != null && !sameNumber(authorization.width, quote.width)) return false;
   if (authorization.height != null && !sameNumber(authorization.height, quote.height)) return false;
