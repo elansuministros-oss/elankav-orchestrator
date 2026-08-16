@@ -3,12 +3,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { downloadWahaMedia } = require('./connectVoiceService');
-const { createSeller, listSellers } = require('./ownerSellerConnectClient');
+const {
+  createSeller,
+  listSellers,
+  provisionSellerAccess,
+  setSellerPlatforms
+} = require('./ownerSellerConnectClient');
 const { extractSellerIdentityFromImage } = require('./ownerSellerIdentityExtractionService');
 const { normalizeWhatsappE164 } = require('./phoneService');
 
 const STATE_FILE = process.env.CRM_COMMAND_STATE_FILE || '/opt/elankav/state/crm-command-state.json';
 const STATE_TTL_MS = Number(process.env.CRM_COMMAND_STATE_TTL_MS || 30 * 60 * 1000);
+const SUPPORTED_PLATFORMS = Object.freeze(['ELANVISUAL', 'ELANHOME', 'ELANPET', 'ELANCENTER', 'ELANKAV']);
 
 const normalize = value => String(value || '').trim();
 const normalizeCommand = value => normalize(value)
@@ -56,7 +62,7 @@ function isCancel(message) {
 
 function isConfirm(message) {
   const value = normalizeCommand(message).replace(/[.!?]+$/g, '');
-  return new Set(['si', 'sí', 'confirmo', 'guardar', 'proceder', 'confirmar', 'hazlo', 'hacelo', 'dale', 'correcto', 'si hazlo', 'si hacelo', 'procede']).has(value);
+  return new Set(['si', 'confirmo', 'guardar', 'proceder', 'confirmar', 'hazlo', 'hacelo', 'dale', 'correcto', 'si hazlo', 'si hacelo', 'procede']).has(value);
 }
 
 function parseEmail(message) {
@@ -88,6 +94,35 @@ function parseTeam(message) {
   return extractLabeled(message, ['equipo', 'team', 'supervisor']);
 }
 
+function parsePlatform(message) {
+  const value = normalizeCommand(message);
+  const aliases = [
+    ['ELANVISUAL', ['elanvisual', 'elan visual', 'visual']],
+    ['ELANHOME', ['elanhome', 'elan home']],
+    ['ELANPET', ['elanpet', 'elan pet']],
+    ['ELANCENTER', ['elancenter', 'elan center']],
+    ['ELANKAV', ['elankav']]
+  ];
+  for (const [platform, names] of aliases) {
+    if (names.some(name => value === name || value.includes(name))) return platform;
+  }
+  return '';
+}
+
+function parseNameCorrection(message) {
+  const raw = normalize(message);
+  const patterns = [
+    /(?:cambia|cambiar|corrige|corregi|corrige el|pon|pone|deja|dejalo)(?:\s+el)?\s+nombre\s+(?:a|como|por)\s+(.+)$/i,
+    /(?:el\s+)?nombre\s+correcto\s+(?:es|seria|sería)\s+(.+)$/i,
+    /(?:dejalo|déjalo|ponelo|pónelo)\s+como\s+(.+)$/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match) return safeName(match[1].replace(/[.!?]+$/g, '').trim());
+  }
+  return '';
+}
+
 function parseSellerFields(message) {
   const whatsapp = normalizeWhatsappE164(message);
   return {
@@ -95,7 +130,8 @@ function parseSellerFields(message) {
     whatsapp: whatsapp || '',
     email: parseEmail(message),
     zone: parseZone(message),
-    teamId: parseTeam(message)
+    teamId: parseTeam(message),
+    platform: parsePlatform(message)
   };
 }
 
@@ -116,7 +152,14 @@ function initialState() {
     type: 'seller',
     step: 'identity',
     data: { status: 'active' },
-    identity: { imagesReceived: 0, frontReceived: false, backReceived: false }
+    identity: {
+      imagesReceived: 0,
+      frontReceived: false,
+      backReceived: false,
+      processedMediaKeys: [],
+      printedName: '',
+      naturalName: ''
+    }
   });
 }
 
@@ -128,12 +171,13 @@ function sellerSummary(state) {
     `Nombre: ${data.displayName || 'Pendiente'}`,
     `WhatsApp: ${data.whatsapp || 'Pendiente'}`,
     `Correo: ${data.email || 'No indicado'}`,
+    `Plataforma asignada: ${data.platform || 'Pendiente'}`,
     data.zone ? `Zona: ${data.zone}` : '',
     data.teamId ? `Equipo/Supervisor: ${data.teamId}` : '',
     '',
     'La cédula se usó únicamente para apoyar la identificación del borrador; no guardaré la foto ni el número de documento en crm_sellers.',
     '',
-    '¿Confirmás que registre este vendedor?'
+    'Podés corregir cualquier dato antes de guardar. ¿Confirmás que registre este vendedor?'
   ].filter(Boolean).join('\n');
 }
 
@@ -166,26 +210,49 @@ async function findExistingSeller(data) {
 
 async function persistSeller(state) {
   const existing = await findExistingSeller(state.data);
-  if (existing) {
-    return {
-      existing: true,
-      seller: existing
+  let seller = existing;
+  if (!seller) {
+    const payload = await createSeller({
+      displayName: state.data.displayName,
+      whatsapp: state.data.whatsapp,
+      phone: state.data.whatsapp,
+      ...(state.data.email ? { email: state.data.email } : {}),
+      ...(state.data.zone ? { zone: state.data.zone } : {}),
+      ...(state.data.teamId ? { teamId: state.data.teamId } : {}),
+      status: 'active'
+    });
+    seller = payload?.data || payload;
+  }
+
+  const sellerId = normalize(seller?.id);
+  if (!sellerId) throw Object.assign(new Error('SELLER_ID_MISSING_AFTER_CREATE'), { code: 'SELLER_ID_MISSING_AFTER_CREATE' });
+
+  await setSellerPlatforms(sellerId, [{
+    platform: state.data.platform,
+    commissionEnabled: false,
+    commissionRate: null,
+    bonusEnabled: true,
+    bonusRate: null,
+    status: 'active'
+  }]);
+
+  let access = null;
+  let accessError = null;
+  try {
+    const accessPayload = await provisionSellerAccess(sellerId, state.data.platform);
+    access = accessPayload?.data || accessPayload;
+  } catch (error) {
+    accessError = {
+      code: error?.code || 'SELLER_ACCESS_PROVISION_FAILED',
+      message: error?.message || 'No se pudo generar el acceso de plataforma.'
     };
   }
 
-  const payload = await createSeller({
-    displayName: state.data.displayName,
-    whatsapp: state.data.whatsapp,
-    phone: state.data.whatsapp,
-    ...(state.data.email ? { email: state.data.email } : {}),
-    ...(state.data.zone ? { zone: state.data.zone } : {}),
-    ...(state.data.teamId ? { teamId: state.data.teamId } : {}),
-    status: 'active'
-  });
-
   return {
-    existing: false,
-    seller: payload?.data || payload
+    existing: Boolean(existing),
+    seller,
+    access,
+    accessError
   };
 }
 
@@ -198,11 +265,32 @@ function advanceAfterFields(state) {
     state.step = 'whatsapp';
     return 'Ya tengo el nombre. ¿Cuál es el WhatsApp del vendedor?';
   }
+  if (!state.data.platform) {
+    state.step = 'platform';
+    return `¿A qué plataforma lo asignamos? Opciones actuales: ${SUPPORTED_PLATFORMS.join(', ')}.`;
+  }
   state.step = 'confirm';
   return sellerSummary(state);
 }
 
-async function processSellerImage(state, media, dependencies = {}) {
+function mediaKey(metadata, media) {
+  return normalize(metadata?.messageId) || normalize(media?.url);
+}
+
+async function processSellerImage(state, media, metadata = {}, dependencies = {}) {
+  const key = mediaKey(metadata, media);
+  state.identity.processedMediaKeys = Array.isArray(state.identity.processedMediaKeys)
+    ? state.identity.processedMediaKeys
+    : [];
+  if (key && state.identity.processedMediaKeys.includes(key)) {
+    return {
+      done: false,
+      text: state.identity.imagesReceived < 2
+        ? 'Esa imagen ya la había procesado. Enviame la otra cara de la cédula.'
+        : advanceAfterFields(state)
+    };
+  }
+
   const downloadImpl = dependencies.downloadWahaMedia || downloadWahaMedia;
   const extractImpl = dependencies.extractSellerIdentityFromImage || extractSellerIdentityFromImage;
   if (!media?.url) {
@@ -215,14 +303,13 @@ async function processSellerImage(state, media, dependencies = {}) {
     return { done: false, text: 'Para leer la identificación necesito una foto (imagen). También podés escribirme el nombre del vendedor.' };
   }
 
-  const extracted = await extractImpl({
-    buffer: downloaded.buffer,
-    mimeType
-  });
-
+  const extracted = await extractImpl({ buffer: downloaded.buffer, mimeType });
+  if (key) state.identity.processedMediaKeys.push(key);
   state.identity.imagesReceived = Number(state.identity.imagesReceived || 0) + 1;
   if (extracted.side === 'front') state.identity.frontReceived = true;
   if (extracted.side === 'back') state.identity.backReceived = true;
+  if (extracted.printedName) state.identity.printedName = extracted.printedName;
+  if (extracted.naturalName) state.identity.naturalName = extracted.naturalName;
   if (!state.data.displayName && extracted.fullName && extracted.confidence >= 0.55) {
     state.data.displayName = safeName(extracted.fullName);
   }
@@ -236,13 +323,20 @@ async function processSellerImage(state, media, dependencies = {}) {
 
   if (state.identity.imagesReceived < 2) {
     const recognized = state.data.displayName ? ` Detecté el nombre: ${state.data.displayName}.` : '';
-    return {
-      done: false,
-      text: `Recibí la primera imagen de la identificación.${recognized} Enviame ahora la otra cara de la cédula.`
-    };
+    return { done: false, text: `Recibí la primera imagen de la identificación.${recognized} Enviame ahora la otra cara de la cédula.` };
   }
 
   return { done: false, text: advanceAfterFields(state) };
+}
+
+function nameOrderReply(state) {
+  const printed = normalize(state.identity?.printedName);
+  const natural = normalize(state.identity?.naturalName);
+  if (printed && natural && normalizeName(printed) !== normalizeName(natural)) {
+    state.data.displayName = natural;
+    return `En la cédula aparece “${printed}”. Lo interpreté en orden natural como “${natural}” (nombres primero y apellidos después). Dejé el borrador con ese orden.\n\n${sellerSummary(state)}`;
+  }
+  return `El borrador tiene el nombre como “${state.data.displayName}”. Si querés cambiarlo, decime por ejemplo: “cambia el nombre a Yahosca Valentina Ramos Mena”.`;
 }
 
 async function processActiveSellerState(state, message, metadata, dependencies = {}) {
@@ -250,8 +344,11 @@ async function processActiveSellerState(state, message, metadata, dependencies =
 
   const messageType = String(metadata?.messageType || '').toLowerCase();
   if (['image', 'document'].includes(messageType) && metadata?.media) {
-    return processSellerImage(state, metadata.media, dependencies);
+    return processSellerImage(state, metadata.media, metadata, dependencies);
   }
+
+  const explicitNameCorrection = parseNameCorrection(message);
+  if (explicitNameCorrection) state.data.displayName = explicitNameCorrection;
 
   const fields = parseSellerFields(message);
   mergeFields(state.data, fields);
@@ -260,7 +357,7 @@ async function processActiveSellerState(state, message, metadata, dependencies =
     if (!state.data.displayName) {
       const raw = normalize(message);
       const isPlaceholder = /^\[archivo recibido:/i.test(raw);
-      if (!isPlaceholder && !fields.whatsapp && !fields.email && raw.length >= 2 && raw.length <= 160) {
+      if (!isPlaceholder && !fields.whatsapp && !fields.email && !fields.platform && raw.length >= 2 && raw.length <= 160) {
         state.data.displayName = safeName(raw);
       }
     }
@@ -268,25 +365,36 @@ async function processActiveSellerState(state, message, metadata, dependencies =
   }
 
   if (state.step === 'whatsapp') {
-    if (!state.data.whatsapp) {
-      return { done: false, text: 'El número no es válido. Enviámelo, por ejemplo, como 8888-8888 o +505 8888-8888.' };
-    }
-    state.step = 'confirm';
-    return { done: false, text: sellerSummary(state) };
+    if (!state.data.whatsapp) return { done: false, text: 'El número no es válido. Enviámelo, por ejemplo, como 8888-8888 o +505 8888-8888.' };
+    return { done: false, text: advanceAfterFields(state) };
+  }
+
+  if (state.step === 'platform') {
+    if (!state.data.platform) return { done: false, text: `No reconocí la plataforma. Indicame una de estas: ${SUPPORTED_PLATFORMS.join(', ')}.` };
+    return { done: false, text: advanceAfterFields(state) };
   }
 
   if (state.step === 'confirm') {
+    if (explicitNameCorrection || Object.values(fields).some(Boolean)) {
+      state.step = state.data.displayName && state.data.whatsapp && state.data.platform
+        ? 'confirm'
+        : (!state.data.displayName ? 'name' : !state.data.whatsapp ? 'whatsapp' : 'platform');
+      return { done: false, text: advanceAfterFields(state) };
+    }
+
+    const normalized = normalizeCommand(message);
+    if (/\b(nombre|apellido|apellidos|orden)\b/.test(normalized) && !isConfirm(message)) {
+      return { done: false, text: nameOrderReply(state) };
+    }
+
     if (!isConfirm(message)) {
-      if (Object.values(fields).some(Boolean)) {
-        state.step = state.data.displayName && state.data.whatsapp ? 'confirm' : (!state.data.displayName ? 'name' : 'whatsapp');
-        return { done: false, text: advanceAfterFields(state) };
-      }
-      return { done: false, text: 'Respondé “Sí” para registrar el vendedor o “Cancelar”. Si querés corregir un dato, enviámelo antes de confirmar.' };
+      return { done: false, text: 'Podés corregir nombre, WhatsApp, correo o plataforma antes de guardar. Cuando esté correcto respondé “Sí”; para salir respondé “Cancelar”.' };
     }
 
     const saved = await persistSeller(state);
     const seller = saved.seller || {};
     const code = seller.seller_code || seller.sellerCode || '';
+    const access = saved.access || {};
     return {
       done: true,
       text: [
@@ -294,10 +402,17 @@ async function processActiveSellerState(state, message, metadata, dependencies =
         '',
         `Nombre: ${state.data.displayName}`,
         `WhatsApp: ${state.data.whatsapp}`,
+        `Plataforma: ${state.data.platform}`,
         code ? `Código: ${code}` : '',
         '',
-        'Autoridad: crm_sellers.',
-        'Las plataformas y comisiones se pueden configurar después sin crear otro vendedor.'
+        access.loginUrl ? '🔐 Acceso de usuario generado:' : '',
+        access.loginUrl ? `Link: ${access.loginUrl}` : '',
+        access.username ? `Usuario: ${access.username}` : '',
+        access.password ? `Contraseña temporal: ${access.password}` : '',
+        access.password ? 'La contraseña se muestra una sola vez; el vendedor debe cambiarla cuando implementemos el cambio obligatorio en la plataforma.' : '',
+        saved.accessError ? `⚠️ El vendedor y su plataforma quedaron registrados, pero no pude generar el acceso: ${saved.accessError.message}` : '',
+        '',
+        'Autoridad: crm_sellers + crm_seller_platforms.'
       ].filter(Boolean).join('\n')
     };
   }
@@ -305,13 +420,7 @@ async function processActiveSellerState(state, message, metadata, dependencies =
   return { done: false, text: advanceAfterFields(state) };
 }
 
-async function processSellerRegistrationConversation({
-  message,
-  externalUserId,
-  phone,
-  metadata = {},
-  dependencies = {}
-}) {
+async function processSellerRegistrationConversation({ message, externalUserId, phone, metadata = {}, dependencies = {} }) {
   const key = ownerKey({ externalUserId, phone });
   const states = readStates();
   let state = states[key];
@@ -341,18 +450,16 @@ async function processSellerRegistrationConversation({
   else states[key] = touch(state);
   writeStates(states);
 
-  return {
-    handled: true,
-    completed: result.done === true,
-    outputText: result.text
-  };
+  return { handled: true, completed: result.done === true, outputText: result.text };
 }
 
 module.exports = {
   STATE_FILE,
   STATE_TTL_MS,
+  SUPPORTED_PLATFORMS,
   isSellerStart,
   parseSellerFields,
+  parseNameCorrection,
   processSellerRegistrationConversation,
   sellerSummary
 };
