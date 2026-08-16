@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  isSellerAccessRequest,
   isSellerStart,
   parseSellerFields,
   parseNameCorrection,
@@ -15,6 +16,15 @@ test('recognizes natural Owner commands to register a seller', () => {
   assert.equal(isSellerStart('quiero cargar una vendedora'), true);
   assert.equal(isSellerStart('agrega vendedor nuevo'), true);
   assert.equal(isSellerStart('lista los proveedores'), false);
+});
+
+test('does not start seller registration from an explicit no-duplicate instruction', () => {
+  const message = [
+    'Generá el acceso ELANVISUAL reutilizando el vendedor existente VALENTINA YAHOSCA RAMOS MENA.',
+    'No crear vendedor duplicado.'
+  ].join('\n');
+  assert.equal(isSellerAccessRequest(message), true);
+  assert.equal(isSellerStart(message), false);
 });
 
 test('extracts seller fields without requiring a rigid format', () => {
