@@ -85,10 +85,22 @@ async function setSellerPlatforms(sellerId, platforms, env) {
   }, env);
 }
 
+async function provisionSellerAccess(sellerId, platform, env) {
+  const id = encodeURIComponent(String(sellerId || '').trim());
+  if (!id) throw new OwnerSellerConnectError('SELLER_ID_REQUIRED', 'Falta el ID oficial del vendedor.', 400);
+  const normalizedPlatform = String(platform || '').trim().toUpperCase();
+  if (!normalizedPlatform) throw new OwnerSellerConnectError('SELLER_PLATFORM_REQUIRED', 'Falta la plataforma asignada.', 400);
+  return requestSeller(`/api/v1/sellers/${id}/access`, {
+    method: 'POST',
+    body: { platform: normalizedPlatform }
+  }, env);
+}
+
 module.exports = {
   OwnerSellerConnectError,
   createSeller,
   listSellers,
+  provisionSellerAccess,
   requestSeller,
   setSellerPlatforms
 };
