@@ -63,6 +63,7 @@ function paramsFrom(filters = {}) {
 
 async function searchCustomers(term, env) { return requestConnect(`/api/v1/business/vqs/customers/directory-search?q=${query(term)}&limit=30`, {}, env); }
 async function createCustomer(input, env) { return requestConnect('/api/v1/business/vqs/customers', { method: 'POST', body: input }, env); }
+async function resolveCatalogPricing(input, env) { return requestConnect('/api/v1/business/vqs/pricing/resolve', { method: 'POST', body: input }, env); }
 async function listQuotations(env) { return requestConnect('/api/v1/business/vqs/quotations?limit=200', {}, env); }
 async function getQuotation(projectId, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}`, {}, env); }
 async function createQuotation(document, idempotencyKey, env) {
@@ -98,6 +99,7 @@ module.exports = {
   listQuotations,
   listWorkOrders,
   requestConnect,
+  resolveCatalogPricing,
   revokePriceAuthorization,
   searchCustomers,
   sendQuotationWhatsApp,
