@@ -17,6 +17,9 @@ const {
   processCrmConversation
 } = require('./crmConversationService');
 const {
+  processSellerRegistrationConversation
+} = require('./ownerSellerRegistrationService');
+const {
   loadEcosystemContext
 } = require('./ecosystemContextService');
 const {
@@ -261,6 +264,31 @@ async function processMessage({
           externalUserId,
           phone
         });
+      }
+
+      const sellerConversation = await processSellerRegistrationConversation({
+        message: normalizedMessage,
+        externalUserId: context.externalUserId || externalUserId || null,
+        phone: context.phone || phone || null,
+        metadata: metadata && typeof metadata === 'object' ? metadata : {}
+      });
+
+      if (sellerConversation.handled) {
+        console.log('[OWNER_SELLER_REGISTRATION]', {
+          platform: context.platform || platform || 'elanvisual',
+          completed: Boolean(sellerConversation.completed),
+          phone: 'OWNER_RECOGNIZED'
+        });
+
+        return {
+          outputText: sellerConversation.outputText,
+          model: 'elankav-seller-registration',
+          id: null,
+          status: sellerConversation.completed ? 'completed' : 'in_progress',
+          usage: null,
+          crmAction: true,
+          ownerCrmCommand: true
+        };
       }
 
       const ownerLanguageLearnCommand =

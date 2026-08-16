@@ -557,6 +557,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         source: 'waha', session: incoming.session, messageId: incoming.messageId || null,
         chatId: incoming.chatId, event: incoming.event || 'message', senderRaw: incoming.senderRaw,
         messageType: incoming.messageType, originalText: incoming.text || null,
+        media: incoming.media || null,
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
         connectDecision: decision,
         ...(registeredProvider ? { providerId: registeredProvider.id, providerName: registeredProvider.tradeName, providerRecognized: true } : {})
