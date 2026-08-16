@@ -76,10 +76,11 @@ async function runCodeJob(job) {
   });
 
   result.steps.push({
-    step: 'codex',
-    healthy: Boolean(changesResult.codex),
-    model: changesResult.codex?.model,
-    sandbox: changesResult.codex?.sandbox
+    step: 'native-code',
+    healthy: Boolean(changesResult.executor),
+    engine: changesResult.executor?.engine,
+    model: changesResult.executor?.model,
+    changedFiles: changesResult.executor?.changedFiles || []
   });
 
   result.steps.push({
@@ -88,7 +89,7 @@ async function runCodeJob(job) {
   });
 
   if (!changesResult.changed) {
-    throw new Error('Codex no produjo cambios');
+    throw new Error('ELAN Native Code no produjo cambios');
   }
 
   const qaResult = await runJobQa({
