@@ -15,6 +15,10 @@ const {
 const {
   publishPreparedJob
 } = require('./ownerOpsCodePublishService');
+const {
+  enqueueSupervisorOperation,
+  readSupervisorResult
+} = require('./ownerOpsSupervisorClient');
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 512 * 1024;
@@ -47,12 +51,6 @@ async function restartService(target) {
     throw error;
   }
 
-  if (target === 'orchestrator') {
-    const error = new Error('OWNER_OPS_SELF_RESTART_BLOCKED');
-    error.code = 'OWNER_OPS_SELF_RESTART_BLOCKED';
-    throw error;
-  }
-
   await runPrivilegedSystemctl(['restart', service]);
   const status = await runCommand('systemctl', ['is-active', service]);
 
@@ -71,6 +69,24 @@ async function restartService(target) {
   };
 }
 
+async function delegateToSupervisor(id, operation) {
+  const request = await enqueueSupervisorOperation({
+    id,
+    capability: operation.capability,
+    target: operation.target,
+    parameters: operation.parameters || {},
+    executeAfterMs: 2000
+  });
+
+  return {
+    capability: 'supervisor.delegated',
+    delegatedCapability: operation.capability,
+    target: operation.target,
+    executeAfter: request.executeAfter,
+    status: 'queued'
+  };
+}
+
 async function executeConfirmedOperation(id) {
   const { operation } = await loadPendingOperation(id);
   const capability = getCapability(operation.capability);
@@ -81,11 +97,15 @@ async function executeConfirmedOperation(id) {
     throw error;
   }
 
-  await markOperationRunning(id);
+  const running = await markOperationRunning(id);
 
   try {
-    let execution;
+    if (operation.capability === 'service.restart' && operation.target === 'orchestrator') {
+      const execution = await delegateToSupervisor(id, operation);
+      return { job: running, execution, deferred: true };
+    }
 
+    let execution;
     if (operation.capability === 'service.restart') {
       execution = await restartService(operation.target);
     } else if (operation.capability === 'git.publish-prepared') {
@@ -103,18 +123,47 @@ async function executeConfirmedOperation(id) {
     }
 
     const completed = await markOperationCompleted(id, execution);
-    return {
-      job: completed,
-      execution
-    };
+    return { job: completed, execution };
   } catch (cause) {
     return markOperationFailed(id, cause);
   }
 }
 
+async function readDeferredOperationResult(id) {
+  const result = await readSupervisorResult(id);
+  if (!result) return { id, status: 'pending', execution: null };
+
+  if (result.status === 'completed') {
+    const job = await markOperationCompleted(id, result.execution);
+    return { id, status: 'completed', execution: result.execution, job };
+  }
+
+  const error = new Error(result.error || 'SUPERVISOR_OPERATION_FAILED');
+  error.code = result.error || 'SUPERVISOR_OPERATION_FAILED';
+  try {
+    await markOperationFailed(id, error);
+  } catch (_) {
+    // markOperationFailed rethrows by contract; result below is authoritative.
+  }
+  return { id, status: 'failed', error: error.code, execution: null };
+}
+
 function formatSensitiveResult(result) {
   const execution = result?.execution;
   if (!execution) return 'La operación no devolvió resultado verificable.';
+
+  if (execution.capability === 'supervisor.delegated') {
+    return [
+      '✅ Operación autorizada y delegada al supervisor externo.',
+      '',
+      `Operación: ${result.job.id}`,
+      `Objetivo: ${execution.target}`,
+      `Ejecución programada: ${execution.executeAfter}`,
+      '',
+      'El supervisor ejecutará la acción fuera del proceso del Orchestrator.',
+      `Después podés consultar: ELAN estado ${result.job.id}`
+    ].join('\n');
+  }
 
   if (execution.capability === 'service.restart') {
     return [
@@ -144,8 +193,10 @@ function formatSensitiveResult(result) {
 }
 
 module.exports = {
+  delegateToSupervisor,
   executeConfirmedOperation,
   formatSensitiveResult,
+  readDeferredOperationResult,
   restartService,
   runCommand,
   runPrivilegedSystemctl
