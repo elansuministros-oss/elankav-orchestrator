@@ -12,6 +12,39 @@ const { createPendingOperation, formatPendingOperation } = require('./ownerOpsCo
 const { buildLogisticsRequest, DELIVERY_METHODS } = require('./quotationRequirementResolver');
 const { computeRoadRoute } = require('./ownerRoutingService');
 
+function trace(stage, metadata = {}) {
+  try {
+    console.log('[OWNER_QUOTATION]', JSON.stringify({
+      ts: new Date().toISOString(),
+      stage,
+      ...metadata
+    }));
+  } catch {
+    console.log('[OWNER_QUOTATION]', stage);
+  }
+}
+
+function errorDetails(error) {
+  const data = error?.data || error?.response?.data || error?.body || null;
+  return {
+    name: error?.name || 'Error',
+    message: error?.message || 'Unknown error',
+    code: error?.code || data?.code || data?.error?.code || null,
+    status: error?.status || error?.statusCode || error?.response?.status || null
+  };
+}
+
+function visibleQuotationError(error) {
+  const details = errorDetails(error);
+  const suffix = [details.code, details.status ? `HTTP ${details.status}` : null].filter(Boolean).join(' · ');
+  return [
+    'No pude guardar la cotización oficial en CONNECT/VQS.',
+    suffix ? `Error: ${suffix}` : '',
+    details.message ? `Detalle: ${details.message}` : '',
+    'No se creó ninguna cotización. Revisaré este error sin duplicar registros.'
+  ].filter(Boolean).join('\n');
+}
+
 function normalize(value) {
   return String(value || '')
     .trim()
@@ -118,7 +151,7 @@ function parseQuotationRequest(message) {
   const explicitPrice = parseExplicitPrice(message);
   const paymentTerms = parsePaymentTerms(message);
   if (!productQuery) return null;
-  return {
+  const parsed = {
     message: String(message || '').trim(),
     productQuery,
     width: dimensions.width,
@@ -131,6 +164,13 @@ function parseQuotationRequest(message) {
     logisticsRequested: hasLogisticsIntent(message),
     priceIncludesLogistics: Boolean(explicitPrice && /\b(instalad[oa]|entregad[oa]|delivery incluido|incluye instalacion|incluye instalación)\b/i.test(message))
   };
+  trace('parsed', {
+    productQuery: parsed.productQuery,
+    explicitPrice: parsed.explicitPrice || null,
+    paymentTerms: parsed.paymentTerms,
+    logisticsRequested: parsed.logisticsRequested
+  });
+  return parsed;
 }
 
 function matchesText(left, right) {
@@ -198,12 +238,18 @@ async function resolveLogistics(input) {
 
 async function resolveActiveCustomer() {
   const context = await readContext();
+  trace('customer-context', { activeCustomerId: context.activeCustomerId || null });
   if (!context.activeCustomerId) return { ready: false, question: '¿Para qué cliente preparo la cotización? Primero indicame o buscá el cliente.' };
   const result = await searchCustomers(context.activeCustomerId);
   const rows = result?.data?.results || [];
   const match = rows.find(row => String(row?.customer?.customerId || row?.customer?.id || row?.sourceId || '') === String(context.activeCustomerId)) || rows[0];
   if (!match) return { ready: false, question: 'No pude resolver el cliente activo en el directorio oficial. Indicame nuevamente el cliente.' };
-  return { ready: true, customer: match.customer || match };
+  const customer = match.customer || match;
+  trace('customer-resolved', {
+    customerId: customer.customerId || customer.id || null,
+    phone: customer.phone || null
+  });
+  return { ready: true, customer };
 }
 
 function money(amount, currency) {
@@ -229,99 +275,140 @@ async function prepareActiveQuotationDelivery() {
 async function prepareAndCreateQuotation(input) {
   if (input?.sendActive === true) return prepareActiveQuotationDelivery();
 
-  const customerResult = await resolveActiveCustomer();
-  if (!customerResult.ready) return customerResult;
-  const logisticsResult = await resolveLogistics(input);
-  if (!logisticsResult.ready) return logisticsResult;
-
-  let pricing = {};
   try {
-    const pricingResponse = await resolveCatalogPricing({ query: input.productQuery, width: input.width, height: input.height, quantity: input.quantity });
-    pricing = pricingResponse.data || {};
-  } catch (error) {
-    if (!input.explicitPrice) throw error;
-    pricing = { status: 'NOT_FOUND' };
-  }
+    trace('start', {
+      productQuery: input?.productQuery || null,
+      explicitPrice: input?.explicitPrice || null,
+      paymentTerms: input?.paymentTerms || null
+    });
 
-  if (!input.explicitPrice) {
-    if (pricing.status === 'NOT_FOUND') return { ready: false, question: `No encontré “${input.productQuery}” en la biblioteca oficial. Necesito identificar el producto o servicio correcto antes de cotizar.` };
-    if (pricing.status === 'MULTIPLE') {
-      const names = (pricing.matches || []).slice(0, 5).map(item => item.name).filter(Boolean);
-      return { ready: false, question: `Encontré varias opciones en la biblioteca: ${names.join(', ')}. Indicame cuál corresponde.` };
+    const customerResult = await resolveActiveCustomer();
+    if (!customerResult.ready) {
+      trace('blocked-customer', { question: customerResult.question || null });
+      return customerResult;
     }
-    if (pricing.status === 'REQUIRES_INPUT') return { ready: false, question: 'Faltan medidas necesarias para calcular el precio de este producto.' };
-    if (pricing.status !== 'FOUND') return { ready: false, question: 'El producto existe, pero no tiene un precio de venta vigente en la biblioteca oficial.' };
+
+    const logisticsResult = await resolveLogistics(input);
+    if (!logisticsResult.ready) {
+      trace('blocked-logistics', { question: logisticsResult.question || null });
+      return logisticsResult;
+    }
+    trace('logistics-resolved', { amount: logisticsResult.amount || 0, currency: logisticsResult.currency || null });
+
+    let pricing = {};
+    try {
+      const pricingResponse = await resolveCatalogPricing({ query: input.productQuery, width: input.width, height: input.height, quantity: input.quantity });
+      pricing = pricingResponse.data || {};
+      trace('pricing-resolved', { status: pricing.status || null });
+    } catch (error) {
+      trace('pricing-error', errorDetails(error));
+      if (!input.explicitPrice) throw error;
+      pricing = { status: 'NOT_FOUND' };
+    }
+
+    if (!input.explicitPrice) {
+      if (pricing.status === 'NOT_FOUND') return { ready: false, question: `No encontré “${input.productQuery}” en la biblioteca oficial. Necesito identificar el producto o servicio correcto antes de cotizar.` };
+      if (pricing.status === 'MULTIPLE') {
+        const names = (pricing.matches || []).slice(0, 5).map(item => item.name).filter(Boolean);
+        return { ready: false, question: `Encontré varias opciones en la biblioteca: ${names.join(', ')}. Indicame cuál corresponde.` };
+      }
+      if (pricing.status === 'REQUIRES_INPUT') return { ready: false, question: 'Faltan medidas necesarias para calcular el precio de este producto.' };
+      if (pricing.status !== 'FOUND') return { ready: false, question: 'El producto existe, pero no tiene un precio de venta vigente en la biblioteca oficial.' };
+    }
+
+    const explicit = input.explicitPrice || null;
+    const catalogFound = pricing.status === 'FOUND' && pricing.item && pricing.calculation;
+    const currency = explicit?.currency || pricing.calculation?.currency || 'USD';
+    if (currency !== 'USD') return { ready: false, question: `El precio indicado está en ${currency}. El VQS oficial consolida el total principal en USD; necesito una conversión oficial antes de crear la cotización.` };
+
+    const logisticsAmount = Number(logisticsResult.amount || 0);
+    if (logisticsAmount > 0 && logisticsResult.currency !== currency) return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio.` };
+
+    const baseSubtotal = explicit ? Number(explicit.amount) : Number(pricing.calculation.subtotal || 0);
+    const total = Number((baseSubtotal + logisticsAmount).toFixed(2));
+    const customer = customerResult.customer;
+    const item = catalogFound ? pricing.item : { id: `OWNER-${randomUUID()}`, code: 'OWNER-CUSTOM', name: input.productQuery, description: input.productQuery, unit: 'servicio', unitPrice: baseSubtotal };
+
+    const items = [{
+      itemId: item.id,
+      ...(catalogFound ? { catalogItemId: item.id } : {}),
+      code: item.code,
+      title: item.name,
+      description: item.description || input.productQuery,
+      quantity: explicit ? 1 : Number(pricing.calculation.billableUnits || input.quantity || 1),
+      unit: item.unit || 'servicio',
+      unitPriceUsd: explicit ? baseSubtotal : Number(item.unitPrice),
+      subtotalUsd: baseSubtotal,
+      source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
+    }];
+    if (logisticsAmount > 0) items.push({ itemId: `LOG-${randomUUID()}`, title: logisticsResult.description || 'Logística', description: logisticsResult.description || 'Logística', quantity: 1, unit: 'servicio', unitPriceUsd: logisticsAmount, subtotalUsd: logisticsAmount, source: 'LOGISTICS_LIBRARY' });
+
+    const terms = input.paymentTerms || { depositPercent: 60, balancePercent: 40 };
+    const depositUsd = Number((total * terms.depositPercent / 100).toFixed(2));
+    const balanceUsd = Number((total - depositUsd).toFixed(2));
+    const document = {
+      quotation: { status: 'draft', source: { type: 'owner-whatsapp', sourceId: `OWNER-${randomUUID()}` } },
+      project: { title: item.name, status: 'pending_activation', currentStage: 'quotation' },
+      relations: { customerId: customer.customerId || customer.id },
+      customerSnapshot: { customerId: customer.customerId || customer.id, name: customer.name || customer.companyName, companyName: customer.companyName || '', phone: customer.phone || '', email: customer.email || '', address: customer.address || '', city: customer.city || '' },
+      executiveSnapshot: { executiveId: 'owner-whatsapp', name: 'ELAN Owner' },
+      items,
+      pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total },
+      paymentTerms: { depositPercent: terms.depositPercent, balancePercent: terms.balancePercent, depositUsd, balanceUsd },
+      ownerCommercialOverride: explicit ? { applied: true, amountUsd: baseSubtotal, includesLogistics: Boolean(input.priceIncludesLogistics), source: 'owner-whatsapp' } : undefined,
+      contractVersion: '1.0.0'
+    };
+
+    trace('vqs-create-request', {
+      customerId: customer.customerId || customer.id || null,
+      totalUsd: total,
+      itemCount: items.length,
+      source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
+    });
+
+    const createdResponse = await createQuotation(document, `owner-${randomUUID()}`);
+    const created = createdResponse.data || createdResponse;
+    trace('vqs-create-success', {
+      quotationId: created.quotationId || null,
+      quotationNumber: created.quotationNumber || null,
+      projectId: created.projectId || null
+    });
+
+    await updateContext({ activeCustomerId: customer.customerId || customer.id, activeQuotationId: created.quotationId || null, activeQuotationNumber: created.quotationNumber || null, activeQuotationPublicUrl: created.publicUrl || null, activeProjectId: created.projectId || null, lastQuotationTotalUsd: total, lastEntityType: 'quotation', lastEntityId: created.quotationId || created.projectId || null });
+
+    return {
+      ready: true,
+      created: true,
+      quotation: created,
+      summary: [
+        '✅ Cotización oficial creada.', '',
+        `Cliente: ${customer.name || customer.companyName}`,
+        `Concepto: ${item.name}`,
+        input.width && input.height ? `Medida: ${input.width} × ${input.height}` : '',
+        logisticsResult.description ? `Logística: ${logisticsResult.description}` : '',
+        explicit ? 'Precio: autorizado directamente por Owner' : '',
+        `Total: ${money(total, currency)}`,
+        `Anticipo ${terms.depositPercent}%: ${money(depositUsd, currency)}`,
+        `Saldo ${terms.balancePercent}%: ${money(balanceUsd, currency)}`,
+        `Cotización: ${created.quotationNumber || created.quotationId}`,
+        created.publicUrl ? `Enlace: ${created.publicUrl}` : '', '',
+        'Podés revisarla y luego decir: “mandásela”.'
+      ].filter(Boolean).join('\n')
+    };
+  } catch (error) {
+    const details = errorDetails(error);
+    trace('failed', details);
+    return {
+      ready: false,
+      failed: true,
+      error: details,
+      question: visibleQuotationError(error)
+    };
   }
-
-  const explicit = input.explicitPrice || null;
-  const catalogFound = pricing.status === 'FOUND' && pricing.item && pricing.calculation;
-  const currency = explicit?.currency || pricing.calculation?.currency || 'USD';
-  if (currency !== 'USD') return { ready: false, question: `El precio indicado está en ${currency}. El VQS oficial consolida el total principal en USD; necesito una conversión oficial antes de crear la cotización.` };
-
-  const logisticsAmount = Number(logisticsResult.amount || 0);
-  if (logisticsAmount > 0 && logisticsResult.currency !== currency) return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio.` };
-
-  const baseSubtotal = explicit ? Number(explicit.amount) : Number(pricing.calculation.subtotal || 0);
-  const total = Number((baseSubtotal + logisticsAmount).toFixed(2));
-  const customer = customerResult.customer;
-  const item = catalogFound ? pricing.item : { id: `OWNER-${randomUUID()}`, code: 'OWNER-CUSTOM', name: input.productQuery, description: input.productQuery, unit: 'servicio', unitPrice: baseSubtotal };
-
-  const items = [{
-    itemId: item.id,
-    ...(catalogFound ? { catalogItemId: item.id } : {}),
-    code: item.code,
-    title: item.name,
-    description: item.description || input.productQuery,
-    quantity: explicit ? 1 : Number(pricing.calculation.billableUnits || input.quantity || 1),
-    unit: item.unit || 'servicio',
-    unitPriceUsd: explicit ? baseSubtotal : Number(item.unitPrice),
-    subtotalUsd: baseSubtotal,
-    source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
-  }];
-  if (logisticsAmount > 0) items.push({ itemId: `LOG-${randomUUID()}`, title: logisticsResult.description || 'Logística', description: logisticsResult.description || 'Logística', quantity: 1, unit: 'servicio', unitPriceUsd: logisticsAmount, subtotalUsd: logisticsAmount, source: 'LOGISTICS_LIBRARY' });
-
-  const terms = input.paymentTerms || { depositPercent: 60, balancePercent: 40 };
-  const depositUsd = Number((total * terms.depositPercent / 100).toFixed(2));
-  const balanceUsd = Number((total - depositUsd).toFixed(2));
-  const document = {
-    quotation: { status: 'draft', source: { type: 'owner-whatsapp', sourceId: `OWNER-${randomUUID()}` } },
-    project: { title: item.name, status: 'pending_activation', currentStage: 'quotation' },
-    relations: { customerId: customer.customerId || customer.id },
-    customerSnapshot: { customerId: customer.customerId || customer.id, name: customer.name || customer.companyName, companyName: customer.companyName || '', phone: customer.phone || '', email: customer.email || '', address: customer.address || '', city: customer.city || '' },
-    executiveSnapshot: { executiveId: 'owner-whatsapp', name: 'ELAN Owner' },
-    items,
-    pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total },
-    paymentTerms: { depositPercent: terms.depositPercent, balancePercent: terms.balancePercent, depositUsd, balanceUsd },
-    ownerCommercialOverride: explicit ? { applied: true, amountUsd: baseSubtotal, includesLogistics: Boolean(input.priceIncludesLogistics), source: 'owner-whatsapp' } : undefined,
-    contractVersion: '1.0.0'
-  };
-
-  const createdResponse = await createQuotation(document, `owner-${randomUUID()}`);
-  const created = createdResponse.data || createdResponse;
-  await updateContext({ activeCustomerId: customer.customerId || customer.id, activeQuotationId: created.quotationId || null, activeQuotationNumber: created.quotationNumber || null, activeQuotationPublicUrl: created.publicUrl || null, activeProjectId: created.projectId || null, lastQuotationTotalUsd: total, lastEntityType: 'quotation', lastEntityId: created.quotationId || created.projectId || null });
-
-  return {
-    ready: true,
-    created: true,
-    quotation: created,
-    summary: [
-      '✅ Cotización oficial creada.', '',
-      `Cliente: ${customer.name || customer.companyName}`,
-      `Concepto: ${item.name}`,
-      input.width && input.height ? `Medida: ${input.width} × ${input.height}` : '',
-      logisticsResult.description ? `Logística: ${logisticsResult.description}` : '',
-      explicit ? 'Precio: autorizado directamente por Owner' : '',
-      `Total: ${money(total, currency)}`,
-      `Anticipo ${terms.depositPercent}%: ${money(depositUsd, currency)}`,
-      `Saldo ${terms.balancePercent}%: ${money(balanceUsd, currency)}`,
-      `Cotización: ${created.quotationNumber || created.quotationId}`,
-      created.publicUrl ? `Enlace: ${created.publicUrl}` : '', '',
-      'Podés revisarla y luego decir: “mandásela”.'
-    ].filter(Boolean).join('\n')
-  };
 }
 
 module.exports = {
+  errorDetails,
   hasLogisticsIntent,
   parseCarrier,
   parseDestination,
@@ -334,5 +421,7 @@ module.exports = {
   prepareAndCreateQuotation,
   resolveLogistics,
   selectDistanceRule,
-  selectLogisticsRule
+  selectLogisticsRule,
+  trace,
+  visibleQuotationError
 };
