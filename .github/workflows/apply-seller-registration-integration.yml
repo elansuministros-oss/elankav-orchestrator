@@ -1,0 +1,106 @@
+name: Apply Seller Registration Integration
+
+on:
+  push:
+    branches:
+      - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
+    paths:
+      - '.github/workflows/apply-seller-registration-integration.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
+          fetch-depth: 0
+
+      - name: Integrate seller registration into Owner WhatsApp flow
+        shell: python
+        run: |
+          from pathlib import Path
+
+          message_file = Path('services/messageService.js')
+          message = message_file.read_text()
+
+          import_needle = """const {
+            processCrmConversation
+          } = require('./crmConversationService');
+          """
+          import_replacement = import_needle + """const {
+            processSellerRegistrationConversation
+          } = require('./ownerSellerRegistrationService');
+          """
+          if message.count(import_needle) != 1:
+              raise SystemExit('MESSAGE_SERVICE_IMPORT_NEEDLE_NOT_UNIQUE')
+          message = message.replace(import_needle, import_replacement, 1)
+
+          routing_needle = """      const ownerLanguageLearnCommand =
+                detectOwnerLanguageLearnCommand(normalizedMessage);
+          """
+          routing_replacement = """      const sellerConversation = await processSellerRegistrationConversation({
+                message: normalizedMessage,
+                externalUserId: context.externalUserId || externalUserId || null,
+                phone: context.phone || phone || null,
+                metadata: metadata && typeof metadata === 'object' ? metadata : {}
+              });
+
+              if (sellerConversation.handled) {
+                console.log('[OWNER_SELLER_REGISTRATION]', {
+                  platform: context.platform || platform || 'elanvisual',
+                  completed: Boolean(sellerConversation.completed),
+                  phone: 'OWNER_RECOGNIZED'
+                });
+
+                return {
+                  outputText: sellerConversation.outputText,
+                  model: 'elankav-seller-registration',
+                  id: null,
+                  status: sellerConversation.completed ? 'completed' : 'in_progress',
+                  usage: null,
+                  crmAction: true,
+                  ownerCrmCommand: true
+                };
+              }
+
+              const ownerLanguageLearnCommand =
+                detectOwnerLanguageLearnCommand(normalizedMessage);
+          """
+          if message.count(routing_needle) != 1:
+              raise SystemExit('MESSAGE_SERVICE_ROUTING_NEEDLE_NOT_UNIQUE')
+          message = message.replace(routing_needle, routing_replacement, 1)
+          message_file.write_text(message)
+
+          webhook_file = Path('api/wahaWebhookApi.js')
+          webhook = webhook_file.read_text()
+          media_needle = """        messageType: incoming.messageType, originalText: incoming.text || null,
+                  transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
+          """
+          media_replacement = """        messageType: incoming.messageType, originalText: incoming.text || null,
+                  media: incoming.media || null,
+                  transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
+          """
+          if webhook.count(media_needle) != 1:
+              raise SystemExit('WAHA_MEDIA_NEEDLE_NOT_UNIQUE')
+          webhook = webhook.replace(media_needle, media_replacement, 1)
+          webhook_file.write_text(webhook)
+
+      - name: Validate syntax
+        run: |
+          node --check services/messageService.js
+          node --check api/wahaWebhookApi.js
+          node --check services/ownerSellerConnectClient.js
+          node --check services/ownerSellerIdentityExtractionService.js
+          node --check services/ownerSellerRegistrationService.js
+
+      - name: Commit integration
+        run: |
+          git config user.name "elansuministros-oss"
+          git config user.email "elansuministros@gmail.com"
+          git add services/messageService.js api/wahaWebhookApi.js
+          git commit -m "feat(sellers): wire guided registration into Owner WhatsApp"
+          git push origin HEAD:fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
