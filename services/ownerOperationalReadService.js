@@ -1,6 +1,7 @@
 'use strict';
 
 const { listJobs } = require('./jobs/jobEngine');
+const { listCapabilities } = require('./ownerOpsCapabilityRegistry');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const DEFAULT_WAHA_SESSION = 'ELANKAV';
@@ -12,7 +13,7 @@ const CAPABILITIES = Object.freeze([
   ['owner.waha.send_design_link', 'WAHA', 'Envía el enlace oficial de diseño', true],
   ['owner.quote.query', 'CONNECT/Quote Runtime', 'Consulta cotizaciones mediante el runtime habilitado', true],
   ['owner.context.sync', 'Orchestrator', 'Sincroniza contexto oficial mediante Job', true],
-  ['owner.code.job', 'Codex', 'Crea un Job de programación aislado', true]
+  ['owner.code.job', 'Codex', 'Prepara una corrección aislada sin publicar', true]
 ]);
 
 function createHeaders(env = process.env) {
@@ -26,26 +27,14 @@ async function readWahaSession({ env = process.env, fetchImpl = globalThis.fetch
   const baseUrl = String(env.WAHA_BASE_URL || DEFAULT_WAHA_BASE_URL).replace(/\/+$/, '');
   const session = String(env.WAHA_SESSION || DEFAULT_WAHA_SESSION).trim();
   const checkedAt = new Date().toISOString();
-  const response = await fetchImpl(`${baseUrl}/api/sessions/${encodeURIComponent(session)}`, {
-    method: 'GET',
-    headers: createHeaders(env)
-  });
+  const response = await fetchImpl(`${baseUrl}/api/sessions/${encodeURIComponent(session)}`, { method: 'GET', headers: createHeaders(env) });
   const data = await response.json().catch(() => null);
-
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || `WAHA HTTP ${response.status}`);
     error.code = `WAHA_HTTP_${response.status}`;
     throw error;
   }
-
-  return Object.freeze({
-    session,
-    status: data?.status || 'UNKNOWN',
-    engine: data?.engine?.engine || data?.engine?.name || data?.engine || null,
-    me: data?.me || null,
-    webhooks: Array.isArray(data?.config?.webhooks) ? data.config.webhooks : [],
-    checkedAt
-  });
+  return Object.freeze({ session, status: data?.status || 'UNKNOWN', engine: data?.engine?.engine || data?.engine?.name || data?.engine || null, me: data?.me || null, webhooks: Array.isArray(data?.config?.webhooks) ? data.config.webhooks : [], checkedAt });
 }
 
 function maskPhone(value) {
@@ -56,65 +45,30 @@ function maskPhone(value) {
 
 function formatWahaStatus(result) {
   const phone = result.me?.id || result.me?.pushName || result.me?.phone || null;
-  const webhookLines = result.webhooks.length
-    ? result.webhooks.map(item => `- ${item.url || 'sin URL'} [${(item.events || []).join(', ') || 'sin eventos'}]`)
-    : ['- Ninguno expuesto por WAHA'];
-
-  return [
-    'Estado WAHA verificado en tiempo real.',
-    '',
-    `Sesión: ${result.session}`,
-    `Estado: ${result.status}`,
-    `Engine: ${result.engine || 'No disponible'}`,
-    `Cuenta: ${maskPhone(phone)}`,
-    'Webhooks:',
-    ...webhookLines,
-    `Consultado: ${result.checkedAt}`
-  ].join('\n');
+  const webhookLines = result.webhooks.length ? result.webhooks.map(item => `- ${item.url || 'sin URL'} [${(item.events || []).join(', ') || 'sin eventos'}]`) : ['- Ninguno expuesto por WAHA'];
+  return ['Estado WAHA verificado en tiempo real.', '', `Sesión: ${result.session}`, `Estado: ${result.status}`, `Engine: ${result.engine || 'No disponible'}`, `Cuenta: ${maskPhone(phone)}`, 'Webhooks:', ...webhookLines, `Consultado: ${result.checkedAt}`].join('\n');
 }
 
 async function getRecentJobs(limit = 3) {
-  const rows = await listJobs();
-  return (Array.isArray(rows) ? rows : [])
-    .slice()
-    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
-    .slice(0, Math.max(1, Math.min(Number(limit) || 3, 10)));
+  try {
+    const rows = await listJobs();
+    return { healthy: true, rows: (Array.isArray(rows) ? rows : []).slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, Math.max(1, Math.min(Number(limit) || 3, 10))), error: null };
+  } catch (error) {
+    return { healthy: false, rows: [], error: error?.code || error?.message || 'JOB_PERSISTENCE_UNAVAILABLE' };
+  }
 }
 
-function formatRecentJobs(jobs) {
+function formatRecentJobs(result) {
+  if (!result?.healthy) return `⚠️ No fue posible consultar Jobs. Persistencia no disponible: ${result?.error || 'desconocido'}. Las capacidades READ del VPS siguen operativas.`;
+  const jobs = result.rows || [];
   if (!jobs.length) return 'No hay Jobs registrados.';
-  return [
-    'Jobs recientes verificados.',
-    '',
-    ...jobs.flatMap((job, index) => [
-      `${index + 1}. ${job.id}`,
-      `Plataforma: ${job.platform || 'No disponible'}`,
-      `Estado: ${job.status || 'No disponible'}`,
-      `Creado: ${job.createdAt || 'No disponible'}`,
-      `Finalizado: ${job.finishedAt || 'No disponible'}`,
-      `Rama: ${job.branch || 'No aplica'}`,
-      `Error: ${job.error || 'Ninguno'}`,
-      ''
-    ])
-  ].join('\n').trim();
+  return ['Jobs recientes verificados.', '', ...jobs.flatMap((job, index) => [`${index + 1}. ${job.id}`, `Plataforma: ${job.platform || 'No disponible'}`, `Estado: ${job.status || 'No disponible'}`, `Creado: ${job.createdAt || 'No disponible'}`, `Finalizado: ${job.finishedAt || 'No disponible'}`, `Rama: ${job.branch || 'No aplica'}`, `Error: ${job.error || 'Ninguno'}`, ''])].join('\n').trim();
 }
 
 function formatCapabilityCatalog() {
-  return [
-    'Catálogo verificado de capacidades Owner actualmente registradas en código.',
-    '',
-    'ACCIÓN | DESTINO | TIPO | HABILITADA',
-    ...CAPABILITIES.map(([name, destination, description, enabled]) =>
-      `${name} | ${destination} | ${description} | ${enabled ? 'SÍ' : 'NO'}`
-    )
-  ].join('\n');
+  const ops = listCapabilities().map(item => [`owner.ops.${item.id}`, 'VPS/Orchestrator', `${item.description} [${item.risk}]`, true]);
+  const rows = [...CAPABILITIES, ...ops];
+  return ['Catálogo verificado de capacidades Owner actualmente registradas en código.', '', 'ACCIÓN | DESTINO | TIPO | HABILITADA', ...rows.map(([name, destination, description, enabled]) => `${name} | ${destination} | ${description} | ${enabled ? 'SÍ' : 'NO'}`)].join('\n');
 }
 
-module.exports = {
-  CAPABILITIES,
-  formatCapabilityCatalog,
-  formatRecentJobs,
-  formatWahaStatus,
-  getRecentJobs,
-  readWahaSession
-};
+module.exports = { CAPABILITIES, formatCapabilityCatalog, formatRecentJobs, formatWahaStatus, getRecentJobs, readWahaSession };
