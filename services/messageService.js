@@ -29,6 +29,12 @@ const {
   publishConversationEventSafely,
   requestConversationDecision
 } = require('./connectConversationClient');
+const {
+  resolveCommercialActorSafely
+} = require('./connectActorIdentityService');
+const {
+  resolveAccessPolicy
+} = require('./accessPolicyService');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -65,6 +71,37 @@ function buildKnowledgeQuery(history, currentMessage) {
     ...recent.map(item => item.content),
     normalizeMessage(currentMessage)
   ].filter(Boolean).join('\n').slice(-12000);
+}
+
+function actorInstructions(actor, policy) {
+  const role = String(actor?.role || policy?.role || 'prospect').toLowerCase();
+  const scopes = Array.isArray(policy?.scopes) ? policy.scopes.join(', ') : '';
+  const common = [
+    `Identidad comercial verificada por CONNECT: ${role}.`,
+    `Permisos efectivos: ${scopes || 'ninguno'}.`,
+    'No concedas capacidades fuera de esos permisos y no inventes registros, precios ni estados.'
+  ];
+
+  if (role === 'seller') {
+    common.push(
+      'Tratá al remitente como vendedor interno, no como cliente.',
+      'Puede operar solamente sus propios clientes, cotizaciones, trabajos y comisiones.',
+      'Las órdenes pueden expresarse naturalmente; no exijas sintaxis técnica.'
+    );
+  } else if (role === 'customer') {
+    common.push(
+      'Tratá al remitente como cliente formal identificado por su WhatsApp registrado.',
+      'Solo puede consultar/solicitar sus propios documentos y precios autorizados.',
+      'No puede editar, autorizar OT, validar pagos ni pedir enlaces privados de plataforma.'
+    );
+  } else {
+    common.push(
+      'Tratá al remitente como prospecto/no registrado.',
+      'Puede recibir precios autorizados; una cotización formal requiere el flujo de autorización Owner salvo formalización por depósito.'
+    );
+  }
+
+  return common.join(' ');
 }
 
 async function checkHumanTakeover({
@@ -134,11 +171,21 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
 
   const runtimePlatform = decision.platform || {};
   const platformId = runtimePlatform.platformId || context.platform || platform || 'elanvisual';
+  const actor = await resolveCommercialActorSafely({
+    phone: context.phone || phone || null,
+    platform: platformId
+  });
+  const accessPolicy = resolveAccessPolicy({
+    actorRole: actor?.role,
+    actorScopes: actor?.scopes
+  });
   const history = normalizeHistory(decision.history, normalizedMessage);
   const knowledgeQuery = buildKnowledgeQuery(history, normalizedMessage);
 
   console.log('[ELAN_AI_CONTEXT_LOADED]', {
     platform: platformId,
+    actorRole: actor?.role || 'prospect',
+    actorAuthority: actor?.authority || null,
     historyMessages: history.length,
     knowledgeQueryLength: knowledgeQuery.length,
     conversationId: decision.conversationId || null
@@ -168,29 +215,43 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       status: 'knowledge_unavailable',
       usage: null,
       runtimeVersion: decision.runtimeVersion || null,
-      knowledgeAvailable: false
+      knowledgeAvailable: false,
+      actorRole: actor?.role || 'prospect'
     };
   }
 
   const generated = await generateText({
     input: normalizedMessage,
     history,
-    instructions: decision.instructions,
+    instructions: [decision.instructions || '', actorInstructions(actor, accessPolicy)].filter(Boolean).join(' '),
     context: {
       ownerMode: false,
-      customerMode: true,
+      customerMode: actor?.role === 'customer' || actor?.role === 'prospect',
+      sellerMode: actor?.role === 'seller',
       externalUserId: context.externalUserId || externalUserId || null,
       phone: context.phone || phone || null,
       platform: platformId,
       channel: context.channel || channel || null,
+      actor: {
+        role: actor?.role || 'prospect',
+        actorId: actor?.actorId || null,
+        sellerId: actor?.sellerId || null,
+        customerId: actor?.customerId || null,
+        prospectId: actor?.prospectId || null,
+        displayName: actor?.displayName || null,
+        registered: actor?.registered === true,
+        platformAllowed: actor?.platformAllowed !== false,
+        authority: actor?.authority || null
+      },
+      accessPolicy,
       runtime: {
         schemaVersion: decision.schemaVersion || 'ELANKAV_AI_RUNTIME_V1',
         version: decision.runtimeVersion || null,
         publishedAt: decision.publishedAt || null,
         initialMessage: runtimePlatform.initialMessage || ''
       },
-      officialKnowledge: knowledge
-      ,prospectMemory: decision.prospect || null
+      officialKnowledge: knowledge,
+      prospectMemory: decision.prospect || null
     }
   });
 
@@ -199,7 +260,10 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     status: generated.status || 'completed',
     runtimeVersion: decision.runtimeVersion || null,
     knowledgeAvailable: Boolean(knowledge?.available),
-    historyMessages: history.length
+    historyMessages: history.length,
+    actorRole: actor?.role || 'prospect',
+    actorId: actor?.actorId || null,
+    accessScopes: accessPolicy.scopes
   };
 }
 
@@ -390,6 +454,9 @@ async function processMessage({
     jobId: response.jobId || null,
     ownerCommercialQuery: response.ownerCommercialQuery === true,
     ownerCrmCommand: response.ownerCrmCommand === true,
+    actorRole: response.actorRole || (resolvedContext?.owner?.isOwner ? 'owner' : null),
+    actorId: response.actorId || null,
+    accessScopes: response.accessScopes || null,
     runtimeVersion: response.runtimeVersion || null,
     knowledgeAvailable: response.knowledgeAvailable ?? null,
     historyMessages: response.historyMessages ?? null,
@@ -409,6 +476,7 @@ module.exports = {
   normalizeMessage,
   normalizeHistory,
   buildKnowledgeQuery,
+  actorInstructions,
   checkHumanTakeover,
   processCustomerMessage,
   processMessage
