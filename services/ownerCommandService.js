@@ -150,8 +150,81 @@ function detectOwnerModeCommand(message, normalizedMessage = normalizeCommand(me
   return Object.freeze({ type: OWNER_COMMANDS.MODE_SET, mode });
 }
 
+function resolveOwnerOpsFileAlias(normalizedMessage) {
+  if (
+    /\bowner[- ]language[- ]profile(?:\.json)?\b/.test(normalizedMessage) ||
+    /\bperfil\b.*\blenguaje\b/.test(normalizedMessage)
+  ) {
+    return 'owner-language-profile';
+  }
+
+  if (/\bownercommandservice(?:\.js)?\b/.test(normalizedMessage)) {
+    return 'orchestrator-owner-command';
+  }
+
+  if (/\bmessageservice(?:\.js)?\b/.test(normalizedMessage)) {
+    return 'orchestrator-message-service';
+  }
+
+  if (/\bowneropsreadservice(?:\.js)?\b/.test(normalizedMessage)) {
+    return 'orchestrator-owner-ops-read';
+  }
+
+  if (/\bowneropscapabilityregistry(?:\.js)?\b/.test(normalizedMessage)) {
+    return 'orchestrator-owner-ops-registry';
+  }
+
+  return null;
+}
+
+function resolveOwnerOpsTestSuite(normalizedMessage) {
+  if (
+    /\bowner\s+language\b/.test(normalizedMessage) ||
+    /\blanguage\s+profile\b/.test(normalizedMessage)
+  ) {
+    return 'orchestrator-owner-language';
+  }
+
+  if (/\bowner\s+business\b/.test(normalizedMessage)) {
+    return 'orchestrator-owner-business';
+  }
+
+  if (/\bowner\s+ops\b/.test(normalizedMessage)) {
+    return 'orchestrator-owner-ops';
+  }
+
+  return null;
+}
+
 function detectOwnerOpsReadCommand(normalizedMessage) {
   const target = resolveOwnerOpsTarget(normalizedMessage);
+
+  const fileAlias = resolveOwnerOpsFileAlias(normalizedMessage);
+  if (
+    fileAlias &&
+    /\b(archivo|file|contenido|perfil|revisa|revisar|lee|leer|mostra|mostrar|muestra)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'file.inspect',
+      fileAlias
+    });
+  }
+
+  const suite = resolveOwnerOpsTestSuite(normalizedMessage);
+  if (
+    suite &&
+    /\b(test|tests|prueba|pruebas)\b/.test(normalizedMessage) &&
+    /\b(ejecuta|ejecutar|corre|correr|lanza|lanzar|revisa|revisar)\b/.test(normalizedMessage)
+  ) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.OWNER_OPS_READ,
+      capability: 'test.run',
+      target: 'orchestrator',
+      suite
+    });
+  }
+
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) && /\b(produccion)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'production.audit' });
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(servidor|vps|sistema)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'server.summary' });
   if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.logs', target, lines: 100 });
@@ -413,6 +486,8 @@ module.exports = {
   detectOwnerOpsConfirmation,
   detectOwnerOpsReadCommand,
   detectOwnerOpsSensitiveCommand,
+  resolveOwnerOpsFileAlias,
+  resolveOwnerOpsTestSuite,
   detectPreparedPublishCommand,
   detectSendDesignLinkCommand,
   executeOwnerCommand,

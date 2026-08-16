@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
@@ -16,6 +17,55 @@ const MAX_BUFFER = 1024 * 1024;
 const DEFAULT_LOG_LINES = 80;
 const MAX_LOG_LINES = 300;
 const SAFE_ENV_NAME_PATTERN = /^(OWNER|ORCHESTRATOR|WAHA|CONNECT|VQS|SUPABASE|GITHUB|OPENAI|CODEX|SERVICE|RUNTIME|QUOTE_CORE)/i;
+const MAX_FILE_BYTES = 64 * 1024;
+
+const FILE_SPECS = Object.freeze({
+  'owner-language-profile': Object.freeze({
+    path: '/var/lib/elankav/orchestrator/owner-language-profile.json',
+    label: 'Owner Language Profile'
+  }),
+  'owner-language-profile.json': Object.freeze({
+    path: '/var/lib/elankav/orchestrator/owner-language-profile.json',
+    label: 'Owner Language Profile'
+  }),
+  'orchestrator-owner-command': Object.freeze({
+    path: '/opt/elankav/orchestrator/services/ownerCommandService.js',
+    label: 'Orchestrator ownerCommandService.js'
+  }),
+  'orchestrator-message-service': Object.freeze({
+    path: '/opt/elankav/orchestrator/services/messageService.js',
+    label: 'Orchestrator messageService.js'
+  }),
+  'orchestrator-owner-ops-read': Object.freeze({
+    path: '/opt/elankav/orchestrator/services/ownerOpsReadService.js',
+    label: 'Orchestrator ownerOpsReadService.js'
+  }),
+  'orchestrator-owner-ops-registry': Object.freeze({
+    path: '/opt/elankav/orchestrator/services/ownerOpsCapabilityRegistry.js',
+    label: 'Orchestrator ownerOpsCapabilityRegistry.js'
+  })
+});
+
+const TEST_SUITES = Object.freeze({
+  'orchestrator-owner-language': Object.freeze({
+    target: 'orchestrator',
+    cwd: '/opt/elankav/orchestrator',
+    file: 'tests/ownerLanguageProfile.test.js',
+    label: 'Owner Language'
+  }),
+  'orchestrator-owner-business': Object.freeze({
+    target: 'orchestrator',
+    cwd: '/opt/elankav/orchestrator',
+    file: 'tests/ownerBusinessModesPricingLogistics.test.js',
+    label: 'Owner Business'
+  }),
+  'orchestrator-owner-ops': Object.freeze({
+    target: 'orchestrator',
+    cwd: '/opt/elankav/orchestrator',
+    file: 'tests/ownerOpsReadService.test.js',
+    label: 'Owner OPS'
+  })
+});
 
 function sanitizeOutput(value) {
   return String(value || '')
@@ -28,7 +78,7 @@ function sanitizeOutput(value) {
 async function run(command, args, options = {}) {
   const { stdout, stderr } = await execFileAsync(command, args, {
     cwd: options.cwd,
-    env: process.env,
+    env: options.env || process.env,
     timeout: options.timeout || 15_000,
     maxBuffer: MAX_BUFFER,
     windowsHide: true
@@ -109,6 +159,109 @@ async function readServiceLogs(target, lines = DEFAULT_LOG_LINES) {
     service,
     lines: count,
     output: result.stdout
+  };
+}
+
+function resolveFileSpec(alias) {
+  return FILE_SPECS[String(alias || '').trim().toLowerCase()] || null;
+}
+
+function resolveTestSuite(suite) {
+  return TEST_SUITES[String(suite || '').trim().toLowerCase()] || null;
+}
+
+async function readFileInspect(alias) {
+  assertReadCapability('file.inspect');
+
+  const spec = resolveFileSpec(alias);
+
+  if (!spec) {
+    const error = new Error('Archivo no autorizado.');
+    error.code = 'OWNER_OPS_FILE_NOT_ALLOWED';
+    throw error;
+  }
+
+  let stat;
+
+  try {
+    stat = await fs.stat(spec.path);
+  } catch (cause) {
+    if (cause?.code === 'ENOENT') {
+      const error = new Error('Archivo autorizado todavía no existe.');
+      error.code = 'OWNER_OPS_FILE_NOT_FOUND';
+      throw error;
+    }
+    throw cause;
+  }
+
+  if (!stat.isFile()) {
+    const error = new Error('La ruta autorizada no es un archivo.');
+    error.code = 'OWNER_OPS_FILE_INVALID';
+    throw error;
+  }
+
+  if (stat.size > MAX_FILE_BYTES) {
+    const error = new Error('Archivo demasiado grande para consulta por WhatsApp.');
+    error.code = 'OWNER_OPS_FILE_TOO_LARGE';
+    throw error;
+  }
+
+  const content = sanitizeOutput(
+    await fs.readFile(spec.path, 'utf8')
+  );
+
+  return {
+    capability: 'file.inspect',
+    alias,
+    label: spec.label,
+    path: spec.path,
+    size: stat.size,
+    content
+  };
+}
+
+async function runTestSuite(suite) {
+  assertReadCapability('test.run');
+
+  const spec = resolveTestSuite(suite);
+
+  if (!spec) {
+    const error = new Error('Suite de pruebas no autorizada.');
+    error.code = 'OWNER_OPS_TEST_NOT_ALLOWED';
+    throw error;
+  }
+
+  const testEnv = { ...process.env };
+
+  for (const name of Object.keys(testEnv)) {
+    if (
+      name === 'NODE_TEST_CONTEXT' ||
+      name.startsWith('NODE_TEST_')
+    ) {
+      delete testEnv[name];
+    }
+  }
+
+  const result = await run(
+    process.execPath,
+    ['--test', spec.file],
+    {
+      cwd: spec.cwd,
+      timeout: 60_000,
+      env: testEnv
+    }
+  );
+
+  return {
+    capability: 'test.run',
+    suite,
+    target: spec.target,
+    label: spec.label,
+    file: spec.file,
+    success: true,
+    output: [result.stdout, result.stderr]
+      .filter(Boolean)
+      .join('\n')
   };
 }
 
@@ -260,6 +413,30 @@ function formatResult(result) {
     ].filter(Boolean).join('\n');
   }
 
+  if (result.capability === 'file.inspect') {
+    return [
+      `Archivo: ${result.label}`,
+      `Ruta autorizada: ${result.path}`,
+      `Tamaño: ${result.size} bytes`,
+      '',
+      result.content || 'Archivo vacío.',
+      '',
+      'Consulta READ-ONLY. No se realizaron cambios.'
+    ].join('\n');
+  }
+
+  if (result.capability === 'test.run') {
+    return [
+      `Suite: ${result.label}`,
+      `Archivo: ${result.file}`,
+      `Resultado: ${result.success ? 'PASS' : 'FAIL'}`,
+      '',
+      result.output || 'Sin salida.',
+      '',
+      'Ejecución controlada. No se aceptó ningún comando shell arbitrario.'
+    ].join('\n');
+  }
+
   return JSON.stringify(result, null, 2);
 }
 
@@ -285,6 +462,12 @@ async function executeReadOperation(command) {
       case 'git.status':
         result = await readGitStatus(target);
         break;
+      case 'file.inspect':
+        result = await readFileInspect(command.fileAlias);
+        break;
+      case 'test.run':
+        result = await runTestSuite(command.suite);
+        break;
       default: {
         const error = new Error('Operación Owner READ-ONLY no soportada.');
         error.code = 'OWNER_OPS_UNSUPPORTED';
@@ -296,9 +479,14 @@ async function executeReadOperation(command) {
       capability,
       target,
       success: true,
-      metadata: capability === 'service.logs'
-        ? { lines: result.lines }
-        : {}
+      metadata:
+        capability === 'service.logs'
+          ? { lines: result.lines }
+          : capability === 'file.inspect'
+            ? { alias: result.alias, size: result.size }
+            : capability === 'test.run'
+              ? { suite: result.suite, success: result.success }
+              : {}
     });
 
     return result;
@@ -316,6 +504,10 @@ async function executeReadOperation(command) {
 module.exports = {
   executeReadOperation,
   formatResult,
+  readFileInspect,
+  runTestSuite,
+  resolveFileSpec,
+  resolveTestSuite,
   readConfiguredEnvNames,
   readGitStatus,
   readProductionAudit,

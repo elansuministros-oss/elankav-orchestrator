@@ -23,6 +23,8 @@ const CAPABILITIES = Object.freeze({
   'service.status': Object.freeze({ id: 'service.status', risk: RISK.READ, description: 'Consulta si un servicio autorizado está activo.' }),
   'service.logs': Object.freeze({ id: 'service.logs', risk: RISK.READ, description: 'Lee logs recientes de un servicio autorizado.' }),
   'git.status': Object.freeze({ id: 'git.status', risk: RISK.READ, description: 'Consulta rama, commit, cambios locales y diff stat de un repositorio autorizado.' }),
+  'file.inspect': Object.freeze({ id: 'file.inspect', risk: RISK.READ, description: 'Lee archivos operativos explícitamente autorizados sin revelar archivos secretos ni aceptar rutas arbitrarias.' }),
+  'test.run': Object.freeze({ id: 'test.run', risk: RISK.READ, description: 'Ejecuta suites de pruebas explícitamente registradas sin aceptar comandos shell arbitrarios.' }),
   'service.restart': Object.freeze({ id: 'service.restart', risk: RISK.CONFIRM_REQUIRED, description: 'Reinicia un servicio explícitamente autorizado y verifica que vuelva a estado active.' }),
   'git.publish-prepared': Object.freeze({ id: 'git.publish-prepared', risk: RISK.CONFIRM_REQUIRED, description: 'Publica una rama local preparada y validada, y crea Pull Request sin merge ni deploy.' }),
   'repository.deploy': Object.freeze({ id: 'repository.deploy', risk: RISK.CONFIRM_REQUIRED, description: 'Actualiza un repositorio autorizado mediante fast-forward a un commit remoto exacto, crea backup y verifica el servicio.' }),
