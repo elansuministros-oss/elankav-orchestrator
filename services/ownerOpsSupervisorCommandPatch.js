@@ -74,6 +74,10 @@ function detectSupervisorCommand(message) {
   return null;
 }
 
+function detectOwnerCommand(message) {
+  return detectSupervisorCommand(message) || ORIGINAL_DETECT(message);
+}
+
 function formatSupervisorStatus(result) {
   if (!result || result.status === 'pending') {
     return `Operación ${result?.id || 'OPS'} todavía pendiente en el supervisor externo.`;
@@ -124,6 +128,7 @@ ownerCommands.executeOwnerCommand = executeOwnerCommand;
 
 module.exports = {
   STATUS_TYPE,
+  detectOwnerCommand,
   detectSupervisorCommand,
   formatSupervisorStatus
 };
