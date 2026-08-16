@@ -27,6 +27,12 @@ const {
   executeConfirmedOperation,
   formatSensitiveResult
 } = require('./ownerOpsSensitiveExecutor');
+const {
+  formatModeState,
+  getOperatorState,
+  resolveMode,
+  setOperatorMode
+} = require('./operatorModeService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -40,7 +46,9 @@ const OWNER_COMMANDS = Object.freeze({
   SEND_DESIGN_LINK: 'send_design_link',
   OWNER_OPS_READ: 'owner_ops_read',
   OWNER_OPS_PREPARE_SENSITIVE: 'owner_ops_prepare_sensitive',
-  OWNER_OPS_CONFIRM: 'owner_ops_confirm'
+  OWNER_OPS_CONFIRM: 'owner_ops_confirm',
+  MODE_GET: 'mode_get',
+  MODE_SET: 'mode_set'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -63,6 +71,8 @@ const CAPABILITY_PATTERN = /\b(catalogo|capacidades|acciones registradas|herrami
 const JOBS_LIST_PATTERN = /\b(ultimos|recientes|lista|listar|mostra|mostrar)\b.*\bjobs?\b|\bjobs?\b.*\b(ultimos|recientes|lista|listar|mostra|mostrar)\b/;
 const WAHA_STATUS_PATTERN = /\b(waha)\b.*\b(estado|sesion|status|verifica|consulta|consultar)\b|\b(estado|sesion|status)\b.*\b(waha)\b/;
 const PUBLISH_PREPARED_PATTERN = /\b(publica|publicar|publicalo|publicala|sube|subir|crea pr|crear pr|abre pr|abrir pr|pull request)\b/;
+const MODE_QUERY_PATTERN = /\b(en que modo|que modo|modo actual|cual es tu modo|que rol operativo|modo estas)\b/;
+const MODE_SET_PATTERN = /^(?:elan\s+)?(?:actua como|trabaja como|ponte en modo|cambia a modo|cambiar a modo|entra en modo|modo)\s+(.+)$/;
 
 function normalizeCommand(value) {
   return String(value || '')
@@ -87,55 +97,39 @@ function resolveOwnerOpsTarget(normalizedMessage) {
   return null;
 }
 
+function detectOwnerModeCommand(message, normalizedMessage = normalizeCommand(message)) {
+  if (MODE_QUERY_PATTERN.test(normalizedMessage)) {
+    return Object.freeze({ type: OWNER_COMMANDS.MODE_GET });
+  }
+
+  const match = normalizedMessage.match(MODE_SET_PATTERN);
+  if (!match) return null;
+  const mode = resolveMode(match[1]);
+  if (!mode) return null;
+  return Object.freeze({ type: OWNER_COMMANDS.MODE_SET, mode });
+}
+
 function detectOwnerOpsReadCommand(normalizedMessage) {
   const target = resolveOwnerOpsTarget(normalizedMessage);
 
-  if (
-    /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) &&
-    /\b(produccion)\b/.test(normalizedMessage)
-  ) {
-    return Object.freeze({
-      type: OWNER_COMMANDS.OWNER_OPS_READ,
-      capability: 'production.audit'
-    });
+  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) && /\b(produccion)\b/.test(normalizedMessage)) {
+    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'production.audit' });
   }
 
-  if (
-    /\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) &&
-    /\b(servidor|vps|sistema)\b/.test(normalizedMessage)
-  ) {
-    return Object.freeze({
-      type: OWNER_COMMANDS.OWNER_OPS_READ,
-      capability: 'server.summary'
-    });
+  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(servidor|vps|sistema)\b/.test(normalizedMessage)) {
+    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'server.summary' });
   }
 
   if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) {
-    return Object.freeze({
-      type: OWNER_COMMANDS.OWNER_OPS_READ,
-      capability: 'service.logs',
-      target,
-      lines: 100
-    });
+    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.logs', target, lines: 100 });
   }
 
   if (target && /\b(git|repo|repositorio|rama|branch|commit|cambios locales|diff)\b/.test(normalizedMessage)) {
-    return Object.freeze({
-      type: OWNER_COMMANDS.OWNER_OPS_READ,
-      capability: 'git.status',
-      target
-    });
+    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'git.status', target });
   }
 
-  if (
-    target &&
-    /\b(estado|status|activo|activa|corriendo|levantado|levantada|servicio|health|salud|revisa|revisar|verifica|verificar)\b/.test(normalizedMessage)
-  ) {
-    return Object.freeze({
-      type: OWNER_COMMANDS.OWNER_OPS_READ,
-      capability: 'service.status',
-      target
-    });
+  if (target && /\b(estado|status|activo|activa|corriendo|levantado|levantada|servicio|health|salud|revisa|revisar|verifica|verificar)\b/.test(normalizedMessage)) {
+    return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.status', target });
   }
 
   return null;
@@ -146,7 +140,6 @@ function detectPreparedPublishCommand(message, normalizedMessage) {
   const match = String(message || '').match(JOB_ID_PATTERN);
   if (!match) return null;
   const jobId = `JOB-${match[1]}-${match[2].toLowerCase()}`;
-
   return Object.freeze({
     type: OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
     capability: 'git.publish-prepared',
@@ -176,7 +169,6 @@ function detectOwnerOpsSensitiveCommand(message, normalizedMessage) {
       parameters: Object.freeze({})
     });
   }
-
   return null;
 }
 
@@ -185,20 +177,13 @@ function detectOwnerOpsConfirmation(message) {
   if (!normalized.startsWith('confirmar ')) return null;
   const match = String(message || '').toUpperCase().match(OPS_ID_PATTERN);
   if (!match) return null;
-
-  return Object.freeze({
-    type: OWNER_COMMANDS.OWNER_OPS_CONFIRM,
-    operationId: `OPS-${match[1]}-${match[2]}`
-  });
+  return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_CONFIRM, operationId: `OPS-${match[1]}-${match[2]}` });
 }
 
 function detectJobStatusCommand(message, normalizedMessage) {
   const match = String(message || '').match(JOB_ID_PATTERN);
   if (!match || !JOB_STATUS_PATTERN.test(normalizedMessage)) return null;
-  return Object.freeze({
-    type: OWNER_COMMANDS.JOB_STATUS,
-    jobId: `JOB-${match[1]}-${match[2].toLowerCase()}`
-  });
+  return Object.freeze({ type: OWNER_COMMANDS.JOB_STATUS, jobId: `JOB-${match[1]}-${match[2].toLowerCase()}` });
 }
 
 function detectSendDesignLinkCommand(message, normalizedMessage) {
@@ -214,6 +199,9 @@ function detectOwnerCommand(message) {
   const confirmationCommand = detectOwnerOpsConfirmation(message);
   if (confirmationCommand) return confirmationCommand;
 
+  const modeCommand = detectOwnerModeCommand(message, normalized);
+  if (modeCommand) return modeCommand;
+
   const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
   if (sensitiveCommand) return sensitiveCommand;
 
@@ -226,34 +214,19 @@ function detectOwnerCommand(message) {
   const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
   if (ownerOpsReadCommand) return ownerOpsReadCommand;
 
-  if (CAPABILITY_PATTERN.test(normalized)) {
-    return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
-  }
-  if (JOBS_LIST_PATTERN.test(normalized)) {
-    return Object.freeze({ type: OWNER_COMMANDS.JOBS_LIST });
-  }
-  if (WAHA_STATUS_PATTERN.test(normalized)) {
-    return Object.freeze({ type: OWNER_COMMANDS.WAHA_STATUS });
-  }
+  if (CAPABILITY_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
+  if (JOBS_LIST_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.JOBS_LIST });
+  if (WAHA_STATUS_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.WAHA_STATUS });
 
-  if (['context sync', 'sync context', 'sincronizar contexto', 'cargar contexto'].includes(normalized)) {
-    return OWNER_COMMANDS.CONTEXT_SYNC;
-  }
+  if (['context sync', 'sync context', 'sincronizar contexto', 'cargar contexto'].includes(normalized)) return OWNER_COMMANDS.CONTEXT_SYNC;
   if (CANCEL_PATTERN.test(normalized)) return OWNER_COMMANDS.CANCEL_FLOW;
 
   const platform = resolvePlatformFromMessage(normalized);
   if (platform && CODE_ACTION_PATTERN.test(normalized) && !READ_ONLY_PATTERN.test(normalized)) {
-    return Object.freeze({
-      type: OWNER_COMMANDS.CODE_JOB,
-      platform,
-      task: String(message || '').trim()
-    });
+    return Object.freeze({ type: OWNER_COMMANDS.CODE_JOB, platform, task: String(message || '').trim() });
   }
 
-  if (
-    String(process.env.QUOTE_CORE_RUNTIME_ENABLED || '').toLowerCase() === 'true' &&
-    resolveQuoteRuntimeIntent(message)
-  ) {
+  if (String(process.env.QUOTE_CORE_RUNTIME_ENABLED || '').toLowerCase() === 'true' && resolveQuoteRuntimeIntent(message)) {
     return Object.freeze({ type: OWNER_COMMANDS.QUOTE_QUERY, message: String(message || '').trim() });
   }
 
@@ -298,12 +271,8 @@ function formatCodeJobAccepted(job) {
 
 function formatJobStatusResult(job) {
   if (!job) return 'No encontré ese Job en el registro activo del Orchestrator.';
-  const completedSteps = Array.isArray(job.result?.steps)
-    ? job.result.steps.map(step => step.step).filter(Boolean)
-    : [];
-  const pullRequest = Array.isArray(job.result?.steps)
-    ? job.result.steps.find(step => step.step === 'pr')
-    : null;
+  const completedSteps = Array.isArray(job.result?.steps) ? job.result.steps.map(step => step.step).filter(Boolean) : [];
+  const pullRequest = Array.isArray(job.result?.steps) ? job.result.steps.find(step => step.step === 'pr') : null;
   return [
     'Estado verificado del Job.', '',
     `Job: ${job.id}`,
@@ -321,17 +290,20 @@ function formatJobStatusResult(job) {
 async function executeOwnerCommand({ command, platform }) {
   const type = typeof command === 'string' ? command : command?.type;
 
+  if (type === OWNER_COMMANDS.MODE_GET) {
+    const state = await getOperatorState({ operatorId: 'owner', role: 'OWNER' });
+    return { command: type, job: null, outputText: formatModeState(state), operatorMode: state };
+  }
+  if (type === OWNER_COMMANDS.MODE_SET) {
+    const state = await setOperatorMode({ operatorId: 'owner', role: 'OWNER', mode: command.mode });
+    return { command: type, job: null, outputText: `Modo operativo actualizado.\n${formatModeState(state)}`, operatorMode: state };
+  }
   if (type === OWNER_COMMANDS.CANCEL_FLOW) {
     return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
   }
   if (type === OWNER_COMMANDS.OWNER_OPS_CONFIRM) {
     const result = await executeConfirmedOperation(command.operationId);
-    return {
-      command: type,
-      job: result.job,
-      outputText: formatSensitiveResult(result),
-      ownerOps: result.execution
-    };
+    return { command: type, job: result.job, outputText: formatSensitiveResult(result), ownerOps: result.execution };
   }
   if (type === OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE) {
     const operation = await createPendingOperation({
@@ -342,25 +314,13 @@ async function executeOwnerCommand({ command, platform }) {
       parameters: command.parameters || {},
       requestedBy: 'owner-whatsapp'
     });
-    return {
-      command: type,
-      job: operation,
-      outputText: formatPendingOperation(operation),
-      ownerOps: operation.result?.operation || null
-    };
+    return { command: type, job: operation, outputText: formatPendingOperation(operation), ownerOps: operation.result?.operation || null };
   }
   if (type === OWNER_COMMANDS.OWNER_OPS_READ) {
     const result = await executeReadOperation(command);
-    return {
-      command: type,
-      job: null,
-      outputText: formatOwnerOpsResult(result),
-      ownerOps: result
-    };
+    return { command: type, job: null, outputText: formatOwnerOpsResult(result), ownerOps: result };
   }
-  if (type === OWNER_COMMANDS.CAPABILITY_CATALOG) {
-    return { command: type, job: null, outputText: formatCapabilityCatalog() };
-  }
+  if (type === OWNER_COMMANDS.CAPABILITY_CATALOG) return { command: type, job: null, outputText: formatCapabilityCatalog() };
   if (type === OWNER_COMMANDS.JOBS_LIST) {
     const jobs = await getRecentJobs(3);
     return { command: type, job: null, outputText: formatRecentJobs(jobs), jobs };
@@ -396,9 +356,7 @@ async function executeOwnerCommand({ command, platform }) {
       quoteQuery: { command: result.command, scope: result.scope, rows: result.rows }
     };
   }
-  if (type !== OWNER_COMMANDS.CONTEXT_SYNC) {
-    throw new Error(`Comando owner no soportado: ${JSON.stringify(command)}`);
-  }
+  if (type !== OWNER_COMMANDS.CONTEXT_SYNC) throw new Error(`Comando owner no soportado: ${JSON.stringify(command)}`);
 
   const job = await createJob({
     platform: platform || 'elankav',
@@ -413,6 +371,7 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectOwnerModeCommand,
   detectOwnerOpsConfirmation,
   detectOwnerOpsReadCommand,
   detectOwnerOpsSensitiveCommand,
