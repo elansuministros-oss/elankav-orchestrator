@@ -53,15 +53,18 @@ function clearPendingMedia(identity) {
   pendingMedia.delete(conversationKey(identity));
 }
 
-function mediaIntent(message) {
+function mediaIntent(message, { hasMediaContext = false } = {}) {
   const text = normalize(message).replace(/^elan[\s,;:]+/, '');
   const hasImageWord = /\b(imagen|foto|fotografia|fotografía)\b/.test(text);
-  const hasQuoteWord = /\b(cotizacion|cotización|producto|item|ítem)\b/.test(text);
+  const referencesCurrentMedia = hasMediaContext && /\b(esta|esta imagen|esta foto|la imagen|la foto)\b/.test(text);
   const remove = /\b(quita|quita la|elimina|borra|remueve|saca)\b/.test(text) && hasImageWord;
   if (remove) return { action: 'remove' };
 
+  // Do not treat generic commercial commands like “agregá a esta cotización un rótulo”
+  // as image operations. Image routing requires an explicit image/foto reference, or a
+  // pronoun that refers to an actual pending/incoming media object.
   const attachVerb = /\b(agrega|agregala|agregá|pone|ponela|poné|anade|añade|adjunta|adjuntala|usa|usala|cambia|cambiala|reemplaza|reemplazala)\b/.test(text);
-  if (attachVerb && (hasImageWord || hasQuoteWord || /\besta\b/.test(text))) {
+  if (attachVerb && (hasImageWord || referencesCurrentMedia)) {
     const mode = /\b(agrega|agregala|agregá|anade|añade|adjunta|adjuntala)\b/.test(text) ? 'add' : 'replace';
     return { action: 'attach', mode };
   }
@@ -96,10 +99,11 @@ function safeWahaUrl(rawUrl) {
 
 async function downloadImage(media, fetchImpl = fetch) {
   const downloaded = await downloadWahaMedia({ url: media.url, fetchImpl });
-  const contentType = String(downloaded?.mimeType || media.mimeType || '')
-    .split(';')[0]
-    .trim()
-    .toLowerCase();
+  const downloadedType = String(downloaded?.mimeType || '').split(';')[0].trim().toLowerCase();
+  const webhookType = String(media?.mimeType || '').split(';')[0].trim().toLowerCase();
+  const contentType = (!downloadedType || downloadedType === 'application/octet-stream' || downloadedType === 'binary/octet-stream')
+    ? webhookType
+    : downloadedType;
 
   if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
     const error = new Error('Formato de imagen no permitido. Usá JPG, PNG o WEBP.');
@@ -126,7 +130,8 @@ function quoteNumber(record, context) {
 async function processOwnerQuotationMediaMessage({ message, metadata = {}, externalUserId, phone, fetchImpl = fetch }) {
   const identity = { externalUserId, phone };
   const incomingImage = imageMedia(metadata);
-  const intent = mediaIntent(message);
+  const pending = readPendingMedia(identity);
+  const intent = mediaIntent(message, { hasMediaContext: Boolean(incomingImage || pending) });
 
   if (incomingImage && !intent) {
     savePendingMedia(identity, incomingImage);
@@ -152,6 +157,7 @@ async function processOwnerQuotationMediaMessage({ message, metadata = {}, exter
   if (intent.action === 'remove') {
     const result = await removeQuotationImage(context.activeProjectId, {});
     const data = result?.data || result || {};
+    clearPendingMedia(identity);
     return {
       handled: true,
       outputText: [
@@ -164,7 +170,7 @@ async function processOwnerQuotationMediaMessage({ message, metadata = {}, exter
     };
   }
 
-  const media = incomingImage || readPendingMedia(identity);
+  const media = incomingImage || pending;
   if (!media) {
     return {
       handled: true,
