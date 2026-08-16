@@ -18,7 +18,7 @@ test('detecta listado general de clientes sin pedir aclaracion', () => {
 });
 
 test('detecta consulta de cantidad de clientes', () => {
-  const command = parseCustomerList('Cuantos clientes tenemos');
+  const command = parseCustomerList('Cantidad de clientes');
   assert.equal(command?.type, BUSINESS_COMMANDS.CUSTOMER_LIST);
   assert.equal(command?.countOnly, true);
 });
