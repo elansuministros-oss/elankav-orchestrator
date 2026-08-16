@@ -8,6 +8,7 @@ const {
   searchCustomers,
   searchProviders
 } = require('./ownerBusinessConnectClient');
+const { createWahaDeliveryAdapter, normalizePhone } = require('../adapters/wahaDeliveryAdapter');
 const { updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
@@ -19,6 +20,7 @@ const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_LIST: 'business_customer_list',
   PROVIDER_SEARCH: 'business_provider_search',
   PROVIDER_LIST: 'business_provider_list',
+  PROVIDER_QUOTE_REQUEST: 'business_provider_quote_request',
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
   LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
   QUOTATION_CREATE: 'business_quotation_create'
@@ -122,6 +124,28 @@ function parseProviderSearch(message) {
   const match = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?(?:proveedor|provedor)\s+(.+)$/);
   if (!match) return null;
   return { type: BUSINESS_COMMANDS.PROVIDER_SEARCH, query: match[1].trim() };
+}
+
+function parseProviderQuoteRequest(message) {
+  const normalized = normalize(message)
+    .replace(/^elan[\s,;:]+/, '')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+
+  const match = normalized.match(
+    /^(?:pedi|pedile|pide|pidale|solicita|solicitale|consulta|consultale|cotiza|cotizale)\s+(?:el\s+)?(?:precio|cotizacion)\s+(?:a|al)\s+(.+?)\s+(?:de|por|para)\s+(?:(?:un|una|el|la)\s+)?(.+)$/
+  );
+  if (!match) return null;
+
+  const providerName = match[1].trim();
+  const item = match[2].trim();
+  if (!providerName || !item) return null;
+
+  return {
+    type: BUSINESS_COMMANDS.PROVIDER_QUOTE_REQUEST,
+    providerName,
+    item
+  };
 }
 
 function parseCurrencyAmount(rawValue, currencyWord = '') {
@@ -256,6 +280,7 @@ function detectOwnerBusinessCommand(message) {
   return parseCustomerCreate(message)
     || parseCustomerList(message)
     || parseCustomerSearch(message)
+    || parseProviderQuoteRequest(message)
     || parseProviderList(message)
     || parseProviderSearch(message)
     || parsePriceAuthorization(message)
@@ -306,6 +331,10 @@ function providerDisplayName(provider) {
   return String(provider?.tradeName || provider?.legalName || 'Sin nombre').trim();
 }
 
+function providerRows(result) {
+  return (Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : []).filter(Boolean);
+}
+
 function formatProvider(provider, index = null) {
   const prefix = index === null ? '' : `${index}. `;
   const categories = Array.isArray(provider?.categories) && provider.categories.length ? provider.categories.join(', ') : 'Sin clasificar';
@@ -325,14 +354,35 @@ function formatProvider(provider, index = null) {
 }
 
 function formatProviderList(result, countOnly = false) {
-  const providers = (Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [])
-    .filter(Boolean)
+  const providers = providerRows(result)
     .sort((a, b) => providerDisplayName(a).localeCompare(providerDisplayName(b), 'es', { sensitivity: 'base' }));
 
   const header = `Proveedores oficiales registrados: ${providers.length}`;
   if (countOnly) return header;
   if (!providers.length) return 'No hay proveedores oficiales activos registrados en CONNECT.';
   return [header, '', ...providers.map((provider, index) => formatProvider(provider, index + 1))].join('\n\n');
+}
+
+function buildProviderQuoteMessage(item) {
+  return [
+    'Hola, buen día. Somos ELANKAV.',
+    '',
+    `¿Nos podría compartir precio de ${item}?`,
+    'Por favor indicar presentación o medida disponible, existencia, si el precio incluye IVA y tiempo de entrega.',
+    '',
+    'Gracias.'
+  ].join('\n');
+}
+
+function chooseProvider(rows, requestedName) {
+  const wanted = normalize(requestedName);
+  const exact = rows.filter(provider => {
+    const names = [provider?.tradeName, provider?.legalName].filter(Boolean).map(normalize);
+    return names.includes(wanted);
+  });
+  if (exact.length === 1) return exact[0];
+  if (!exact.length && rows.length === 1) return rows[0];
+  return null;
 }
 
 function formatLogisticsRule(rule) {
@@ -386,9 +436,72 @@ async function executeOwnerBusinessCommand(command) {
 
   if (command.type === BUSINESS_COMMANDS.PROVIDER_SEARCH) {
     const result = await searchProviders(command.query);
-    const rows = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [];
+    const rows = providerRows(result);
     if (!rows.length) return { handled: true, outputText: `No encontré un proveedor oficial que coincida con “${command.query}”.`, result };
     return { handled: true, outputText: formatProvider(rows[0]), result };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.PROVIDER_QUOTE_REQUEST) {
+    const result = await searchProviders(command.providerName);
+    const rows = providerRows(result);
+    if (!rows.length) {
+      return {
+        handled: true,
+        outputText: `No encontré a ${command.providerName} entre los proveedores oficiales activos. No envié ningún mensaje.`,
+        result
+      };
+    }
+
+    const provider = chooseProvider(rows, command.providerName);
+    if (!provider) {
+      const names = rows.slice(0, 5).map(providerDisplayName).join(', ');
+      return {
+        handled: true,
+        outputText: `Encontré más de un proveedor que coincide con “${command.providerName}”: ${names}. Decime cuál querés y no enviaré nada hasta identificarlo.`,
+        result
+      };
+    }
+
+    const phone = normalizePhone(provider.whatsapp || provider.phone);
+    if (!phone) {
+      return {
+        handled: true,
+        outputText: `${providerDisplayName(provider)} está registrado, pero no tiene un WhatsApp válido. No envié ningún mensaje.`,
+        result
+      };
+    }
+
+    const message = buildProviderQuoteMessage(command.item);
+    const delivery = createWahaDeliveryAdapter();
+    const sent = await delivery.sendText({ phone, text: message });
+
+    await recordAuditSafely({
+      capability: 'business.provider.quote-request.send',
+      target: 'waha',
+      source: 'owner-whatsapp',
+      success: true,
+      metadata: {
+        providerId: provider.id || provider.providerId || null,
+        provider: providerDisplayName(provider),
+        item: command.item,
+        phone,
+        chatId: sent.chatId || null,
+        messageId: sent.messageId || null
+      }
+    });
+
+    return {
+      handled: true,
+      outputText: [
+        '✅ Solicitud enviada al proveedor.',
+        '',
+        `Proveedor: ${providerDisplayName(provider)}`,
+        `Producto/servicio: ${command.item}`,
+        `WhatsApp: ${provider.whatsapp || phone}`,
+        sent.messageId ? `Mensaje: ${sent.messageId}` : ''
+      ].filter(Boolean).join('\n'),
+      result: { provider, sent, item: command.item }
+    };
   }
 
   if (command.type === BUSINESS_COMMANDS.CUSTOMER_CREATE) {
@@ -435,6 +548,8 @@ async function executeOwnerBusinessCommand(command) {
 
 module.exports = {
   BUSINESS_COMMANDS,
+  buildProviderQuoteMessage,
+  chooseProvider,
   detectOwnerBusinessCommand,
   executeOwnerBusinessCommand,
   formatCustomerList,
@@ -450,6 +565,7 @@ module.exports = {
   parseMoney,
   parsePriceAuthorization,
   parseProviderList,
+  parseProviderQuoteRequest,
   parseProviderSearch,
   parseSellerName
 };
