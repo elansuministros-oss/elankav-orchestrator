@@ -81,7 +81,7 @@ async function deployRepository(target, parameters = {}) {
   }
 
   const branch = config.branch;
-  const status = await run('git', ['-C', config.repo, 'status', '--porcelain']);
+  const status = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
   if (status.stdout) {
     const error = new Error('SUPERVISOR_REPOSITORY_DIRTY');
     error.code = 'SUPERVISOR_REPOSITORY_DIRTY';
