@@ -3,9 +3,11 @@
 const { randomUUID } = require('node:crypto');
 const {
   createQuotation,
+  getQuotation,
   listLogisticsRules,
   resolveCatalogPricing,
-  searchCustomers
+  searchCustomers,
+  updateQuotation
 } = require('./ownerBusinessConnectClient');
 const { readContext, updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
@@ -41,7 +43,7 @@ function visibleQuotationError(error) {
     'No pude guardar la cotización oficial en CONNECT/VQS.',
     suffix ? `Error: ${suffix}` : '',
     details.message ? `Detalle: ${details.message}` : '',
-    'No se creó ninguna cotización. Revisaré este error sin duplicar registros.'
+    'No se duplicó ninguna cotización.'
   ].filter(Boolean).join('\n');
 }
 
@@ -105,6 +107,19 @@ function parseExplicitPrice(message) {
   return null;
 }
 
+function parseEditPrice(message) {
+  const raw = String(message || '');
+  const match = raw.match(/\b(?:precio|total)\s*(?:a|por|en|:|=)?\s*(us\$|usd|c\$|nio|\$)?\s*([0-9]+(?:[.,][0-9]{1,2})?)\s*(dolares|dólares|usd|cordobas|córdobas|nio)?\b/i);
+  if (!match) return null;
+  const amount = Number(String(match[2]).replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const currencyText = normalize([match[1], match[3]].join(' '));
+  return {
+    amount,
+    currency: /(?:c\$|nio|cordoba)/i.test(currencyText) ? 'NIO' : 'USD'
+  };
+}
+
 function parsePaymentTerms(message) {
   const raw = String(message || '');
   const split = raw.match(/\b(\d{1,3})\s*%?\s*[/\\-]\s*(\d{1,3})\s*%?\b/);
@@ -129,7 +144,7 @@ function parseQuotationSendFollowup(message) {
 
 function parseProductQuery(message) {
   let value = String(message || '').trim();
-  value = value.replace(/^(?:elan[, ]+)?(?:cotiza|cotizame|cotízame|cotizar|realiza una cotizacion|realiza una cotización)\s*/i, '');
+  value = value.replace(/^(?:elan[, ]+)?(?:cotízame|cotizame|realiza una cotización|realiza una cotizacion|cotizar|cotiza)\b\s*/i, '');
   value = value.replace(/^para\s+(?:(?:la|el)\s+)?(?:dra\.?|dr\.?|sra\.?|sr\.?)\s+[A-Za-zÁÉÍÓÚÑáéíóúñ .'-]+?\s+(?=(?:un|una|el|la)\s+)/i, '');
   value = value.replace(/\b(?:cantidad|cant|qty)\s*[:=]?\s*\d+(?:[.,]\d+)?\b/gi, '');
   value = value.replace(/\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:m|mts|metros|cm)?\b/gi, '');
@@ -137,13 +152,53 @@ function parseProductQuery(message) {
   value = value.replace(/\b(?:precio|total)\s*[:=]?.*$/i, '');
   value = value.replace(/\bcondiciones?(?:\s+de\s+pago)?\b.*$/i, '');
   value = value.replace(/\b(?:con|sin)\s+(?:instalacion|instalación|delivery)\b.*$/i, '');
-  return value.replace(/\s+/g, ' ').replace(/[,:;-]+$/g, '').trim();
+  return value.replace(/\s+/g, ' ').replace(/^[,:;-]+|[,:;-]+$/g, '').trim();
+}
+
+function parseEditDescription(message) {
+  const raw = String(message || '').trim();
+  const patterns = [
+    /\b(?:descripcion|descripción|concepto|detalle)\s*(?:de\s+(?:la\s+)?cotizacion|de\s+(?:la\s+)?cotización)?\s*(?:a|por|:|=)\s*["“]?(.+?)["”]?(?=\s+(?:y\s+)?(?:cambia|cambiar|modifica|modificar|corrige|corregir|precio|total)\b|$)/i,
+    /\b(?:cambia|cambiar|modifica|modificar|corrige|corregir|actualiza|actualizar)\s+(?:la\s+)?(?:descripcion|descripción|concepto|detalle)\s+(?:a|por)\s*["“]?(.+?)["”]?(?=\s+(?:y\s+)?(?:precio|total)\b|$)/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (!match) continue;
+    const description = String(match[1] || '').replace(/[.!?]+$/g, '').trim();
+    if (description) return description;
+  }
+  return '';
+}
+
+function parseQuotationEditRequest(message) {
+  const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
+  const editVerb = /\b(corrige|corregir|cambia|cambiar|modifica|modificar|actualiza|actualizar|ajusta|ajustar)\b/.test(normalized);
+  const quotationReference = /\b(cotizacion|cotización|precio|descripcion|descripción|concepto|detalle|total)\b/.test(normalized);
+  if (!editVerb || !quotationReference) return null;
+
+  const description = parseEditDescription(message);
+  const price = parseEditPrice(message);
+  const paymentTermsMatch = String(message || '').match(/\b\d{1,3}\s*%?\s*[/\\-]\s*\d{1,3}\s*%?\b|\b(?:anticipo|inicial|adelanto)\b/i);
+  const paymentTerms = paymentTermsMatch ? parsePaymentTerms(message) : null;
+
+  if (!description && !price && !paymentTerms) return null;
+  return {
+    editActive: true,
+    message: String(message || '').trim(),
+    description: description || undefined,
+    price: price || undefined,
+    paymentTerms: paymentTerms || undefined
+  };
 }
 
 function parseQuotationRequest(message) {
   if (parseQuotationSendFollowup(message)) return { sendActive: true, message: String(message || '').trim() };
+
+  const edit = parseQuotationEditRequest(message);
+  if (edit) return edit;
+
   const normalized = normalize(message);
-  if (!/^(?:elan\s+)?(?:cotiza|cotizame|cotizar|realiza una cotizacion)\b/.test(normalized)) return null;
+  if (!/^(?:elan\s+)?(?:cotizame|cotiza|cotizar|realiza una cotizacion)\b/.test(normalized)) return null;
   const dimensions = parseDimensions(message);
   const carrier = parseCarrier(message);
   const destination = carrier.destination || parseDestination(message);
@@ -272,8 +327,188 @@ async function prepareActiveQuotationDelivery() {
   return { ready: false, question: formatPendingOperation(operation), operation, sendPending: true };
 }
 
+function clone(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function recomputePaymentTerms(paymentTerms, total) {
+  const terms = paymentTerms && typeof paymentTerms === 'object' ? { ...paymentTerms } : {};
+  const depositPercent = Number(terms.depositPercent ?? 60);
+  const balancePercent = Number(terms.balancePercent ?? (100 - depositPercent));
+  return {
+    ...terms,
+    depositPercent,
+    balancePercent,
+    depositUsd: Number((total * depositPercent / 100).toFixed(2)),
+    balanceUsd: Number((total * balancePercent / 100).toFixed(2))
+  };
+}
+
+async function editActiveQuotation(input) {
+  const context = await readContext();
+  if (!context.activeProjectId || !context.activeQuotationId) {
+    return { ready: false, question: 'No tengo una cotización activa para corregir. Primero buscá o creá la cotización.' };
+  }
+
+  const response = await getQuotation(context.activeProjectId);
+  const current = response?.data || response || {};
+  if (String(current.status || '').toLowerCase() !== 'draft') {
+    return { ready: false, question: `La cotización ${current.quotationNumber || context.activeQuotationNumber || ''} ya no está en borrador. No la modificaré desde WhatsApp sin un flujo de revisión.` };
+  }
+
+  const envelope = current.quotation_document || {};
+  const publicDocument = envelope.publicDocument || {};
+  const items = clone(publicDocument.items, []);
+  if (!Array.isArray(items) || !items.length) {
+    return { ready: false, question: 'La cotización activa no tiene ítems editables.' };
+  }
+
+  const businessIndexes = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => String(item?.source || '').toUpperCase() !== 'LOGISTICS_LIBRARY')
+    .map(({ index }) => index);
+
+  if (!businessIndexes.length) return { ready: false, question: 'No encontré un ítem comercial editable en la cotización activa.' };
+  if (input.price && businessIndexes.length > 1) {
+    return { ready: false, question: 'La cotización tiene más de un ítem comercial. Indicame cuál precio querés modificar para no cambiar el equivocado.' };
+  }
+
+  const targetIndex = businessIndexes[0];
+  const targetItem = { ...items[targetIndex] };
+  let projectTitle = String(publicDocument.project?.title || targetItem.title || targetItem.description || 'Proyecto visual').trim();
+
+  if (input.description) {
+    targetItem.title = input.description;
+    targetItem.description = input.description;
+    projectTitle = input.description;
+  }
+
+  if (input.price) {
+    if (input.price.currency !== 'USD') {
+      return { ready: false, question: `El nuevo precio está en ${input.price.currency}. No voy a inventar un tipo de cambio; indicame el valor autorizado en USD.` };
+    }
+    const quantity = Math.max(1, Number(targetItem.quantity) || 1);
+    targetItem.unitPriceUsd = Number((input.price.amount / quantity).toFixed(2));
+    targetItem.subtotalUsd = Number(input.price.amount.toFixed(2));
+    targetItem.source = 'OWNER_EXPLICIT_PRICE';
+  }
+
+  items[targetIndex] = targetItem;
+
+  const total = Number(items.reduce((sum, item) => {
+    const subtotal = Number(item?.subtotalUsd);
+    if (Number.isFinite(subtotal)) return sum + subtotal;
+    const quantity = Math.max(1, Number(item?.quantity) || 1);
+    const unitPrice = Number(item?.unitPriceUsd || 0);
+    return sum + (quantity * unitPrice);
+  }, 0).toFixed(2));
+
+  let paymentTerms = clone(publicDocument.paymentTerms, {});
+  if (input.paymentTerms) {
+    paymentTerms = {
+      ...paymentTerms,
+      depositPercent: input.paymentTerms.depositPercent,
+      balancePercent: input.paymentTerms.balancePercent
+    };
+  }
+  paymentTerms = recomputePaymentTerms(paymentTerms, total);
+
+  const pricing = {
+    ...clone(publicDocument.totals, {}),
+    subtotalUsd: total,
+    discountUsd: 0,
+    taxUsd: 0,
+    totalUsd: total
+  };
+
+  const document = {
+    quotation: {
+      quotationNumber: current.quotationNumber,
+      status: current.status || 'draft',
+      source: {
+        type: 'manual',
+        sourceId: `OWNER-EDIT-${randomUUID()}`,
+        channel: 'owner-whatsapp'
+      }
+    },
+    project: {
+      title: projectTitle,
+      status: 'pending_activation',
+      currentStage: 'quotation'
+    },
+    relations: {
+      customerId: current.customerId || publicDocument.customer?.customerId,
+      executiveId: current.executiveId || publicDocument.advisor?.executiveId
+    },
+    customerSnapshot: clone(publicDocument.customer, {}),
+    executiveSnapshot: clone(publicDocument.advisor, {}),
+    items,
+    pricing,
+    paymentTerms,
+    paymentAccountsSnapshot: clone(publicDocument.paymentAccountsSnapshot, []),
+    brandSnapshot: clone(publicDocument.brandSnapshot, {}),
+    template: clone(publicDocument.template, {}),
+    contractVersion: envelope.schemaVersion || '1.0.0',
+    ownerCommercialOverride: input.price ? {
+      applied: true,
+      amountUsd: input.price.amount,
+      source: 'owner-whatsapp-edit'
+    } : undefined
+  };
+
+  trace('vqs-edit-request', {
+    projectId: context.activeProjectId,
+    quotationId: context.activeQuotationId,
+    descriptionChanged: Boolean(input.description),
+    priceChanged: Boolean(input.price),
+    totalUsd: total
+  });
+
+  const updatedResponse = await updateQuotation(context.activeProjectId, document);
+  const updated = updatedResponse?.data || updatedResponse || {};
+
+  await updateContext({
+    activeQuotationId: updated.quotationId || context.activeQuotationId,
+    activeQuotationNumber: updated.quotationNumber || context.activeQuotationNumber,
+    activeQuotationPublicUrl: updated.publicUrl || context.activeQuotationPublicUrl,
+    activeProjectId: updated.projectId || context.activeProjectId,
+    lastQuotationTotalUsd: total,
+    lastEntityType: 'quotation',
+    lastEntityId: updated.quotationId || context.activeQuotationId
+  });
+
+  return {
+    ready: true,
+    edited: true,
+    quotation: updated,
+    summary: [
+      '✅ Cotización corregida sin crear duplicados.',
+      '',
+      `Cotización: ${updated.quotationNumber || current.quotationNumber}`,
+      input.description ? `Descripción: ${input.description}` : '',
+      input.price ? `Nuevo precio comercial: USD ${Number(input.price.amount).toFixed(2)}` : '',
+      `Total actualizado: USD ${total.toFixed(2)}`,
+      `Anticipo ${paymentTerms.depositPercent}%: USD ${Number(paymentTerms.depositUsd).toFixed(2)}`,
+      `Saldo ${paymentTerms.balancePercent}%: USD ${Number(paymentTerms.balanceUsd).toFixed(2)}`,
+      updated.publicUrl ? `Enlace: ${updated.publicUrl}` : '',
+      '',
+      'Podés revisarla y después decir: “mandásela”.'
+    ].filter(Boolean).join('\n')
+  };
+}
+
 async function prepareAndCreateQuotation(input) {
   if (input?.sendActive === true) return prepareActiveQuotationDelivery();
+  if (input?.editActive === true) {
+    try {
+      return await editActiveQuotation(input);
+    } catch (error) {
+      const details = errorDetails(error);
+      trace('edit-failed', details);
+      return { ready: false, failed: true, error: details, question: visibleQuotationError(error) };
+    }
+  }
 
   try {
     trace('start', {
@@ -408,17 +643,22 @@ async function prepareAndCreateQuotation(input) {
 }
 
 module.exports = {
+  editActiveQuotation,
   errorDetails,
   hasLogisticsIntent,
   parseCarrier,
   parseDestination,
+  parseEditDescription,
+  parseEditPrice,
   parseExplicitPrice,
   parsePaymentTerms,
   parseProductQuery,
+  parseQuotationEditRequest,
   parseQuotationRequest,
   parseQuotationSendFollowup,
   prepareActiveQuotationDelivery,
   prepareAndCreateQuotation,
+  recomputePaymentTerms,
   resolveLogistics,
   selectDistanceRule,
   selectLogisticsRule,
