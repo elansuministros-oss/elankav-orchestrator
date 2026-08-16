@@ -23,54 +23,26 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
+          import base64
+          def decode(value):
+              return base64.b64decode(value).decode('utf-8')
           message_file = Path('services/messageService.js')
           message = message_file.read_text()
-
-          import_needle = "const {\n  processCrmConversation\n} = require('./crmConversationService');\n"
-          import_replacement = import_needle + "const {\n  processSellerRegistrationConversation\n} = require('./ownerSellerRegistrationService');\n"
+          import_needle = decode('Y29uc3QgewogIHByb2Nlc3NDcm1Db252ZXJzYXRpb24KfSA9IHJlcXVpcmUoJy4vY3JtQ29udmVyc2F0aW9uU2VydmljZScpOwo=')
+          import_replacement = decode('Y29uc3QgewogIHByb2Nlc3NDcm1Db252ZXJzYXRpb24KfSA9IHJlcXVpcmUoJy4vY3JtQ29udmVyc2F0aW9uU2VydmljZScpOwpjb25zdCB7CiAgcHJvY2Vzc1NlbGxlclJlZ2lzdHJhdGlvbkNvbnZlcnNhdGlvbgp9ID0gcmVxdWlyZSgnLi9vd25lclNlbGxlclJlZ2lzdHJhdGlvblNlcnZpY2UnKTsK')
+          routing_needle = decode('ICAgICAgY29uc3Qgb3duZXJMYW5ndWFnZUxlYXJuQ29tbWFuZCA9CiAgICAgICAgZGV0ZWN0T3duZXJMYW5ndWFnZUxlYXJuQ29tbWFuZChub3JtYWxpemVkTWVzc2FnZSk7Cg==')
+          routing_replacement = decode('ICAgICAgY29uc3Qgc2VsbGVyQ29udmVyc2F0aW9uID0gYXdhaXQgcHJvY2Vzc1NlbGxlclJlZ2lzdHJhdGlvbkNvbnZlcnNhdGlvbih7CiAgICAgICAgbWVzc2FnZTogbm9ybWFsaXplZE1lc3NhZ2UsCiAgICAgICAgZXh0ZXJuYWxVc2VySWQ6IGNvbnRleHQuZXh0ZXJuYWxVc2VySWQgfHwgZXh0ZXJuYWxVc2VySWQgfHwgbnVsbCwKICAgICAgICBwaG9uZTogY29udGV4dC5waG9uZSB8fCBwaG9uZSB8fCBudWxsLAogICAgICAgIG1ldGFkYXRhOiBtZXRhZGF0YSAmJiB0eXBlb2YgbWV0YWRhdGEgPT09ICdvYmplY3QnID8gbWV0YWRhdGEgOiB7fQogICAgICB9KTsKCiAgICAgIGlmIChzZWxsZXJDb252ZXJzYXRpb24uaGFuZGxlZCkgewogICAgICAgIGNvbnNvbGUubG9nKCdbT1dORVJfU0VMTEVSX1JFR0lTVFJBVElPTl0nLCB7CiAgICAgICAgICBwbGF0Zm9ybTogY29udGV4dC5wbGF0Zm9ybSB8fCBwbGF0Zm9ybSB8fCAnZWxhbnZpc3VhbCcsCiAgICAgICAgICBjb21wbGV0ZWQ6IEJvb2xlYW4oc2VsbGVyQ29udmVyc2F0aW9uLmNvbXBsZXRlZCksCiAgICAgICAgICBwaG9uZTogJ09XTkVSX1JFQ09HTklaRUQnCiAgICAgICAgfSk7CgogICAgICAgIHJldHVybiB7CiAgICAgICAgICBvdXRwdXRUZXh0OiBzZWxsZXJDb252ZXJzYXRpb24ub3V0cHV0VGV4dCwKICAgICAgICAgIG1vZGVsOiAnZWxhbmthdi1zZWxsZXItcmVnaXN0cmF0aW9uJywKICAgICAgICAgIGlkOiBudWxsLAogICAgICAgICAgc3RhdHVzOiBzZWxsZXJDb252ZXJzYXRpb24uY29tcGxldGVkID8gJ2NvbXBsZXRlZCcgOiAnaW5fcHJvZ3Jlc3MnLAogICAgICAgICAgdXNhZ2U6IG51bGwsCiAgICAgICAgICBjcm1BY3Rpb246IHRydWUsCiAgICAgICAgICBvd25lckNybUNvbW1hbmQ6IHRydWUKICAgICAgICB9OwogICAgICB9CgogICAgICBjb25zdCBvd25lckxhbmd1YWdlTGVhcm5Db21tYW5kID0KICAgICAgICBkZXRlY3RPd25lckxhbmd1YWdlTGVhcm5Db21tYW5kKG5vcm1hbGl6ZWRNZXNzYWdlKTsK')
           if message.count(import_needle) != 1:
               raise SystemExit('MESSAGE_SERVICE_IMPORT_NEEDLE_NOT_UNIQUE')
-          message = message.replace(import_needle, import_replacement, 1)
-
-          routing_needle = "      const ownerLanguageLearnCommand =\n        detectOwnerLanguageLearnCommand(normalizedMessage);\n"
-          routing_replacement = """      const sellerConversation = await processSellerRegistrationConversation({
-            message: normalizedMessage,
-            externalUserId: context.externalUserId || externalUserId || null,
-            phone: context.phone || phone || null,
-            metadata: metadata && typeof metadata === 'object' ? metadata : {}
-          });
-
-          if (sellerConversation.handled) {
-            console.log('[OWNER_SELLER_REGISTRATION]', {
-              platform: context.platform || platform || 'elanvisual',
-              completed: Boolean(sellerConversation.completed),
-              phone: 'OWNER_RECOGNIZED'
-            });
-
-            return {
-              outputText: sellerConversation.outputText,
-              model: 'elankav-seller-registration',
-              id: null,
-              status: sellerConversation.completed ? 'completed' : 'in_progress',
-              usage: null,
-              crmAction: true,
-              ownerCrmCommand: true
-            };
-          }
-
-          const ownerLanguageLearnCommand =
-            detectOwnerLanguageLearnCommand(normalizedMessage);
-"""
           if message.count(routing_needle) != 1:
               raise SystemExit('MESSAGE_SERVICE_ROUTING_NEEDLE_NOT_UNIQUE')
+          message = message.replace(import_needle, import_replacement, 1)
           message = message.replace(routing_needle, routing_replacement, 1)
           message_file.write_text(message)
-
           webhook_file = Path('api/wahaWebhookApi.js')
           webhook = webhook_file.read_text()
-          media_needle = "        messageType: incoming.messageType, originalText: incoming.text || null,\n        transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,\n"
-          media_replacement = "        messageType: incoming.messageType, originalText: incoming.text || null,\n        media: incoming.media || null,\n        transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,\n"
+          media_needle = decode('ICAgICAgICBtZXNzYWdlVHlwZTogaW5jb21pbmcubWVzc2FnZVR5cGUsIG9yaWdpbmFsVGV4dDogaW5jb21pbmcudGV4dCB8fCBudWxsLAogICAgICAgIHRyYW5zY3JpYmVkVGV4dDogaW5jb21pbmcubWVzc2FnZVR5cGUgPT09ICdhdWRpbycgPyByZXNvbHZlZE1lc3NhZ2UgOiBudWxsLAo=')
+          media_replacement = decode('ICAgICAgICBtZXNzYWdlVHlwZTogaW5jb21pbmcubWVzc2FnZVR5cGUsIG9yaWdpbmFsVGV4dDogaW5jb21pbmcudGV4dCB8fCBudWxsLAogICAgICAgIG1lZGlhOiBpbmNvbWluZy5tZWRpYSB8fCBudWxsLAogICAgICAgIHRyYW5zY3JpYmVkVGV4dDogaW5jb21pbmcubWVzc2FnZVR5cGUgPT09ICdhdWRpbycgPyByZXNvbHZlZE1lc3NhZ2UgOiBudWxsLAo=')
           if webhook.count(media_needle) != 1:
               raise SystemExit('WAHA_MEDIA_NEEDLE_NOT_UNIQUE')
           webhook = webhook.replace(media_needle, media_replacement, 1)
