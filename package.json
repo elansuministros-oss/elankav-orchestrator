@@ -5,7 +5,7 @@
   "description": "Centro de control remoto del ecosistema ELANKAV",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --require ./services/ownerBusinessQuotationItemPatch.js server.js",
     "test": "node --test",
     "postinstall": "node deploy/schedule-owner-ops-supervisor-refresh.js"
   },
