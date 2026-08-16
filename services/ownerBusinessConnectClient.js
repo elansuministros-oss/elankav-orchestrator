@@ -31,11 +31,18 @@ function headers(token, extra = {}) {
   };
 }
 
+function assertAllowedPath(path, method) {
+  const normalizedPath = String(path || '');
+  if (normalizedPath.startsWith('/api/v1/business/vqs/')) return;
+  if (normalizedPath.startsWith('/api/v1/providers') && method === 'GET') return;
+  throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED', 'Ruta no autorizada para Owner Business Gateway.', 403);
+}
+
 async function requestConnect(path, options = {}, env = process.env) {
   const { baseUrl, token } = config(env);
   const method = String(options.method || 'GET').toUpperCase();
   if (!['GET', 'POST', 'PATCH'].includes(method)) throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED', 'Método no autorizado para Owner Business Gateway.', 405);
-  if (!String(path || '').startsWith('/api/v1/business/vqs/')) throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED', 'Ruta no autorizada para Owner Business Gateway.', 403);
+  assertAllowedPath(path, method);
 
   const response = await fetch(`${baseUrl}${path}`, {
     method,
@@ -64,6 +71,8 @@ function paramsFrom(filters = {}) {
 async function searchCustomers(term, env) { return requestConnect(`/api/v1/business/vqs/customers/directory-search?q=${query(term)}&limit=30`, {}, env); }
 async function listCustomers(env) { return requestConnect('/api/v1/business/vqs/customers/official', {}, env); }
 async function createCustomer(input, env) { return requestConnect('/api/v1/business/vqs/customers', { method: 'POST', body: input }, env); }
+async function listProviders(filters = {}, env) { return requestConnect(`/api/v1/providers${paramsFrom({ status: 'active', ...filters })}`, {}, env); }
+async function searchProviders(term, env) { return listProviders({ search: term }, env); }
 async function resolveCatalogPricing(input, env) { return requestConnect('/api/v1/business/vqs/pricing/resolve', { method: 'POST', body: input }, env); }
 async function listQuotations(env) { return requestConnect('/api/v1/business/vqs/quotations?limit=200', {}, env); }
 async function getQuotation(projectId, env) { return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}`, {}, env); }
@@ -98,12 +107,14 @@ module.exports = {
   listLogisticsRules,
   listPayments,
   listPriceAuthorizations,
+  listProviders,
   listQuotations,
   listWorkOrders,
   requestConnect,
   resolveCatalogPricing,
   revokePriceAuthorization,
   searchCustomers,
+  searchProviders,
   sendQuotationWhatsApp,
   updateQuotation
 };
