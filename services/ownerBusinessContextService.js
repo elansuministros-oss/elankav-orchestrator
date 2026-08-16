@@ -7,8 +7,11 @@ const DEFAULT_STORE_PATH = '/var/lib/elankav/orchestrator/owner-business-context
 const ALLOWED_KEYS = new Set([
   'activeCustomerId',
   'activeQuotationId',
+  'activeQuotationNumber',
+  'activeQuotationPublicUrl',
   'activeProjectId',
   'activeWorkOrderId',
+  'lastQuotationTotalUsd',
   'lastEntityType',
   'lastEntityId'
 ]);
