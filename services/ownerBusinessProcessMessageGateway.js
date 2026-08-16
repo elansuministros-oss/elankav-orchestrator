@@ -34,7 +34,7 @@ function detectOwnerBusinessCommand(message) {
 
 async function executeOwnerBusinessCommand(command) {
   if (command?.type === CONNECT_RUNTIME_AUDIT) {
-    return executeConnectRuntimeAudit();
+    return executeConnectRuntimeAudit(command.query || null);
   }
 
   if (command?.type === QUOTATION_ITEM_ADD) {
