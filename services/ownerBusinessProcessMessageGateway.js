@@ -3,9 +3,11 @@
 const { buildContext } = require('./context/contextBuilder');
 const businessCommands = require('./ownerBusinessCommandService');
 const {
-  addItemByHumanReference,
-  parseAddQuotationItemRequest
+  addItemByHumanReference
 } = require('./ownerQuotationMediaService');
+const {
+  parseAddQuotationItemRequest
+} = require('./ownerQuotationHumanReferenceParser');
 
 const QUOTATION_ITEM_ADD = 'business_quotation_item_add';
 const INSTALL_MARK = Symbol.for('elankav.ownerBusinessProcessMessageGateway.installed');
