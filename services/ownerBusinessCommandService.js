@@ -1,6 +1,5 @@
 'use strict';
 
-const { randomUUID } = require('node:crypto');
 const { createCustomer, searchCustomers } = require('./ownerBusinessConnectClient');
 const { updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
@@ -80,13 +79,21 @@ function parseDimensions(message) {
   return { width: Number(match[1].replace(',', '.')), height: Number(match[2].replace(',', '.')) };
 }
 
+function parseSellerName(message) {
+  const raw = String(message || '');
+  const stop = '(?=\\s+por\\s+(?:un|una)|\\s+para\\s+(?:un|una)|,|$)';
+  const roleMatch = raw.match(new RegExp(`(?:para\\s+)?(?:la\\s+|el\\s+)?(?:vendedora|vendedor)\\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{0,60}?)${stop}`, 'i'));
+  if (roleMatch) return roleMatch[1].trim();
+  const fallback = raw.match(new RegExp(`\\bpara\\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{0,60}?)${stop}`, 'i'));
+  return fallback ? fallback[1].trim() : '';
+}
+
 function parsePriceAuthorization(message) {
   const normalized = normalize(message);
   if (!/\b(apruebo|autoriza|autorizo|aprobar)\b/.test(normalized) || !/\bprecio\b/.test(normalized)) return null;
-  const sellerMatch = String(message || '').match(/(?:vendedora|vendedor|para)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{1,60}?)(?=\s+por\s+un|\s+por\s+una|\s+para\s+un|\s+para\s+una|\s+por\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+\s+de|,|$)/i);
+  const sellerId = parseSellerName(message);
   const money = parseMoney(message);
-  if (!sellerMatch || !money) return null;
-  const sellerId = sellerMatch[1].trim();
+  if (!sellerId || !money) return null;
   const dimensions = parseDimensions(message);
   const destinationMatch = String(message || '').match(/\b(?:instalado|instalada|entregado|entregada|delivery|instalacion|instalación)\s+en\s+([^,.\n]+?)(?=\s+por\s+(?:us\$|usd|c\$|nio|\$)?\s*\d|[,.\n]|$)/i);
   const productMatch = String(message || '').match(/\bpor\s+(?:un|una)\s+(.+?)(?=\s+(?:instalado|instalada|entregado|entregada|delivery)\s+en\b|\s+por\s+(?:us\$|usd|c\$|nio|\$)?\s*\d|[,.\n]|$)/i);
@@ -170,5 +177,6 @@ module.exports = {
   parseCustomerSearch,
   parseDimensions,
   parseMoney,
-  parsePriceAuthorization
+  parsePriceAuthorization,
+  parseSellerName
 };
