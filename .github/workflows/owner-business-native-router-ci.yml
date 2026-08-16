@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/OWNER-BUSINESS-NATIVE-ROUTER-01
+      - fix/OWNER-BUSINESS-HOMONYM-RESOLUTION-01
   workflow_dispatch:
 
 jobs:
@@ -26,12 +27,15 @@ jobs:
         run: |
           node --check services/ownerBusinessProcessMessageGateway.js
           node --check services/ownerBusinessQuotationItemPatch.js
+          node --check services/ownerQuotationHomonymResolver.js
           node --check tests/ownerBusinessProcessMessageGateway.test.js
           node --check tests/ownerBusinessProcessMessageIntegration.test.js
+          node --check tests/ownerQuotationHomonymResolver.test.js
 
       - name: Owner business routing tests
         run: |
           node --test \
             tests/ownerBusinessQuotationItemPatch.test.js \
             tests/ownerBusinessProcessMessageGateway.test.js \
-            tests/ownerBusinessProcessMessageIntegration.test.js
+            tests/ownerBusinessProcessMessageIntegration.test.js \
+            tests/ownerQuotationHomonymResolver.test.js
