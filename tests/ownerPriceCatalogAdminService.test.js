@@ -29,6 +29,34 @@ test('detecta cambio de precio por m2 con referencia humana', () => {
   assert.equal(inferFormula('C$ 1800 por pliego'), 'UNIDAD');
 });
 
+test('actualización sin unidad preserva la fórmula existente', async () => {
+  const command = detectOwnerPriceCatalogCommand('ELAN cambia el precio de lona banner Roland UV 13 oz a USD 14');
+  assert.equal(command.formulaType, null);
+  const calls = [];
+  await executeOwnerPriceCatalogCommand(command, async (path, options) => {
+    calls.push({ path, options });
+    return { data: { status: 'SAVED', product: { name: 'Lona banner Roland UV' } } };
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].options.body, 'formulaType'), false);
+});
+
+test('detecta y crea tarifa nueva sin duplicar autoridad', async () => {
+  const command = detectOwnerPriceCatalogCommand('ELAN agrega una tarifa nueva para DTF UV 40 x 100 cm a C$ 1800 por pliego');
+  assert.equal(command.action, 'create_price');
+  assert.equal(command.technology, 'DTF_UV');
+  assert.equal(command.currency, 'NIO');
+  assert.equal(command.amount, 1800);
+  assert.equal(command.formulaType, 'UNIDAD');
+  const calls = [];
+  const result = await executeOwnerPriceCatalogCommand(command, async (path, options) => {
+    calls.push({ path, options });
+    return { data: { status: 'SAVED', product: { name: 'DTF UV 40 x 100 cm', sku: 'dtf-uv-dtf-uv-40-x-100-cm' } } };
+  });
+  assert.equal(calls[0].path, '/api/v1/business/vqs/pricing/catalog-admin/create');
+  assert.equal(calls[0].options.body.formulaType, 'UNIDAD');
+  assert.match(result.outputText, /Nueva tarifa creada/);
+});
+
 test('preview no muta y devuelve confirmación exacta', async () => {
   const calls = [];
   const result = await executeOwnerPriceCatalogCommand({ type: COMMAND_TYPE, action: 'replace_preview' }, async (path, options) => {
