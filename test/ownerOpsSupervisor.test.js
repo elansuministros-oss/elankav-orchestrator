@@ -15,7 +15,10 @@ const {
 } = require('../services/ownerOpsSupervisorClient');
 const {
   assertRequest,
-  TARGETS
+  TARGETS,
+  porcelainEntries,
+  porcelainEntry,
+  porcelainPath
 } = require('../bin/owner-ops-supervisor');
 
 test.after(async () => {
@@ -56,4 +59,34 @@ test('client atomically queues a validated operation', async () => {
   const queued = JSON.parse(await fs.readFile(path.join(tempBase, 'requests', `${op.id}.json`), 'utf8'));
   assert.equal(queued.id, op.id);
   assert.equal(await readSupervisorResult(op.id), null);
+});
+
+test('porcelain parser preserves the fixed two-character XY status', () => {
+  const file = 'data/elanvisual-commercial-catalog-2026-08-16.tsv';
+  assert.deepEqual(porcelainEntry(` M ${file}`), {
+    raw: ` M ${file}`,
+    status: ' M',
+    path: file,
+    isRenameOrCopy: false
+  });
+  assert.equal(porcelainPath(`M  ${file}`), file);
+  assert.equal(porcelainEntry(`MM ${file}`).status, 'MM');
+});
+
+test('porcelain parser keeps leading status spaces on every line and accepts CRLF', () => {
+  const first = 'data/elanvisual-commercial-catalog-2026-08-16.tsv';
+  const second = 'package-lock.json';
+  const entries = porcelainEntries(` M ${first}\r\n M ${second}\r\n`);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].status, ' M');
+  assert.equal(entries[0].path, first);
+  assert.equal(entries[1].status, ' M');
+  assert.equal(entries[1].path, second);
+});
+
+test('porcelain parser marks rename entries so cleanup cannot treat them as the generated catalog', () => {
+  const entry = porcelainEntry('R  old.tsv -> data/elanvisual-commercial-catalog-2026-08-16.tsv');
+  assert.equal(entry.status, 'R ');
+  assert.equal(entry.isRenameOrCopy, true);
+  assert.equal(entry.path, 'old.tsv -> data/elanvisual-commercial-catalog-2026-08-16.tsv');
 });
