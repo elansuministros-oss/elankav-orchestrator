@@ -17,6 +17,12 @@ const {
   detectOwnerSellerReadCommand,
   executeOwnerSellerReadCommand
 } = require('./ownerSellerReadService');
+const {
+  COMMAND_TYPE: SELLER_ACCESS_DELIVERY,
+  detectOwnerSellerAccessDeliveryCommand,
+  executeOwnerSellerAccessDeliveryCommand,
+  processSellerOnboardingReply
+} = require('./sellerOnboardingService');
 const { addItemByHumanReference } = require('./ownerQuotationHomonymResolver');
 const { parseAddQuotationItemRequest } = require('./ownerQuotationHumanReferenceParser');
 
@@ -30,6 +36,9 @@ function detectOwnerBusinessCommand(message) {
   const runtimeAudit = detectConnectRuntimeAudit(message);
   if (runtimeAudit) return runtimeAudit;
 
+  const sellerAccessDelivery = detectOwnerSellerAccessDeliveryCommand(message);
+  if (sellerAccessDelivery) return sellerAccessDelivery;
+
   const sellerRead = detectOwnerSellerReadCommand(message);
   if (sellerRead) return sellerRead;
 
@@ -41,6 +50,7 @@ function detectOwnerBusinessCommand(message) {
 async function executeOwnerBusinessCommand(command) {
   if (command?.type === PRICE_CATALOG_ADMIN) return executeOwnerPriceCatalogCommand(command);
   if (command?.type === CONNECT_RUNTIME_AUDIT) return executeConnectRuntimeAudit(command.query || null);
+  if (command?.type === SELLER_ACCESS_DELIVERY) return executeOwnerSellerAccessDeliveryCommand(command);
   if (command?.type === SELLER_READ) return executeOwnerSellerReadCommand(command);
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
@@ -89,11 +99,53 @@ function transactionalSuccess({ args, context, command, execution }) {
   };
 }
 
-function createOwnerBusinessProcessMessage({ originalProcessMessage, buildContextImpl = buildContext, detectCommandImpl = detectOwnerBusinessCommand, executeCommandImpl = executeOwnerBusinessCommand } = {}) {
+function sellerOnboardingResult({ args, context, onboarding }) {
+  return {
+    message: String(args?.message || '').trim(),
+    reply: onboarding.suppressDelivery ? null : String(onboarding.outputText || '').trim(),
+    provider: 'elankav',
+    model: 'elankav-seller-onboarding',
+    responseId: null,
+    status: onboarding.completed ? 'completed' : 'in_progress',
+    usage: null,
+    suppressDelivery: onboarding.suppressDelivery === true,
+    command: null,
+    jobId: null,
+    ownerCommercialQuery: false,
+    ownerCrmCommand: false,
+    ownerBusinessCommand: false,
+    actorRole: 'seller',
+    actorId: null,
+    accessScopes: null,
+    runtimeVersion: null,
+    knowledgeAvailable: null,
+    historyMessages: null,
+    context: {
+      version: context?.version || null,
+      platform: context?.platform || null,
+      channel: context?.channel || null,
+      externalUserId: context?.externalUserId || null,
+      ownerMode: false
+    }
+  };
+}
+
+function createOwnerBusinessProcessMessage({ originalProcessMessage, buildContextImpl = buildContext, detectCommandImpl = detectOwnerBusinessCommand, executeCommandImpl = executeOwnerBusinessCommand, onboardingImpl = processSellerOnboardingReply } = {}) {
   if (typeof originalProcessMessage !== 'function') throw new TypeError('originalProcessMessage es obligatorio');
   return async function processMessageWithOwnerBusinessGateway(args = {}) {
     const context = buildOwnerContext(args, buildContextImpl);
-    if (!context?.owner?.isOwner) return originalProcessMessage(args);
+    if (!context?.owner?.isOwner) {
+      try {
+        const onboarding = await onboardingImpl({ message: args.message, phone: context?.phone || args.phone || null });
+        if (onboarding?.handled) {
+          console.log('[SELLER_ONBOARDING_ROUTE]', { status: onboarding.completed ? 'completed' : 'in_progress' });
+          return sellerOnboardingResult({ args, context, onboarding });
+        }
+      } catch (error) {
+        console.error('[SELLER_ONBOARDING_FAILED]', { code: error?.code || null, message: error?.message || 'unknown' });
+      }
+      return originalProcessMessage(args);
+    }
     const command = detectCommandImpl(args.message);
     if (!command) return originalProcessMessage(args);
 
@@ -120,7 +172,7 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
   const wrappedProcessMessage = createOwnerBusinessProcessMessage({ originalProcessMessage });
   Object.defineProperty(messageService, INSTALL_MARK, { value: true, enumerable: false, configurable: false, writable: false });
   messageService.processMessage = wrappedProcessMessage;
-  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, priceCatalogAdmin: true, sellerRead: true });
+  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, priceCatalogAdmin: true, sellerRead: true, sellerAccessDelivery: true, sellerOnboarding: true });
   return wrappedProcessMessage;
 }
 
@@ -128,6 +180,7 @@ module.exports = {
   CONNECT_RUNTIME_AUDIT,
   PRICE_CATALOG_ADMIN,
   QUOTATION_ITEM_ADD,
+  SELLER_ACCESS_DELIVERY,
   SELLER_READ,
   createOwnerBusinessProcessMessage,
   detectOwnerBusinessCommand,
