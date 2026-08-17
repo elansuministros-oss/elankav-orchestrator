@@ -22,6 +22,12 @@ require('./services/ownerOpsSupervisorCommandPatch');
 // credentials before the unified runtime imports the command service.
 require('./services/ownerSellerTemporaryCredentialPatch');
 
+// Guard seller mutations behind a persisted preview + explicit confirmation.
+// This patch is intentionally loaded after the credential patch so it also
+// intercepts credential delivery before any write/send occurs.
+require('./services/ownerSellerPreviewConfirmationPatch');
+require('./services/ownerSellerPreviewSanitizePatch');
+
 // Install the shared ELAN Runtime before either WAHA handler imports
 // messageService. This preserves Owner OPS and the existing business gateway,
 // while routing supported conversational tools through the same CONNECT executor
