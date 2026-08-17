@@ -28,6 +28,10 @@ require('./services/ownerSellerTemporaryCredentialPatch');
 require('./services/ownerSellerPreviewConfirmationPatch');
 require('./services/ownerSellerPreviewSanitizePatch');
 
+// Mutation intent must win over incidental read-only wording such as "mostrame".
+// This keeps delete/deactivate requests inside PREVIEW + CONFIRMATION.
+require('./services/ownerSellerMutationPriorityPatch');
+
 // Install the shared ELAN Runtime before either WAHA handler imports
 // messageService. This preserves Owner OPS and the existing business gateway,
 // while routing supported conversational tools through the same CONNECT executor
