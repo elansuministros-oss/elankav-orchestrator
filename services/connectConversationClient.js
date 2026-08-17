@@ -6,6 +6,15 @@ function clean(value) {
   return String(value || '').trim();
 }
 
+function isPriorityLiveCommand(value) {
+  const normalized = clean(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return /(?:elan\s*)?(?:activa(?:te)?|abre|abrime|inicia|entrar|dame acceso).*(?:modo\s*)?(?:copiloto|live)/.test(normalized) ||
+    /^(?:modo\s*)?(?:copiloto|elan live)$/.test(normalized);
+}
+
 function resolveConnectUrl(env = process.env) {
   return clean(env.ELANKAV_CONNECT_URL || env.CONNECT_URL || env.CONNECT_API_URL) || DEFAULT_CONNECT_URL;
 }
@@ -61,6 +70,16 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
 }
 
 async function requestConversationDecision({ identity, platform = 'ELANVISUAL', message = '', ownerMode = false } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  if (isPriorityLiveCommand(message)) {
+    return {
+      ok: true,
+      action: 'RESPOND',
+      reason: 'priority_live_command',
+      platform: { platformId: String(platform || 'ELANVISUAL').toUpperCase() },
+      welcome: { send: false, text: '' },
+      history: []
+    };
+  }
   const token = resolveConnectToken(env);
   if (!token) throw Object.assign(new Error('CONNECT_INTERNAL_TOKEN_REQUIRED'), { code: 'CONNECT_INTERNAL_TOKEN_REQUIRED' });
   const response = await fetchImpl(`${resolveConnectUrl(env).replace(/\/+$/, '')}/api/v1/conversations/decision`, {
@@ -87,6 +106,7 @@ async function publishConversationEventSafely(event, options) {
 
 module.exports = {
   DEFAULT_CONNECT_URL,
+  isPriorityLiveCommand,
   publishConversationEvent,
   publishConversationEventSafely,
   requestConversationDecision,
