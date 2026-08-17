@@ -38,6 +38,11 @@ require('./services/ownerSellerMutationPriorityPatch');
 // used by ELAN Live.
 require('./services/elanUnifiedRuntimeMessagePatch').installElanUnifiedRuntimeMessagePatch();
 
+// Outermost Owner/candidate workflow: a short Owner instruction can recruit a
+// seller, collect the candidate's data, and return to the existing SELLER preview
+// confirmation gate without bypassing CONNECT or generating credentials early.
+require('./services/ownerSellerRecruitmentMessagePatch').installOwnerSellerRecruitmentMessagePatch();
+
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
   const v2Exports = require('./api/wahaWebhookApiV2');
