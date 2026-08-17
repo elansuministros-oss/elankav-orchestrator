@@ -1,9 +1,11 @@
 'use strict';
 
 const messageService = require('./messageService');
+const conversationClient = require('./connectConversationClient');
 const { isLiveModeRequest, requestLiveSession } = require('./connectLiveAccessService');
 
 const originalProcessMessage = messageService.processMessage;
+const originalRequestConversationDecision = conversationClient.requestConversationDecision;
 const DEFAULT_OWNER_PHONE = '50588388940';
 
 function normalizePhone(value) {
@@ -25,12 +27,25 @@ function isOwner(input = {}) {
   const candidates = [
     input.phone,
     input.externalUserId,
+    input.identity,
     input.metadata?.senderRaw,
     input.metadata?.chatId,
     ...(Array.isArray(input.metadata?.identityCandidates) ? input.metadata.identityCandidates : [])
   ].map(normalizePhone).filter(Boolean);
-  return candidates.some(phone => ownerPhones().includes(phone));
+  return input.ownerMode === true || candidates.some(phone => ownerPhones().includes(phone));
 }
+
+conversationClient.requestConversationDecision = async function liveCopilotDecisionPatch(input = {}) {
+  if (isOwner(input) && isLiveModeRequest(input.message)) {
+    return {
+      action: 'RESPOND',
+      reason: 'OWNER_LIVE_ACCESS',
+      welcome: { send: false, text: '' },
+      ownerMode: true
+    };
+  }
+  return originalRequestConversationDecision(input);
+};
 
 messageService.processMessage = async function liveCopilotProcessMessagePatch(input = {}) {
   if (!isOwner(input) || !isLiveModeRequest(input.message)) {
