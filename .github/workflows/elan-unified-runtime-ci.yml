@@ -7,6 +7,9 @@ on:
     paths:
       - 'services/elanUnified*.js'
       - 'services/ownerBusinessConnectClient.js'
+      - 'services/ownerSeller*.js'
+      - 'server.voice-pipeline-v2.js'
+      - 'test/ownerSeller*.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   push:
     branches:
@@ -14,6 +17,9 @@ on:
     paths:
       - 'services/elanUnified*.js'
       - 'services/ownerBusinessConnectClient.js'
+      - 'services/ownerSeller*.js'
+      - 'server.voice-pipeline-v2.js'
+      - 'test/ownerSeller*.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   workflow_dispatch:
 
@@ -34,6 +40,9 @@ jobs:
           node --check services/elanUnifiedRuntimeService.js
           node --check services/elanUnifiedRuntimeMessagePatch.js
           node --check services/elanUnifiedOwnerCommandService.js
+          node --check services/ownerSellerTemporaryCredentialPatch.js
+          node --check services/ownerSellerPreviewConfirmationPatch.js
+          node --check server.voice-pipeline-v2.js
       - name: Install dependencies
         run: npm install --ignore-scripts
       - name: Existing Owner business regression tests
@@ -43,3 +52,9 @@ jobs:
             tests/ownerBusinessProcessMessageGateway.test.js \
             tests/ownerBusinessProcessMessageIntegration.test.js \
             tests/ownerQuotationHomonymResolver.test.js
+      - name: Seller preview confirmation regression tests
+        run: |
+          node --test \
+            test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js \
+            test/ownerSellerTemporaryCredentialPatch.test.js \
+            test/ownerSellerPreviewConfirmationPatch.test.js
