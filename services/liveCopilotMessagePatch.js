@@ -2,7 +2,11 @@
 
 const Module = require('node:module');
 const { PassThrough } = require('node:stream');
-const { createConnectLiveSession } = require('./connectLiveAccessService');
+const liveAccessService = require('./connectLiveAccessService');
+
+const createLiveSession =
+  liveAccessService.createConnectLiveSession ||
+  liveAccessService.requestLiveSession;
 
 const originalLoad = Module._load;
 let installed = false;
@@ -54,28 +58,54 @@ Module._load = function elanLiveModuleLoad(request, parent, isMain) {
     }
 
     try {
-      const live = await createConnectLiveSession({
+      if (typeof createLiveSession !== 'function') {
+        throw Object.assign(new Error('CONNECT_LIVE_ACCESS_SERVICE_UNAVAILABLE'), {
+          code: 'CONNECT_LIVE_ACCESS_SERVICE_UNAVAILABLE'
+        });
+      }
+
+      const live = await createLiveSession({
         phone: incoming.phone,
         identity: incoming.senderRaw,
+        externalUserId: incoming.senderRaw,
         platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL'
       });
+
       await exported.sendWahaText({
         session: incoming.session,
         chatId: incoming.chatId,
         text: `ELAN Copiloto listo.\n${live.url}`
       });
-      sendJson(res, 200, { ok: true, processed: true, replySent: true, replyType: 'text', ownerMode: live?.identity?.role === 'owner', elanLive: true });
+
+      sendJson(res, 200, {
+        ok: true,
+        processed: true,
+        replySent: true,
+        replyType: 'text',
+        ownerMode: live?.identity?.role === 'owner' || live?.session?.role === 'owner',
+        elanLive: true
+      });
       return true;
     } catch (error) {
       const denied = error?.status === 403;
       await exported.sendWahaText({
         session: incoming.session,
         chatId: incoming.chatId,
-        text: denied ? 'Este número no tiene acceso autorizado a ELAN Copiloto.' : 'No pude crear la sesión de ELAN Copiloto en este momento.'
+        text: denied
+          ? 'Este número no tiene acceso autorizado a ELAN Copiloto.'
+          : 'No pude crear la sesión de ELAN Copiloto en este momento.'
       }).catch(() => null);
-      sendJson(res, 200, { ok: false, processed: true, replySent: true, elanLive: true, code: error?.code || null });
+
+      sendJson(res, 200, {
+        ok: false,
+        processed: true,
+        replySent: true,
+        elanLive: true,
+        code: error?.code || null
+      });
       return true;
     }
   };
+
   return exported;
 };
