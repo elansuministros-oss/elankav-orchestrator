@@ -201,12 +201,44 @@ function extractSenderRaw(payload = {}) {
     payload.key?.remoteJid, payload.key?.participant, payload.id?.remote, payload.id?.participant,
     payload._data?.from, payload._data?.author, payload._data?.participant,
     payload._data?.id?.remote, payload._data?.id?.participant,
+    payload._data?.key?.remoteJid, payload._data?.key?.participant,
+    payload._data?.Info?.SenderAlt, payload._data?.Info?.Sender,
     payload.message?.key?.remoteJid, payload.message?.key?.participant
   ].filter(Boolean);
   return String(candidates.find(value => {
     const candidate = String(value);
     return candidate.includes('@c.us') || candidate.includes('@lid');
   }) || candidates[0] || '');
+}
+
+function extractIdentityCandidates(payload = {}) {
+  return [...new Set([
+    payload.from,
+    payload.author,
+    payload.participant,
+    payload.sender,
+    payload.chatId,
+    payload.key?.remoteJid,
+    payload.key?.participant,
+    payload.key?.remoteJidAlt,
+    payload.id?.remote,
+    payload.id?.participant,
+    payload._data?.from,
+    payload._data?.author,
+    payload._data?.participant,
+    payload._data?.id?.remote,
+    payload._data?.id?.participant,
+    payload._data?.key?.remoteJid,
+    payload._data?.key?.participant,
+    payload._data?.key?.remoteJidAlt,
+    payload._data?.Info?.Sender,
+    payload._data?.Info?.SenderAlt,
+    payload.message?.key?.remoteJid,
+    payload.message?.key?.participant,
+    payload.message?.key?.remoteJidAlt
+  ]
+    .map(value => String(value || '').trim())
+    .filter(Boolean))];
 }
 
 function extractText(payload = {}) {
@@ -264,15 +296,18 @@ function extractMedia(payload = {}) {
 function extractIncoming(body = {}) {
   const payload = extractPayload(body);
   const senderRaw = extractSenderRaw(payload);
+  const identityCandidates = extractIdentityCandidates(payload);
   const event = String(body.event || payload.event || '').toLowerCase();
   const fromMe = Boolean(payload.fromMe ?? payload.key?.fromMe ?? payload.id?.fromMe ?? payload._data?.id?.fromMe ?? false);
   const chatId = String(payload.from || payload.chatId || payload.key?.remoteJid || payload._data?.from || senderRaw || '');
+  const phone = identityCandidates.map(normalizePhone).find(Boolean) || normalizePhone(senderRaw);
   return {
     event,
     messageId: extractMessageId(payload, body),
     session: body.session || payload.session || process.env.WAHA_SESSION || 'default',
     senderRaw,
-    phone: normalizePhone(senderRaw),
+    phone,
+    identityCandidates,
     whatsappName: String(payload.pushname || payload.pushName || payload.notifyName || payload._data?.notifyName || payload._data?.pushname || '').trim(),
     chatId,
     text: extractText(payload),
@@ -301,7 +336,9 @@ function buildConversationEvent({ incoming, direction, text, externalMessageId, 
     occurredAt: new Date().toISOString(),
     metadata: {
       source: 'waha', session: incoming.session, webhookMessageId: incoming.messageId || null,
-      chatId: incoming.chatId, senderRaw: incoming.senderRaw, ...metadata
+      chatId: incoming.chatId, senderRaw: incoming.senderRaw,
+      identityCandidates: incoming.identityCandidates || [],
+      ...metadata
     }
   };
 }
@@ -385,7 +422,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-07' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-08' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -427,7 +464,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       if (contactResolver) incoming.whatsappName = await contactResolver({ session: incoming.session, contactId: incoming.senderRaw });
     }
 
-    const ownerIdentity = resolveOwnerIdentity(incoming.senderRaw || incoming.chatId || incoming.phone);
+    const ownerIdentity = resolveOwnerIdentity(incoming.phone || incoming.senderRaw || incoming.chatId);
     const registeredProvider = !ownerIdentity.isOwner && incoming.phone
       ? await resolveProviderImpl({ phone: incoming.phone })
       : null;
@@ -504,7 +541,8 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       event: incoming.event || 'message', session: incoming.session, chatId: maskChatId(incoming.chatId),
       messageType: incoming.messageType, transcribed: incoming.messageType === 'audio',
       mediaUrlPresent: Boolean(incoming.media?.url), mimeType: incoming.media?.mimeType || null,
-      providerRecognized: Boolean(registeredProvider)
+      providerRecognized: Boolean(registeredProvider), phoneResolved: Boolean(incoming.phone),
+      identityCandidates: incoming.identityCandidates?.length || 0
     });
 
     const platform = process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL';
@@ -556,6 +594,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       metadata: {
         source: 'waha', session: incoming.session, messageId: incoming.messageId || null,
         chatId: incoming.chatId, event: incoming.event || 'message', senderRaw: incoming.senderRaw,
+        identityCandidates: incoming.identityCandidates || [],
         messageType: incoming.messageType, originalText: incoming.text || null,
         media: incoming.media || null,
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
@@ -691,6 +730,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 }
 
 module.exports = {
+  extractIdentityCandidates,
   extractIncoming,
   extractMedia,
   extractMessageType,
