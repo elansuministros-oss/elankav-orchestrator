@@ -50,6 +50,7 @@ async function listOwnerSellers(term='',env){return requestConnect(`/api/v1/busi
 async function createOwnerSeller(input,env){return requestConnect('/api/v1/business/vqs/owner-directory/sellers',{method:'POST',body:input},env)}
 async function updateOwnerSeller(id,input,env){return requestConnect(`/api/v1/business/vqs/owner-directory/sellers/${query(id)}`,{method:'PATCH',body:input},env)}
 async function deactivateOwnerSeller(id,env){return requestConnect(`/api/v1/business/vqs/owner-directory/sellers/${query(id)}/deactivate`,{method:'POST',body:{}},env)}
+async function deleteOwnerSeller(id,env){return requestConnect(`/api/v1/business/vqs/owner-directory/sellers/${query(id)}`,{method:'DELETE'},env)}
 async function setOwnerSellerPlatforms(id,platforms,env){return requestConnect(`/api/v1/business/vqs/owner-directory/sellers/${query(id)}/platforms`,{method:'PUT',body:{platforms}},env)}
 
 async function listOwnerFamily(term='',env){return requestConnect(`/api/v1/business/vqs/owner-directory/family${term?`?q=${query(term)}`:''}`,{},env)}
@@ -73,13 +74,7 @@ async function createDesignRequest(payload,env){return requestConnect('/api/v1/b
 async function getDesignRequest(requestCode,accessToken,env){return requestConnect('/api/v1/business/vqs/owner-design',{method:'POST',body:{type:'design-status',requestCode,accessToken}},env)}
 async function reviseDesignRequest(requestCode,accessToken,action,instructions,env){return requestConnect('/api/v1/business/vqs/owner-design',{method:'POST',body:{type:'design-request-action',requestCode,accessToken,action,instructions}},env)}
 async function sendDesignWhatsApp(requestCode,accessToken,phone,caption,env){return requestConnect('/api/v1/business/vqs/owner-design/send-whatsapp',{method:'POST',body:{requestCode,accessToken,phone,...(caption?{caption}:{})}},env)}
-async function createAndProcessDesign(payload,env){
-  const created=await createDesignRequest(payload,env);const result=created?.result||created?.data?.result||created?.data||{};
-  const requestCode=String(result.requestCode||'').trim();const accessToken=String(result.accessToken||'').trim();
-  if(!requestCode||!accessToken)return{created,processed:null};
-  const processed=await getDesignRequest(requestCode,accessToken,env);
-  return{created,processed,requestCode,accessToken};
-}
+async function createAndProcessDesign(payload,env){const created=await createDesignRequest(payload,env);const result=created?.result||created?.data?.result||created?.data||{};const requestCode=String(result.requestCode||'').trim();const accessToken=String(result.accessToken||'').trim();if(!requestCode||!accessToken)return{created,processed:null};const processed=await getDesignRequest(requestCode,accessToken,env);return{created,processed,requestCode,accessToken};}
 
 async function listPayments(projectId,env){return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/payments`,{},env)}
 async function applyPayment(projectId,body,env){return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/payments`,{method:'POST',body},env)}
@@ -94,6 +89,6 @@ async function createLogisticsRule(input,env){return requestConnect('/api/v1/bus
 
 module.exports={
   OwnerBusinessConnectError,applyPayment,createAndProcessDesign,createCustomer,createDesignRequest,createLogisticsRule,createOwnerCustomer,createOwnerFamily,createOwnerProvider,createOwnerSeller,createPriceAuthorization,createQuotation,createWorkOrder,
-  deactivateOwnerCustomer,deactivateOwnerFamily,deactivateOwnerProvider,deactivateOwnerSeller,getDesignRequest,getPayment,getQuotation,listAuthorizedPrices,listCustomers,listLogisticsRules,listOwnerCustomers,listOwnerFamily,listOwnerProviders,listOwnerSellers,listPayments,listPriceAuthorizations,listProviders,listQuotations,listWorkOrders,
+  deactivateOwnerCustomer,deactivateOwnerFamily,deactivateOwnerProvider,deactivateOwnerSeller,deleteOwnerSeller,getDesignRequest,getPayment,getQuotation,listAuthorizedPrices,listCustomers,listLogisticsRules,listOwnerCustomers,listOwnerFamily,listOwnerProviders,listOwnerSellers,listPayments,listPriceAuthorizations,listProviders,listQuotations,listWorkOrders,
   normalizeQuotationSource,removeQuotationImage,requestConnect,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
 };

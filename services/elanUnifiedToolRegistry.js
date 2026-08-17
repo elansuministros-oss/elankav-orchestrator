@@ -22,6 +22,7 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'crear_vendedor', description:'Crea un vendedor oficial.', ownerOnly:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
   { name:'editar_vendedor', description:'Edita un vendedor oficial.', ownerOnly:true, parameters:idPatchParam('sellerId') },
   { name:'desactivar_vendedor', description:'Desactiva un vendedor conservando ventas y comisiones históricas.', ownerOnly:true, parameters:idOnlyParam('sellerId') },
+  { name:'eliminar_vendedor', description:'Elimina físicamente un vendedor solo cuando CONNECT confirma que no tiene historial comercial relacionado.', ownerOnly:true, parameters:idOnlyParam('sellerId') },
   { name:'configurar_plataformas_vendedor', description:'Configura plataformas, comisión y bono de un vendedor.', ownerOnly:true, parameters:{type:'object',properties:{sellerId:{type:'string'},platforms:{type:'array',items:{type:'object'}}},required:['sellerId','platforms'],additionalProperties:false}},
   { name:'buscar_familiar', description:'Busca familiares autorizados o lista todos.', ownerOnly:true, parameters:searchParam },
   { name:'crear_familiar', description:'Crea un familiar autorizado y sus accesos.', ownerOnly:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
@@ -70,6 +71,7 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
     case'crear_vendedor':return connect.createOwnerSeller(requiredObject(args.data),env);
     case'editar_vendedor':return connect.updateOwnerSeller(requiredText(args.sellerId,'sellerId'),requiredObject(args.data),env);
     case'desactivar_vendedor':return connect.deactivateOwnerSeller(requiredText(args.sellerId,'sellerId'),env);
+    case'eliminar_vendedor':return connect.deleteOwnerSeller(requiredText(args.sellerId,'sellerId'),env);
     case'configurar_plataformas_vendedor':return connect.setOwnerSellerPlatforms(requiredText(args.sellerId,'sellerId'),Array.isArray(args.platforms)?args.platforms:[],env);
     case'buscar_familiar':return connect.listOwnerFamily(optionalText(args.query),env);
     case'crear_familiar':return connect.createOwnerFamily(requiredObject(args.data),env);
