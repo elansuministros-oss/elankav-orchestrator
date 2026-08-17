@@ -16,6 +16,8 @@ function isLid(value) {
 function normalizePhone(value) {
   const raw = clean(value);
   if (!raw || isLid(raw)) return '';
+  const lower = raw.toLowerCase();
+  if (raw.includes('@') && !lower.endsWith('@c.us') && !lower.endsWith('@s.whatsapp.net')) return '';
   const digits = raw.split('@')[0].replace(/\D/g, '');
   if (!digits) return '';
   return digits.length === 8 ? `505${digits}` : digits;
@@ -37,12 +39,16 @@ function collectIdentityCandidates(input = {}) {
   ].map(clean).filter(Boolean))];
 }
 
+function scalarPhone(value, allowPlainDigits = false) {
+  const raw = clean(value);
+  if (!raw || isLid(raw)) return '';
+  if (!allowPlainDigits && !raw.includes('@') && !raw.startsWith('+')) return '';
+  const candidate = normalizePhone(raw);
+  return candidate && candidate.length >= 8 && candidate.length <= 15 ? candidate : '';
+}
+
 function findPhoneInContactPayload(value, depth = 0) {
   if (depth > 5 || value == null) return '';
-  if (typeof value === 'string' || typeof value === 'number') {
-    const candidate = normalizePhone(value);
-    return candidate && candidate.length >= 8 && candidate.length <= 15 ? candidate : '';
-  }
   if (Array.isArray(value)) {
     for (const item of value) {
       const phone = findPhoneInContactPayload(item, depth + 1);
@@ -50,18 +56,27 @@ function findPhoneInContactPayload(value, depth = 0) {
     }
     return '';
   }
-  if (typeof value === 'object') {
-    const priorityKeys = ['phone', 'number', 'wid', 'id', 'jid', 'contactId', 'user', 'serialized'];
-    for (const key of priorityKeys) {
-      if (Object.prototype.hasOwnProperty.call(value, key)) {
-        const phone = findPhoneInContactPayload(value[key], depth + 1);
-        if (phone) return phone;
-      }
-    }
-    for (const nested of Object.values(value)) {
-      const phone = findPhoneInContactPayload(nested, depth + 1);
-      if (phone) return phone;
-    }
+  if (typeof value !== 'object') return scalarPhone(value, false);
+
+  for (const key of ['phone', 'number', 'phoneNumber', 'mobile']) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const phone = scalarPhone(value[key], true);
+    if (phone) return phone;
+  }
+
+  for (const key of ['serialized', '_serialized', 'jid', 'contactId', 'id', 'wid']) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const nested = value[key];
+    const phone = typeof nested === 'object'
+      ? findPhoneInContactPayload(nested, depth + 1)
+      : scalarPhone(nested, false);
+    if (phone) return phone;
+  }
+
+  for (const nested of Object.values(value)) {
+    if (!nested || typeof nested !== 'object') continue;
+    const phone = findPhoneInContactPayload(nested, depth + 1);
+    if (phone) return phone;
   }
   return '';
 }
@@ -195,5 +210,6 @@ module.exports = {
   normalizePhone,
   resolveCommercialActor,
   resolveCommercialActorSafely,
-  resolvePhoneFromWahaIdentity
+  resolvePhoneFromWahaIdentity,
+  scalarPhone
 };
