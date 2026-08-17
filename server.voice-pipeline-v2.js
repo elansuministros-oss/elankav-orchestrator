@@ -18,6 +18,10 @@ require('./services/ownerBusinessCustomerFieldsPatch');
 // required so WhatsApp Owner commands can use the external supervisor safely.
 require('./services/ownerOpsSupervisorCommandPatch');
 
+// Extend the Owner natural-language command layer with secure temporary seller
+// credentials before the unified runtime imports the command service.
+require('./services/ownerSellerTemporaryCredentialPatch');
+
 // Install the shared ELAN Runtime before either WAHA handler imports
 // messageService. This preserves Owner OPS and the existing business gateway,
 // while routing supported conversational tools through the same CONNECT executor
