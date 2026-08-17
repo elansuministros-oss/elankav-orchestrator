@@ -18,6 +18,7 @@ Establecer una fuente documental única, auditable y separada del código funcio
 | `07_IAM_ROLES_Y_PERMISOS.md` | Identidad, roles, permisos, Owner Mode y delegación | DOCUMENTADO/IAM INICIAL |
 | `VOICE-001.md` | Identidad oficial, arquitectura, diccionario y selección futura de voz de ELAN IA | APROBADO/CERRADO |
 | `ECS-001_ELAN_CREATIVE_STUDIO_EXECUTION.md` | Alcance, arquitectura, sistemas, costos y ejecución de ELAN Creative Studio | DESIGN-001A COMPLETADO |
+| `ECE-FOUNDATION-01_COMMERCE_ENGINE.md` | Arquitectura, protección del ecosistema y orden oficial para construir ELANHOME sobre el Commerce Engine transversal | ESTABLECIDO DOCUMENTALMENTE |
 
 ## Documento obligatorio de inicio
 
@@ -55,6 +56,12 @@ Para diseño, arquitectura comercial, renders, video, branding corporativo y ELA
 
 ```text
 docs/ECS-001_ELAN_CREATIVE_STUDIO_EXECUTION.md
+```
+
+Para ELANHOME, comercio sin inventario, catálogo maestro, proveedores, sourcing, órdenes de compra y conectores de marketplaces debe leerse:
+
+```text
+docs/ECE-FOUNDATION-01_COMMERCE_ENGINE.md
 ```
 
 ## Jerarquía documental
@@ -143,6 +150,8 @@ Esta sección consolida reglas ya presentes en la Base Oficial de Conocimiento; 
 | `VOICE-001` | Identidad oficial de voz especificada sin implementar STT/TTS | CERRADO |
 | `ECS-001` | Auditoría ejecutable de ELAN Creative Studio y fases de diseño/video | CERRADO DOCUMENTALMENTE |
 | `DESIGN-001A` | Fundación de `elankav-design-engine`, PR #1, merge `161768d`, QA 28/28 | CERRADO |
+| `AUD-COMMERCE-001` | Auditoría de ELANHOME, ELANVISUAL y ELANPET; modelo Commerce Engine y orden de integración establecidos | CERRADO COMO AUDITORÍA |
+| `ECE-FOUNDATION-01` | Fundación documental y contractual del ELANKAV Commerce Engine | ESTABLECIDO / IMPLEMENTACIÓN PENDIENTE |
 | `STT-001A` | Reconocimiento de audio desacoplado | PENDIENTE EN SU LÍNEA |
 
 ## Criterio de cierre documental
