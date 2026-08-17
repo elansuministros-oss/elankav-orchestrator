@@ -12,6 +12,11 @@ const {
   detectOwnerPriceCatalogCommand,
   executeOwnerPriceCatalogCommand
 } = require('./ownerPriceCatalogAdminService');
+const {
+  COMMAND_TYPE: SELLER_READ,
+  detectOwnerSellerReadCommand,
+  executeOwnerSellerReadCommand
+} = require('./ownerSellerReadService');
 const { addItemByHumanReference } = require('./ownerQuotationHomonymResolver');
 const { parseAddQuotationItemRequest } = require('./ownerQuotationHumanReferenceParser');
 
@@ -25,6 +30,9 @@ function detectOwnerBusinessCommand(message) {
   const runtimeAudit = detectConnectRuntimeAudit(message);
   if (runtimeAudit) return runtimeAudit;
 
+  const sellerRead = detectOwnerSellerReadCommand(message);
+  if (sellerRead) return sellerRead;
+
   const quotationItemRequest = parseAddQuotationItemRequest(message);
   if (quotationItemRequest) return { type: QUOTATION_ITEM_ADD, input: quotationItemRequest };
   return businessCommands.detectOwnerBusinessCommand(message);
@@ -33,6 +41,7 @@ function detectOwnerBusinessCommand(message) {
 async function executeOwnerBusinessCommand(command) {
   if (command?.type === PRICE_CATALOG_ADMIN) return executeOwnerPriceCatalogCommand(command);
   if (command?.type === CONNECT_RUNTIME_AUDIT) return executeConnectRuntimeAudit(command.query || null);
+  if (command?.type === SELLER_READ) return executeOwnerSellerReadCommand(command);
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
     return { handled: true, outputText: result?.outputText || 'Cotización actualizada.', result };
@@ -111,7 +120,7 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
   const wrappedProcessMessage = createOwnerBusinessProcessMessage({ originalProcessMessage });
   Object.defineProperty(messageService, INSTALL_MARK, { value: true, enumerable: false, configurable: false, writable: false });
   messageService.processMessage = wrappedProcessMessage;
-  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, priceCatalogAdmin: true });
+  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, priceCatalogAdmin: true, sellerRead: true });
   return wrappedProcessMessage;
 }
 
@@ -119,6 +128,7 @@ module.exports = {
   CONNECT_RUNTIME_AUDIT,
   PRICE_CATALOG_ADMIN,
   QUOTATION_ITEM_ADD,
+  SELLER_READ,
   createOwnerBusinessProcessMessage,
   detectOwnerBusinessCommand,
   executeOwnerBusinessCommand,
