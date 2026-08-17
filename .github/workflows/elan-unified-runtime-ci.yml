@@ -1,0 +1,43 @@
+name: ELAN Unified Runtime CI
+
+on:
+  pull_request:
+    branches:
+      - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
+    paths:
+      - 'services/elanUnified*.js'
+      - 'services/ownerBusinessConnectClient.js'
+      - '.github/workflows/elan-unified-runtime-ci.yml'
+  push:
+    branches:
+      - feature/ELAN-OWNER-COMPLETE-TOOLS-01
+    paths:
+      - 'services/elanUnified*.js'
+      - 'services/ownerBusinessConnectClient.js'
+      - '.github/workflows/elan-unified-runtime-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check services/ownerBusinessConnectClient.js
+          node --check services/elanUnifiedToolRegistry.js
+          node --check services/elanUnifiedRuntimeService.js
+          node --check services/elanUnifiedRuntimeMessagePatch.js
+          node --check services/elanUnifiedOwnerCommandService.js
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Existing Owner business regression tests
+        run: |
+          node --test \
+            tests/ownerBusinessQuotationItemPatch.test.js \
+            tests/ownerBusinessProcessMessageGateway.test.js \
+            tests/ownerBusinessProcessMessageIntegration.test.js \
+            tests/ownerQuotationHomonymResolver.test.js
