@@ -21,7 +21,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
