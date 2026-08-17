@@ -7,34 +7,19 @@ const {
   detectOwnerLanguageLearnCommand,
   executeOwnerCommand
 } = require('./ownerCommandService');
-const {
-  normalizeOwnerLanguage
-} = require('./ownerLanguageProfileService');
-const {
-  loadCrmContext
-} = require('./crmContextService');
-const {
-  processCrmConversation
-} = require('./crmConversationService');
-const {
-  processSellerRegistrationConversation
-} = require('./ownerSellerRegistrationService');
-const {
-  loadEcosystemContext
-} = require('./ecosystemContextService');
-const {
-  loadPlatformKnowledgeSafely
-} = require('./connectPlatformKnowledgeService');
+const { normalizeOwnerLanguage } = require('./ownerLanguageProfileService');
+const { loadCrmContext } = require('./crmContextService');
+const { processCrmConversation } = require('./crmConversationService');
+const { processSellerRegistrationConversation } = require('./ownerSellerRegistrationService');
+const { loadEcosystemContext } = require('./ecosystemContextService');
+const { loadPlatformKnowledgeSafely } = require('./connectPlatformKnowledgeService');
 const {
   publishConversationEventSafely,
   requestConversationDecision
 } = require('./connectConversationClient');
-const {
-  resolveCommercialActorSafely
-} = require('./connectActorIdentityService');
-const {
-  resolveAccessPolicy
-} = require('./accessPolicyService');
+const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
+const { resolveAccessPolicy } = require('./accessPolicyService');
+const { isLiveModeRequest, requestLiveSession } = require('./connectLiveAccessService');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -280,14 +265,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
   };
 }
 
-async function processMessage({
-  message,
-  platform,
-  channel,
-  externalUserId,
-  phone,
-  metadata
-}) {
+async function processMessage({ message, platform, channel, externalUserId, phone, metadata }) {
   const normalizedMessage = normalizeMessage(message);
 
   if (!normalizedMessage) {
@@ -312,6 +290,36 @@ async function processMessage({
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
 
+      if (String(context.channel || channel || '').toLowerCase() === 'whatsapp' && isLiveModeRequest(normalizedMessage)) {
+        try {
+          const live = await requestLiveSession({
+            phone: context.phone || phone || null,
+            externalUserId: context.externalUserId || externalUserId || null,
+            platform: context.platform || platform || 'ELANVISUAL'
+          });
+          return {
+            outputText: `ELAN Copiloto listo. Abrí tu sesión segura:\n${live.url}\n\nLa sesión vence en 15 minutos.`,
+            model: 'elankav-connect-live-access',
+            id: null,
+            status: 'completed',
+            usage: null,
+            actorRole: live.actor?.role || (ownerMode ? 'owner' : null),
+            accessScopes: live.actor?.scopes || null
+          };
+        } catch (error) {
+          if (error.code === 'LIVE_ACCESS_DENIED') {
+            return {
+              outputText: 'Este número no tiene acceso autorizado a ELAN Copiloto.',
+              model: 'elankav-connect-live-access',
+              id: null,
+              status: 'denied',
+              usage: null
+            };
+          }
+          throw error;
+        }
+      }
+
       if (!ownerMode) {
         const humanTakeover = metadata?.connectDecision ? false : await checkHumanTakeover({
           normalizedMessage,
@@ -333,14 +341,7 @@ async function processMessage({
           };
         }
 
-        return processCustomerMessage({
-          normalizedMessage,
-          context,
-          platform,
-          channel,
-          externalUserId,
-          phone
-        });
+        return processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone });
       }
 
       const sellerConversation = await processSellerRegistrationConversation({
@@ -356,7 +357,6 @@ async function processMessage({
           completed: Boolean(sellerConversation.completed),
           phone: 'OWNER_RECOGNIZED'
         });
-
         return {
           outputText: sellerConversation.outputText,
           model: 'elankav-seller-registration',
@@ -368,22 +368,11 @@ async function processMessage({
         };
       }
 
-      const ownerLanguageLearnCommand =
-        detectOwnerLanguageLearnCommand(normalizedMessage);
-
-      const ownerLanguageMessage = ownerLanguageLearnCommand
-        ? normalizedMessage
-        : await normalizeOwnerLanguage(normalizedMessage);
-
-      const ownerCommand =
-        ownerLanguageLearnCommand ||
-        detectOwnerCommand(ownerLanguageMessage);
+      const ownerLanguageLearnCommand = detectOwnerLanguageLearnCommand(normalizedMessage);
+      const ownerLanguageMessage = ownerLanguageLearnCommand ? normalizedMessage : await normalizeOwnerLanguage(normalizedMessage);
+      const ownerCommand = ownerLanguageLearnCommand || detectOwnerCommand(ownerLanguageMessage);
       if (ownerCommand) {
-        const commandResult = await executeOwnerCommand({
-          command: ownerCommand,
-          platform: context.platform || platform || 'elankav'
-        });
-
+        const commandResult = await executeOwnerCommand({ command: ownerCommand, platform: context.platform || platform || 'elankav' });
         return {
           outputText: commandResult.outputText,
           model: 'elankav-owner-command',
@@ -407,7 +396,6 @@ async function processMessage({
           completed: Boolean(crmConversation.completed),
           phone: 'OWNER_RECOGNIZED'
         });
-
         return {
           outputText: crmConversation.outputText,
           model: 'elankav-crm-conversation',
@@ -427,10 +415,7 @@ async function processMessage({
 
       const [crm, ecosystem] = await Promise.all([
         loadCrmContext(),
-        loadEcosystemContext({
-          platform: context.platform || platform || 'ELANVISUAL',
-          query: normalizedMessage
-        })
+        loadEcosystemContext({ platform: context.platform || platform || 'ELANVISUAL', query: normalizedMessage })
       ]);
 
       return generateText({
