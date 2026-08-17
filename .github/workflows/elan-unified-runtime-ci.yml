@@ -42,6 +42,8 @@ jobs:
           node --check services/elanUnifiedOwnerCommandService.js
           node --check services/ownerSellerTemporaryCredentialPatch.js
           node --check services/ownerSellerPreviewConfirmationPatch.js
+          node --check services/ownerSellerRecruitmentService.js
+          node --check services/ownerSellerRecruitmentMessagePatch.js
           node --check server.voice-pipeline-v2.js
       - name: Install dependencies
         run: npm install --ignore-scripts
@@ -57,4 +59,5 @@ jobs:
           node --test \
             test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js \
             test/ownerSellerTemporaryCredentialPatch.test.js \
-            test/ownerSellerPreviewConfirmationPatch.test.js
+            test/ownerSellerPreviewConfirmationPatch.test.js \
+            test/ownerSellerRecruitmentService.test.js
