@@ -26,6 +26,7 @@ require('./services/ownerSellerTemporaryCredentialPatch');
 // This patch is intentionally loaded after the credential patch so it also
 // intercepts credential delivery before any write/send occurs.
 require('./services/ownerSellerPreviewConfirmationPatch');
+require('./services/ownerSellerPreviewSanitizePatch');
 
 // Install the shared ELAN Runtime before either WAHA handler imports
 // messageService. This preserves Owner OPS and the existing business gateway,
