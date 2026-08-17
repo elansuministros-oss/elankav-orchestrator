@@ -1,10 +1,16 @@
 'use strict';
 
 const { getToolManifest } = require('../services/elanUnifiedToolRegistry');
-const { executeThroughConnect, resolveActor } = require('../services/elanUnifiedRuntimeService');
+const {
+  executeThroughConnect,
+  loadConversationMemory,
+  persistUnifiedContext,
+  resolveActor
+} = require('../services/elanUnifiedRuntimeService');
 
 const MANIFEST_PATH = '/api/v1/elan-runtime/tools';
 const EXECUTE_PATH = '/api/v1/elan-runtime/execute';
+const MEMORY_EVENT_PATH = '/api/v1/elan-runtime/memory/event';
 
 function internalToken(env = process.env) {
   return String(
@@ -44,7 +50,7 @@ async function readJson(req) {
 
 async function handleElanUnifiedRuntimeApi({ req, res, sendJson }) {
   const pathname = String(req?.url || '').split('?')[0];
-  if (![MANIFEST_PATH, EXECUTE_PATH].includes(pathname)) return false;
+  if (![MANIFEST_PATH, EXECUTE_PATH, MEMORY_EVENT_PATH].includes(pathname)) return false;
 
   const auth = authorized(req);
   if (!auth.ok) {
@@ -53,31 +59,62 @@ async function handleElanUnifiedRuntimeApi({ req, res, sendJson }) {
   }
 
   try {
-    if (pathname === MANIFEST_PATH) {
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED', error: 'Usá POST.' });
-        return true;
-      }
-      const body = await readJson(req);
-      const actor = resolveActor(body.actor || body.liveSession || {});
-      sendJson(res, 200, {
-        ok: true,
-        runtime: 'ELAN_UNIFIED_RUNTIME',
-        version: '1.0.0',
-        actor,
-        tools: getToolManifest(actor)
-      });
-      return true;
-    }
-
     if (req.method !== 'POST') {
       sendJson(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED', error: 'Usá POST.' });
       return true;
     }
 
     const body = await readJson(req);
+    const actor = resolveActor(body.actor || body.liveSession || {});
+    const platform = String(body.platform || 'ELANVISUAL').toUpperCase();
+
+    if (pathname === MANIFEST_PATH) {
+      const memory = await loadConversationMemory({
+        actor,
+        platform,
+        limit: Math.max(1, Math.min(Number(body.memoryLimit) || 20, 50))
+      });
+      sendJson(res, 200, {
+        ok: true,
+        runtime: 'ELAN_UNIFIED_RUNTIME',
+        version: '1.0.0',
+        authority: 'CONNECT',
+        actor,
+        memory,
+        tools: getToolManifest(actor)
+      });
+      return true;
+    }
+
+    if (pathname === MEMORY_EVENT_PATH) {
+      const direction = String(body.direction || '').toLowerCase();
+      if (!['inbound', 'outbound'].includes(direction)) {
+        sendJson(res, 400, { ok: false, code: 'ELAN_RUNTIME_DIRECTION_REQUIRED', error: 'direction debe ser inbound u outbound.' });
+        return true;
+      }
+      const result = await persistUnifiedContext({
+        actor,
+        platform,
+        channel: body.channel || 'api',
+        direction,
+        text: body.text,
+        messageType: body.messageType || 'text',
+        externalMessageId: body.externalMessageId || null,
+        occurredAt: body.occurredAt || null
+      });
+      sendJson(res, result?.duplicate ? 200 : 201, {
+        ok: true,
+        runtime: 'ELAN_UNIFIED_RUNTIME',
+        version: '1.0.0',
+        authority: 'CONNECT',
+        actor,
+        memory: result
+      });
+      return true;
+    }
+
     const execution = await executeThroughConnect({
-      actor: body.actor || body.liveSession || {},
+      actor,
       channel: body.channel || 'api',
       tool: body.tool || body.name,
       arguments: body.arguments || {},
@@ -100,6 +137,7 @@ async function handleElanUnifiedRuntimeApi({ req, res, sendJson }) {
 module.exports = {
   EXECUTE_PATH,
   MANIFEST_PATH,
+  MEMORY_EVENT_PATH,
   authorized,
   handleElanUnifiedRuntimeApi,
   internalToken
