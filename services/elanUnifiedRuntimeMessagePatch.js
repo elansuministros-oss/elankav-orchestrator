@@ -4,6 +4,7 @@ const { buildContext } = require('./context/contextBuilder');
 const {
   executeThroughConnect,
   formatAuthorizedPriceResult,
+  loadConversationMemory,
   persistUnifiedContext
 } = require('./elanUnifiedRuntimeService');
 const { installOwnerBusinessProcessMessageGateway } = require('./ownerBusinessProcessMessageGateway');
@@ -25,6 +26,12 @@ function detectAuthorizedPriceLookup(message) {
 
   if (!query) return null;
   return { tool: 'buscar_precio_autorizado', arguments: { query } };
+}
+
+function detectPriceMeasureFollowUp(message) {
+  const text = String(message || '').trim();
+  if (!text) return false;
+  return /(medida|medidas|tama[nñ]o|tama[nñ]os|est[aá]ndar|varias\s+medidas|qu[eé]\s+medidas|esas\s+medidas)/i.test(text);
 }
 
 function ownerActor(context, args) {
@@ -92,6 +99,38 @@ function runtimeResult({ args, context, execution, reply }) {
   };
 }
 
+function formatMeasureFollowUp(execution) {
+  const data = execution?.result || {};
+  const status = String(data.status || '').toUpperCase();
+  const item = data.item || {};
+  const name = item.name || data.query || 'este producto';
+  const unit = String(item.unit || item.formulaType || '').toUpperCase();
+
+  if (status === 'REQUIRES_INPUT' && unit === 'AREA_M2') {
+    return `${name} no tiene una medida estándar fija en esta tarifa: el precio autorizado se calcula por m². Indicame el ancho y el alto reales y te doy el valor exacto.`;
+  }
+  if (status === 'REQUIRES_INPUT') {
+    return `Para ${name}, CONNECT requiere la medida específica para resolver el precio autorizado. Si querés, decime ancho y alto y lo calculo sin inventar valores.`;
+  }
+  return formatAuthorizedPriceResult(execution);
+}
+
+async function recoverPreviousPriceIntent({ context, args }) {
+  const memory = await loadConversationMemory({
+    actor: ownerActor(context, args),
+    platform: platformOf(context, args),
+    limit: 20
+  });
+  const history = Array.isArray(memory?.history) ? memory.history : [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (String(entry?.role || '').toLowerCase() !== 'user') continue;
+    const intent = detectAuthorizedPriceLookup(entry?.content);
+    if (intent) return intent;
+  }
+  return null;
+}
+
 function installElanUnifiedRuntimeMessagePatch(messageService = require('./messageService')) {
   installOwnerBusinessProcessMessageGateway(messageService);
   if (!messageService || typeof messageService.processMessage !== 'function') throw new TypeError('messageService.processMessage no está disponible');
@@ -120,7 +159,17 @@ function installElanUnifiedRuntimeMessagePatch(messageService = require('./messa
       externalMessageId: args?.metadata?.messageId || null
     });
 
-    const intent = detectAuthorizedPriceLookup(args.message);
+    let intent = detectAuthorizedPriceLookup(args.message);
+    let measureFollowUp = false;
+    if (!intent && detectPriceMeasureFollowUp(args.message)) {
+      try {
+        intent = await recoverPreviousPriceIntent({ context, args });
+        measureFollowUp = Boolean(intent);
+      } catch (error) {
+        console.error('[ELAN_UNIFIED_RUNTIME_MEMORY_LOOKUP_FAILED]', { code: error?.code || null, message: error?.message || null });
+      }
+    }
+
     if (!intent) {
       const result = await originalProcessMessage(args);
       if (result?.reply && result?.suppressDelivery !== true) {
@@ -143,8 +192,8 @@ function installElanUnifiedRuntimeMessagePatch(messageService = require('./messa
         tool: intent.tool,
         arguments: intent.arguments
       });
-      const reply = formatAuthorizedPriceResult(execution);
-      console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]', { channel: 'whatsapp', tool: intent.tool, status: execution?.result?.status || 'OK' });
+      const reply = measureFollowUp ? formatMeasureFollowUp(execution) : formatAuthorizedPriceResult(execution);
+      console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]', { channel: 'whatsapp', tool: intent.tool, status: execution?.result?.status || 'OK', followUp: measureFollowUp });
       result = runtimeResult({ args, context, execution, reply });
     } catch (error) {
       console.error('[ELAN_UNIFIED_RUNTIME_FAILED]', { channel: 'whatsapp', tool: intent.tool, code: error?.code || null });
@@ -167,5 +216,6 @@ function installElanUnifiedRuntimeMessagePatch(messageService = require('./messa
 
 module.exports = {
   detectAuthorizedPriceLookup,
+  detectPriceMeasureFollowUp,
   installElanUnifiedRuntimeMessagePatch
 };
