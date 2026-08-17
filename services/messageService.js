@@ -94,6 +94,12 @@ function actorInstructions(actor, policy) {
       'Solo puede consultar/solicitar sus propios documentos y precios autorizados.',
       'No puede editar, autorizar OT, validar pagos ni pedir enlaces privados de plataforma.'
     );
+  } else if (role === 'provider') {
+    common.push(
+      'Tratá al remitente como proveedor registrado, no como cliente ni prospecto.',
+      'Solo puede consultar o aportar información correspondiente a su propia relación comercial y a sus permisos efectivos.',
+      'No le concedas permisos de vendedor, cliente u Owner y no expongas información comercial de otros proveedores.'
+    );
   } else {
     common.push(
       'Tratá al remitente como prospecto/no registrado.',
@@ -173,6 +179,10 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
   const platformId = runtimePlatform.platformId || context.platform || platform || 'elanvisual';
   const actor = await resolveCommercialActorSafely({
     phone: context.phone || phone || null,
+    identity: context?.identity?.receivedId || externalUserId || null,
+    externalUserId: context.externalUserId || externalUserId || null,
+    chatId: context?.metadata?.chatId || null,
+    metadata: context?.metadata || {},
     platform: platformId
   });
   const accessPolicy = resolveAccessPolicy({
@@ -228,8 +238,9 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       ownerMode: false,
       customerMode: actor?.role === 'customer' || actor?.role === 'prospect',
       sellerMode: actor?.role === 'seller',
+      providerMode: actor?.role === 'provider',
       externalUserId: context.externalUserId || externalUserId || null,
-      phone: context.phone || phone || null,
+      phone: actor?.canonicalPhone || context.phone || phone || null,
       platform: platformId,
       channel: context.channel || channel || null,
       actor: {
@@ -237,11 +248,13 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
         actorId: actor?.actorId || null,
         sellerId: actor?.sellerId || null,
         customerId: actor?.customerId || null,
+        providerId: actor?.providerId || null,
         prospectId: actor?.prospectId || null,
         displayName: actor?.displayName || null,
         registered: actor?.registered === true,
         platformAllowed: actor?.platformAllowed !== false,
-        authority: actor?.authority || null
+        authority: actor?.authority || null,
+        matchedBy: actor?.matchedBy || null
       },
       accessPolicy,
       runtime: {
