@@ -14,7 +14,7 @@ const { detectOwnerUnifiedCommand, executeOwnerUnifiedCommand } = require('./ela
 const INSTALL_MARK = Symbol.for('elankav.elanUnifiedRuntimeMessagePatch.installed');
 
 function normalized(value){return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ')}
-function detectAuthorizedPriceLookup(message) {
+function detectAuthorizedPriceLookup(message){
   const text=String(message||'').trim();if(!text)return null;const lower=text.toLowerCase();
   if(/\b(agrega|agregar|publica|publicar|aprueba|aprobar|actualiza|actualizar|cambia|cambiar|elimina|eliminar)\b/i.test(lower))return null;
   if(!/(cu[aá]l\s+es\s+el\s+precio|cu[aá]nto\s+cuesta|cu[aá]nto\s+vale|precio\s+(?:autorizado\s+)?de|costo\s+de)/i.test(text))return null;
@@ -30,6 +30,12 @@ function detectQuotationImageIntent(message,metadata={}){
   const query=String(match?.[1]||'').replace(/\b(?:agrega|carga|sube|pon|adjunta|esta|esa|imagen|foto)\b.*$/i,'').trim();
   return{query,media:metadata.media,itemId:String(metadata?.quotationItemId||'').trim()||null};
 }
+function detectDesignSendFollowUp(message){
+  const text=String(message||'').trim();
+  const match=text.match(/^(?:elan[\s,:-]+)?(?:mand[aá]sela|mandasela|env[ií]asela|enviasela|mandala|m[aá]ndala|enviala|env[ií]ala)(?:\s+la\s+propuesta|\s+el\s+dise[nñ]o)?\s+(?:a\s+)?(.+?)[.!]?$/i);
+  if(!match?.[1])return null;
+  return{query:match[1].trim()};
+}
 function ownerActor(context,args){return{role:'owner',actorId:'owner',authority:'owner_identity',phone:context?.phone||args?.phone||null,scopes:['*'],platforms:['*']}}
 function platformOf(context,args){return String(context?.platform||args?.platform||'ELANVISUAL').toUpperCase()}
 function channelOf(context,args){return String(context?.channel||args?.channel||'whatsapp').toLowerCase()}
@@ -40,16 +46,33 @@ function runtimeResult({args,context,execution,reply,command='elan_unified_runti
 }
 function formatMeasureFollowUp(execution){const data=execution?.result||{};const status=String(data.status||'').toUpperCase();const item=data.item||{};const name=item.name||data.query||'este producto';const unit=String(item.unit||item.formulaType||'').toUpperCase();if(status==='REQUIRES_INPUT'&&unit==='AREA_M2')return`${name} no tiene una medida estándar fija en esta tarifa: el precio autorizado se calcula por m². Indicame el ancho y el alto reales y te doy el valor exacto.`;if(status==='REQUIRES_INPUT')return`Para ${name}, CONNECT requiere la medida específica para resolver el precio autorizado. Si querés, decime ancho y alto y lo calculo sin inventar valores.`;return formatAuthorizedPriceResult(execution)}
 async function recoverPreviousPriceIntent({context,args}){const memory=await loadConversationMemory({actor:ownerActor(context,args),platform:platformOf(context,args),limit:20});const history=Array.isArray(memory?.history)?memory.history:[];for(let index=history.length-1;index>=0;index-=1){const entry=history[index];if(String(entry?.role||'').toLowerCase()!=='user')continue;const intent=detectAuthorizedPriceLookup(entry?.content);if(intent)return intent}return null}
+async function recoverLatestDesignCode({context,args}){const memory=await loadConversationMemory({actor:ownerActor(context,args),platform:platformOf(context,args),limit:30});const history=Array.isArray(memory?.history)?memory.history:[];for(let index=history.length-1;index>=0;index-=1){const content=String(history[index]?.content||'');const match=content.match(/\b(DESIGN-[A-Z0-9-]+)\b/i);if(match?.[1])return match[1].toUpperCase()}return null}
 
 function quotationRows(execution){const result=execution?.result;const data=result?.data??result;if(Array.isArray(data))return data;if(Array.isArray(data?.quotations))return data.quotations;if(Array.isArray(data?.results))return data.results;return[]}
 function quotationLabel(row){const doc=row?.quotation_document?.publicDocument||row?.publicDocument||{};const customer=doc.customer||row?.customerSnapshot||row?.customer_snapshot||{};return row?.quotationNumber||row?.quotation_number||doc.quotationNumber||`${customer.name||customer.companyName||'Cliente'} — ${row?.projectNumber||row?.project_number||row?.projectId||''}`}
 function resolveQuotationByHumanQuery(rows,query){const needle=normalized(query);if(!needle)return[];return rows.filter(row=>normalized(JSON.stringify(row)).includes(needle))}
+function contactRows(execution){const result=execution?.result;const data=result?.data??result;if(Array.isArray(data))return data;if(Array.isArray(data?.results))return data.results;return[]}
+function contactLabel(row){return row?.name||row?.displayName||row?.tradeName||row?.companyName||row?.label||row?.id||'contacto'}
+
+async function executeDesignSendFollowUp({intent,context,args}){
+  try{
+    const requestCode=await recoverLatestDesignCode({context,args});
+    if(!requestCode)return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:'No encontré una propuesta reciente para enviar. Indicame cuál propuesta querés usar.',command:'enviar_propuesta_diseno'});
+    const search=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:'buscar_contacto',arguments:{query:intent.query}});
+    const matches=contactRows(search);
+    if(!matches.length)return runtimeResult({args,context,execution:search,reply:`No encontré el contacto “${intent.query}”. No envié la propuesta.`,command:'enviar_propuesta_diseno'});
+    if(matches.length>1)return runtimeResult({args,context,execution:search,reply:`Encontré varias coincidencias para “${intent.query}”: ${matches.slice(0,8).map(contactLabel).join('; ')}. Decime cuál querés usar.`,command:'enviar_propuesta_diseno'});
+    const target=matches[0];const phone=String(target?.whatsapp||target?.phone||'').trim();
+    if(!phone)return runtimeResult({args,context,execution:search,reply:`${contactLabel(target)} no tiene un WhatsApp válido registrado. No envié la propuesta.`,command:'enviar_propuesta_diseno'});
+    const execution=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:'enviar_propuesta_diseno',arguments:{requestCode,phone,caption:`ELANVISUAL | Propuesta ${requestCode}`}});
+    return runtimeResult({args,context,execution,reply:`✅ Propuesta ${requestCode} enviada por WhatsApp a ${contactLabel(target)}.`,command:'enviar_propuesta_diseno'});
+  }catch(error){console.error('[ELAN_DESIGN_SEND_FAILED]',{code:error?.code||null,message:error?.message||null});return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude enviar la propuesta. Error: ${error?.code||'DESIGN_SEND_FAILED'}. No hice un envío alternativo.`,command:'enviar_propuesta_diseno'})}
+}
 
 async function executeQuotationImageIntent({intent,context,args}){
   if(!intent.query)return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:'Recibí la imagen. Decime a qué cotización querés agregarla, por nombre del cliente o trabajo.',command:'cargar_imagen_cotizacion'});
   try{
-    const search=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:'buscar_cotizacion',arguments:{}});
-    const matches=resolveQuotationByHumanQuery(quotationRows(search),intent.query);
+    const search=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:'buscar_cotizacion',arguments:{}});const matches=resolveQuotationByHumanQuery(quotationRows(search),intent.query);
     if(!matches.length)return runtimeResult({args,context,execution:search,reply:`Recibí la imagen, pero no encontré una cotización que coincida con “${intent.query}”. No hice cambios.`,command:'cargar_imagen_cotizacion'});
     if(matches.length>1)return runtimeResult({args,context,execution:search,reply:`Recibí la imagen, pero encontré varias cotizaciones: ${matches.slice(0,8).map(quotationLabel).join('; ')}. Decime cuál querés usar.`,command:'cargar_imagen_cotizacion'});
     const target=matches[0];const projectId=String(target?.projectId||target?.project_id||target?.quotation_document?.publicDocument?.project?.projectId||'').trim();
@@ -74,6 +97,7 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
     await persistOwnerTurn({context,args,direction:'inbound',text:String(args.message||'').trim(),externalMessageId:args?.metadata?.messageId||null});
 
     const imageIntent=detectQuotationImageIntent(args.message,args.metadata||{});if(imageIntent){const result=await executeQuotationImageIntent({intent:imageIntent,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
+    const designSendIntent=detectDesignSendFollowUp(args.message);if(designSendIntent){const result=await executeDesignSendFollowUp({intent:designSendIntent,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
 
     let intent=detectAuthorizedPriceLookup(args.message);let measureFollowUp=false;if(!intent&&detectPriceMeasureFollowUp(args.message)){try{intent=await recoverPreviousPriceIntent({context,args});measureFollowUp=Boolean(intent)}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_MEMORY_LOOKUP_FAILED]',{code:error?.code||null,message:error?.message||null})}}
     if(intent){let result;try{const execution=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:intent.tool,arguments:intent.arguments});const reply=measureFollowUp?formatMeasureFollowUp(execution):formatAuthorizedPriceResult(execution);console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]',{channel:'whatsapp',tool:intent.tool,status:execution?.result?.status||'OK',followUp:measureFollowUp});result=runtimeResult({args,context,execution,reply,command:intent.tool})}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_FAILED]',{channel:'whatsapp',tool:intent.tool,code:error?.code||null});result=runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude consultar la autoridad comercial de CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No voy a inventar un precio.`,command:intent.tool})}await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
@@ -84,4 +108,4 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete'});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,installElanUnifiedRuntimeMessagePatch};
+module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,installElanUnifiedRuntimeMessagePatch};
