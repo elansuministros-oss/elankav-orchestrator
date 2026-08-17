@@ -51,9 +51,13 @@ async function run(file, args, options = {}) {
       timeout: options.timeout || 45_000,
       maxBuffer: 1024 * 1024
     });
+    const stdoutRaw = String(result.stdout || '');
+    const stderrRaw = String(result.stderr || '');
     return {
-      stdout: String(result.stdout || '').trim(),
-      stderr: String(result.stderr || '').trim()
+      stdout: stdoutRaw.trim(),
+      stderr: stderrRaw.trim(),
+      stdoutRaw,
+      stderrRaw
     };
   } catch (cause) {
     const command = [file, ...args].join(' ');
@@ -180,16 +184,46 @@ async function buildRepository(config) {
   return 'npm run build';
 }
 
+function porcelainEntry(line) {
+  const raw = String(line || '').replace(/\r$/, '');
+  if (raw.length < 4 || raw[2] !== ' ') return null;
+  const status = raw.slice(0, 2);
+  const filePath = raw.slice(3);
+  return {
+    raw,
+    status,
+    path: filePath,
+    isRenameOrCopy: status.includes('R') || status.includes('C')
+  };
+}
+
+function porcelainEntries(rawOutput) {
+  return String(rawOutput || '')
+    .split('\n')
+    .map(line => line.replace(/\r$/, ''))
+    .filter(line => line.length > 0)
+    .map(porcelainEntry);
+}
+
 function porcelainPath(line) {
-  return String(line || '').replace(/^[A-Z?!]{1,2}\s+/, '').trim();
+  return porcelainEntry(line)?.path || '';
 }
 
 async function cleanGeneratedConnectCatalog(config) {
   const status = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
-  const lines = status.stdout.split(/\r?\n/).map(line => line.trimEnd()).filter(Boolean);
-  const changedPaths = lines.map(porcelainPath);
-  if (changedPaths.length !== 1 || changedPaths[0] !== GENERATED_CONNECT_CATALOG) {
-    const error = new Error('SUPERVISOR_CLEAN_SCOPE_MISMATCH');
+  const entries = porcelainEntries(status.stdoutRaw);
+  const allowedStatuses = new Set([' M', 'M ', 'MM']);
+  const expected = entries.length === 1
+    && entries[0]
+    && !entries[0].isRenameOrCopy
+    && allowedStatuses.has(entries[0].status)
+    && entries[0].path === GENERATED_CONNECT_CATALOG;
+
+  if (!expected) {
+    const summary = entries
+      .map(entry => entry ? `${entry.status}:${entry.path}` : 'INVALID_PORCELAIN_LINE')
+      .join('|') || 'EMPTY';
+    const error = new Error(`SUPERVISOR_CLEAN_SCOPE_MISMATCH:${summary}`);
     error.code = 'SUPERVISOR_CLEAN_SCOPE_MISMATCH';
     throw error;
   }
@@ -199,9 +233,9 @@ async function cleanGeneratedConnectCatalog(config) {
   const backupPath = path.join(BACKUP_DIR, backupName);
   await fs.copyFile(source, backupPath);
   await fs.chmod(backupPath, 0o600);
-  await run('git', ['-C', config.repo, 'restore', '--source=HEAD', '--', GENERATED_CONNECT_CATALOG]);
+  await run('git', ['-C', config.repo, 'restore', '--source=HEAD', '--staged', '--worktree', '--', GENERATED_CONNECT_CATALOG]);
   const after = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
-  if (after.stdout) {
+  if (porcelainEntries(after.stdoutRaw).length > 0) {
     const error = new Error('SUPERVISOR_REPOSITORY_STILL_DIRTY_AFTER_CLEAN');
     error.code = 'SUPERVISOR_REPOSITORY_STILL_DIRTY_AFTER_CLEAN';
     throw error;
@@ -230,7 +264,7 @@ async function deployRepository(target, parameters = {}) {
 
   const branch = config.branch;
   const status = await run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no']);
-  if (status.stdout) {
+  if (porcelainEntries(status.stdoutRaw).length > 0) {
     const error = new Error('SUPERVISOR_REPOSITORY_DIRTY');
     error.code = 'SUPERVISOR_REPOSITORY_DIRTY';
     throw error;
@@ -392,6 +426,8 @@ module.exports = {
   deployRepository,
   executeRequest,
   installDependencies,
+  porcelainEntries,
+  porcelainEntry,
   porcelainPath,
   recoverInterruptedOperations,
   restartService,
