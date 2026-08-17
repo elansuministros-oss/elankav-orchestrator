@@ -8,6 +8,8 @@ const createLiveSession =
   liveAccessService.createConnectLiveSession ||
   liveAccessService.requestLiveSession;
 
+const isLiveModeRequest = liveAccessService.isLiveModeRequest;
+
 const originalLoad = Module._load;
 let installed = false;
 
@@ -53,7 +55,7 @@ Module._load = function elanLiveModuleLoad(request, parent, isMain) {
 
     const incoming = exported.extractIncoming(body);
     const text = String(incoming?.text || '').trim();
-    if (!exported.isLiveModeRequest(text)) {
+    if (typeof isLiveModeRequest !== 'function' || !isLiveModeRequest(text)) {
       return originalHandler({ ...args, req: cloneRequest(req, rawBody) });
     }
 
