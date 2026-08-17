@@ -2,6 +2,7 @@
 
 const { resolveCanonicalIdentity } = require('./context/identityResolver');
 const { executeTool, getToolManifest } = require('./elanUnifiedToolRegistry');
+const { readUnifiedMemory, publishUnifiedMemoryEvent, publishUnifiedMemoryEventSafely } = require('./connectConversationClient');
 
 function normalizeScopes(scopes, role) {
   const values = Array.isArray(scopes) ? scopes.map(value => String(value).trim()).filter(Boolean) : [];
@@ -26,6 +27,11 @@ function resolveActor(input = {}) {
   });
 }
 
+function actorMemoryKey(actor = {}) {
+  const resolved = resolveActor(actor);
+  return String(resolved.actorId || resolved.canonicalPhone || resolved.phone || '').trim() || null;
+}
+
 function loadUnifiedContext({ actor: actorInput = {}, channel = 'unknown', conversation = {}, memory = null } = {}) {
   const actor = resolveActor(actorInput);
   return Object.freeze({
@@ -33,10 +39,48 @@ function loadUnifiedContext({ actor: actorInput = {}, channel = 'unknown', conve
     version: '1.0.0',
     channel: String(channel || 'unknown').trim().toLowerCase(),
     actor,
+    actorKey: actorMemoryKey(actor),
     conversation: conversation && typeof conversation === 'object' ? conversation : {},
     memory: memory && typeof memory === 'object' ? memory : null,
     tools: getToolManifest(actor)
   });
+}
+
+async function loadConversationMemory({ actor, platform = 'ELANVISUAL', limit = 20, env = process.env } = {}) {
+  const resolved = resolveActor(actor || {});
+  const actorKey = actorMemoryKey(resolved);
+  if (!actorKey) return { actorKey: null, conversationId: null, history: [] };
+  const payload = await readUnifiedMemory({
+    actorKey,
+    actorRole: resolved.role,
+    platform: String(platform || 'ELANVISUAL').toUpperCase(),
+    limit
+  }, { env });
+  return {
+    actorKey,
+    conversationId: payload?.conversationId || null,
+    history: Array.isArray(payload?.history) ? payload.history : []
+  };
+}
+
+async function persistUnifiedContext({ actor, platform = 'ELANVISUAL', channel = 'unknown', direction, text, messageType = 'text', externalMessageId, occurredAt, env = process.env, safe = false } = {}) {
+  const resolved = resolveActor(actor || {});
+  const actorKey = actorMemoryKey(resolved);
+  const content = String(text || '').trim();
+  if (!actorKey || !content) return { ok: false, skipped: true, reason: !actorKey ? 'actor_key_missing' : 'text_missing' };
+  const event = {
+    actorKey,
+    actorRole: resolved.role,
+    platform: String(platform || 'ELANVISUAL').toUpperCase(),
+    sourceChannel: String(channel || 'unknown').toLowerCase(),
+    direction,
+    text: content,
+    messageType,
+    externalMessageId: externalMessageId || undefined,
+    occurredAt: occurredAt || undefined
+  };
+  if (safe) return publishUnifiedMemoryEventSafely(event, { env });
+  return publishUnifiedMemoryEvent(event, { env });
 }
 
 function unwrapConnectPayload(payload) {
@@ -53,6 +97,7 @@ async function executeThroughConnect({ actor, channel, tool, arguments: args, co
     version: context.version,
     channel: context.channel,
     actor: context.actor,
+    actorKey: context.actorKey,
     tool,
     authority: 'CONNECT',
     result: unwrapConnectPayload(raw)
@@ -98,9 +143,12 @@ function formatAuthorizedPriceResult(execution) {
 }
 
 module.exports = {
+  actorMemoryKey,
   executeThroughConnect,
   formatAuthorizedPriceResult,
+  loadConversationMemory,
   loadUnifiedContext,
+  persistUnifiedContext,
   resolveActor,
   unwrapConnectPayload
 };
