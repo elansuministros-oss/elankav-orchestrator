@@ -1,3 +1,5 @@
+require('../services/liveCopilotMessagePatch');
+
 const { handleVqsProjectApi } = require('./vqsProjectApi');
 const { handleVqsQuotationSummaryApi } = require('./vqsQuotationSummaryApi');
 const { handleVqsOperationalOrdersApi } = require('./vqsOperationalOrdersApi');
