@@ -28,7 +28,12 @@ async function requestLiveSession({ phone, externalUserId, platform = 'ELANVISUA
       'X-Elankav-Internal-Token': token,
       'X-Elankav-Source': 'ORCHESTRATOR_WHATSAPP'
     },
-    body: JSON.stringify({ phone: clean(phone) || null, externalUserId: clean(externalUserId) || null, platform: clean(platform).toUpperCase() || 'ELANVISUAL' }),
+    body: JSON.stringify({
+      phone: clean(phone) || null,
+      identity: clean(externalUserId) || null,
+      externalUserId: clean(externalUserId) || null,
+      platform: clean(platform).toUpperCase() || 'ELANVISUAL'
+    }),
     signal: AbortSignal.timeout(10000)
   });
 
