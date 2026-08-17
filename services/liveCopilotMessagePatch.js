@@ -1,70 +1,81 @@
 'use strict';
 
-const messageService = require('./messageService');
-const conversationClient = require('./connectConversationClient');
-const { isLiveModeRequest, requestLiveSession } = require('./connectLiveAccessService');
+const Module = require('node:module');
+const { PassThrough } = require('node:stream');
+const { createConnectLiveSession } = require('./connectLiveAccessService');
 
-const originalProcessMessage = messageService.processMessage;
-const originalRequestConversationDecision = conversationClient.requestConversationDecision;
-const DEFAULT_OWNER_PHONE = '50588388940';
+const originalLoad = Module._load;
+let installed = false;
 
-function normalizePhone(value) {
-  const raw = String(value || '').split('@')[0].replace(/\D/g, '');
-  if (!raw) return '';
-  return raw.length === 8 ? `505${raw}` : raw;
-}
-
-function ownerPhones() {
-  const configured = String(
-    process.env.ORCHESTRATOR_OWNER_PHONES ||
-    process.env.ORCHESTRATOR_OWNER_PHONE ||
-    ''
-  ).split(',').map(normalizePhone).filter(Boolean);
-  return configured.length ? configured : [DEFAULT_OWNER_PHONE];
-}
-
-function isOwner(input = {}) {
-  const candidates = [
-    input.phone,
-    input.externalUserId,
-    input.identity,
-    input.metadata?.senderRaw,
-    input.metadata?.chatId,
-    ...(Array.isArray(input.metadata?.identityCandidates) ? input.metadata.identityCandidates : [])
-  ].map(normalizePhone).filter(Boolean);
-  return input.ownerMode === true || candidates.some(phone => ownerPhones().includes(phone));
-}
-
-conversationClient.requestConversationDecision = async function liveCopilotDecisionPatch(input = {}) {
-  if (isOwner(input) && isLiveModeRequest(input.message)) {
-    return {
-      action: 'RESPOND',
-      reason: 'OWNER_LIVE_ACCESS',
-      welcome: { send: false, text: '' },
-      ownerMode: true
-    };
-  }
-  return originalRequestConversationDecision(input);
-};
-
-messageService.processMessage = async function liveCopilotProcessMessagePatch(input = {}) {
-  if (!isOwner(input) || !isLiveModeRequest(input.message)) {
-    return originalProcessMessage(input);
-  }
-
-  const session = await requestLiveSession({
-    phone: normalizePhone(input.phone) || ownerPhones()[0],
-    externalUserId: input.externalUserId || input.metadata?.senderRaw || input.metadata?.chatId || null,
-    platform: input.platform || 'ELANVISUAL'
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
   });
+}
 
-  return {
-    reply: `ELAN Copiloto listo. Abrí tu sesión segura:\n${session.url}`,
-    model: 'ELAN_LIVE_ACCESS',
-    context: {
-      ownerMode: true,
-      platform: input.platform || 'ELANVISUAL',
-      liveAccess: true
+function cloneRequest(req, rawBody) {
+  const clone = new PassThrough();
+  clone.method = req.method;
+  clone.url = req.url;
+  clone.headers = req.headers;
+  clone.httpVersion = req.httpVersion;
+  clone.socket = req.socket;
+  clone.connection = req.connection;
+  process.nextTick(() => clone.end(rawBody));
+  return clone;
+}
+
+Module._load = function elanLiveModuleLoad(request, parent, isMain) {
+  const exported = originalLoad.apply(this, arguments);
+  if (installed || !String(request).endsWith('/api/wahaWebhookApi')) return exported;
+  if (!exported || typeof exported.handleWahaWebhookApi !== 'function') return exported;
+
+  installed = true;
+  const originalHandler = exported.handleWahaWebhookApi;
+
+  exported.handleWahaWebhookApi = async function liveFirstWahaHandler(args = {}) {
+    const { req, res, sendJson } = args;
+    let pathname = '';
+    try { pathname = new URL(req.url, `http://${req.headers?.host || 'localhost'}`).pathname; } catch {}
+    if (pathname !== '/webhook/inbound' || req.method !== 'POST') return originalHandler(args);
+
+    const rawBody = await readBody(req);
+    let body = {};
+    try { body = rawBody.length ? JSON.parse(rawBody.toString('utf8')) : {}; }
+    catch { return originalHandler({ ...args, req: cloneRequest(req, rawBody) }); }
+
+    const incoming = exported.extractIncoming(body);
+    const text = String(incoming?.text || '').trim();
+    if (!exported.isLiveModeRequest(text)) {
+      return originalHandler({ ...args, req: cloneRequest(req, rawBody) });
+    }
+
+    try {
+      const live = await createConnectLiveSession({
+        phone: incoming.phone,
+        identity: incoming.senderRaw,
+        platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL'
+      });
+      await exported.sendWahaText({
+        session: incoming.session,
+        chatId: incoming.chatId,
+        text: `ELAN Copiloto listo.\n${live.url}`
+      });
+      sendJson(res, 200, { ok: true, processed: true, replySent: true, replyType: 'text', ownerMode: live?.identity?.role === 'owner', elanLive: true });
+      return true;
+    } catch (error) {
+      const denied = error?.status === 403;
+      await exported.sendWahaText({
+        session: incoming.session,
+        chatId: incoming.chatId,
+        text: denied ? 'Este número no tiene acceso autorizado a ELAN Copiloto.' : 'No pude crear la sesión de ELAN Copiloto en este momento.'
+      }).catch(() => null);
+      sendJson(res, 200, { ok: false, processed: true, replySent: true, elanLive: true, code: error?.code || null });
+      return true;
     }
   };
+  return exported;
 };
