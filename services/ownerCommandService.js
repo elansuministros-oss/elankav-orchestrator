@@ -15,6 +15,10 @@ const {
   getRecentJobs,
   readWahaSession
 } = require('./ownerOperationalReadService');
+const {
+  detectOwnerOpsDeployCommand,
+  executeOwnerOpsDeployCommand
+} = require('./ownerOpsDeployBridge');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -25,7 +29,10 @@ const OWNER_COMMANDS = Object.freeze({
   CAPABILITY_CATALOG: 'capability_catalog',
   WAHA_STATUS: 'waha_status',
   QUOTE_QUERY: 'quote_query',
-  SEND_DESIGN_LINK: 'send_design_link'
+  SEND_DESIGN_LINK: 'send_design_link',
+  OWNER_OPS_PREPARE_DEPLOY: 'owner_ops_prepare_deploy',
+  OWNER_OPS_CONFIRM: 'owner_ops_confirm',
+  OWNER_OPS_STATUS: 'owner_ops_status'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -81,6 +88,9 @@ function detectSendDesignLinkCommand(message, normalizedMessage) {
 }
 
 function detectOwnerCommand(message) {
+  const ownerOpsDeployCommand = detectOwnerOpsDeployCommand(message);
+  if (ownerOpsDeployCommand) return ownerOpsDeployCommand;
+
   const normalized = normalizeCommand(message);
   const jobStatusCommand = detectJobStatusCommand(message, normalized);
   if (jobStatusCommand) return jobStatusCommand;
@@ -181,6 +191,14 @@ function formatJobStatusResult(job) {
 
 async function executeOwnerCommand({ command, platform }) {
   const type = typeof command === 'string' ? command : command?.type;
+
+  if (
+    type === OWNER_COMMANDS.OWNER_OPS_PREPARE_DEPLOY ||
+    type === OWNER_COMMANDS.OWNER_OPS_CONFIRM ||
+    type === OWNER_COMMANDS.OWNER_OPS_STATUS
+  ) {
+    return executeOwnerOpsDeployCommand(command);
+  }
 
   if (type === OWNER_COMMANDS.CANCEL_FLOW) {
     return { command: type, job: null, outputText: 'Entendido. Cancelé el proceso activo. Decime qué necesitás ahora.' };
