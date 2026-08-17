@@ -1,8 +1,10 @@
-const VQS_PLATFORM_REGISTRY_VERSION = '1.0.0';
+const VQS_PLATFORM_REGISTRY_VERSION = '1.1.0';
 
 const platforms = {
   ELANVISUAL: {
     platformId: 'ELANVISUAL',
+    canonicalPlatformId: 'elanvisual',
+    platformCode: 'ELANVISUAL',
     displayName: 'ELANVISUAL',
     website: 'https://visual.elankav.com',
     ecosystemUrl: 'https://www.elankav.com/',

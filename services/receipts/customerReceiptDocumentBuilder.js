@@ -1,5 +1,7 @@
 'use strict';
 
+const { getPlatformBrand } = require('../../adapters/vqs/brandRegistryAdapter');
+
 function number(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -21,14 +23,24 @@ function buildCustomerReceiptDocument({ payment, quotation, project } = {}) {
     throw error;
   }
 
+  const brandSnapshot = getPlatformBrand(quotation.platform_id);
+  if (!brandSnapshot) {
+    const error = new Error(`Plataforma no registrada: ${quotation.platform_id}`);
+    error.code = 'RECEIPT_PLATFORM_NOT_FOUND';
+    throw error;
+  }
+
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     documentType: 'customer_receipt',
     receiptId: payment.id,
     receiptNumber: payment.receipt_number,
     status: payment.status,
     issuedAt: payment.paid_at || payment.created_at,
-    platformId: quotation.platform_id,
+    platformId: brandSnapshot.platformId,
+    canonicalPlatformId: brandSnapshot.canonicalPlatformId,
+    platformCode: brandSnapshot.platformCode,
+    brandSnapshot,
     quotationId: quotation.id,
     quotationNumber: quotation.quotation_number,
     projectId: project.id,
@@ -60,7 +72,8 @@ function buildCustomerReceiptDocument({ payment, quotation, project } = {}) {
     },
     metadata: {
       generatedAt: new Date().toISOString(),
-      source: 'ELANKAV ERP'
+      source: 'ELANKAV ERP',
+      registryVersion: brandSnapshot.registryVersion
     }
   };
 }

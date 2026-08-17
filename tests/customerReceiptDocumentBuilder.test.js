@@ -40,18 +40,40 @@ function fixture() {
   return { payment, quotation, project };
 }
 
-test('construye recibo oficial vinculado a cotización y proyecto', () => {
+test('construye recibo oficial vinculado a cotización, proyecto y marca', () => {
   const document = buildCustomerReceiptDocument(fixture());
   assert.equal(document.documentType, 'customer_receipt');
   assert.equal(document.receiptNumber, 'REC-2026-000001');
   assert.equal(document.quotationNumber, 'COT-20260718-00013');
   assert.equal(document.projectNumber, 'PRY-2026-000013');
+  assert.equal(document.platformId, 'ELANVISUAL');
+  assert.equal(document.canonicalPlatformId, 'elanvisual');
+  assert.equal(document.platformCode, 'ELANVISUAL');
+  assert.equal(document.brandSnapshot.displayName, 'ELANVISUAL');
+  assert.equal(document.brandSnapshot.registryVersion, '1.1.0');
   assert.equal(document.customer.name, 'Repuesto y accesorios El león de Judá');
   assert.equal(document.executive.name, 'Erick Cano');
   assert.equal(document.payment.amount, 1200.02);
   assert.equal(document.balance.pendingBalance, 800.02);
   assert.equal(document.balance.depositCompleted, true);
   assert.equal(document.conditions.quotationRemainsAuthoritative, true);
+});
+
+test('acepta el identificador canónico en minúsculas', () => {
+  const input = fixture();
+  input.quotation.platform_id = 'elanvisual';
+  const document = buildCustomerReceiptDocument(input);
+  assert.equal(document.brandSnapshot.platformCode, 'ELANVISUAL');
+  assert.equal(document.canonicalPlatformId, 'elanvisual');
+});
+
+test('rechaza plataformas sin registro de marca', () => {
+  const input = fixture();
+  input.quotation.platform_id = 'plataforma-inexistente';
+  assert.throws(
+    () => buildCustomerReceiptDocument(input),
+    (error) => error.code === 'RECEIPT_PLATFORM_NOT_FOUND'
+  );
 });
 
 test('rechaza un pago vinculado a otro proyecto', () => {
