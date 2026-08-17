@@ -27,6 +27,11 @@ const ROLE_SCOPES = Object.freeze({
     'receipt.self.read',
     'work_status.self.read'
   ]),
+  provider: Object.freeze([
+    'chat.provider',
+    'provider.self.read',
+    'provider.commercial_data.submit'
+  ]),
   prospect: Object.freeze([
     'chat.customer',
     'price.read',
