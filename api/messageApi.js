@@ -8,6 +8,7 @@ const { handleVqsQuotationAssetApi } = require('./vqsQuotationAssetApi');
 const { handleVqsPublicQuotationApi } = require('./vqsPublicQuotationApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
+const { handleElanUnifiedRuntimeApi } = require('./elanUnifiedRuntimeApi');
 const { handleWahaWebhookApi } = require('./wahaWebhookApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
 
@@ -73,6 +74,9 @@ function applyVqsCors(req, res) {
 }
 
 async function handleMessageApi({ req, res, sendJson }) {
+  const unifiedRuntimeHandled = await handleElanUnifiedRuntimeApi({ req, res, sendJson });
+  if (unifiedRuntimeHandled) return true;
+
   const wahaWebhookHandled = await handleWahaWebhookApi({ req, res, sendJson });
   if (wahaWebhookHandled) return true;
 

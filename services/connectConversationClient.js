@@ -37,7 +37,7 @@ function buildHeaders(token) {
   };
 }
 
-async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+function requireTransport(fetchImpl, env) {
   if (typeof fetchImpl !== 'function') {
     const error = new Error('FETCH_NOT_AVAILABLE');
     error.code = 'FETCH_NOT_AVAILABLE';
@@ -49,13 +49,14 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
     error.code = 'CONNECT_INTERNAL_TOKEN_REQUIRED';
     throw error;
   }
-  const baseUrl = resolveConnectUrl(env).replace(/\/+$/, '');
+  return { token, baseUrl: resolveConnectUrl(env).replace(/\/+$/, '') };
+}
+
+async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  const { token, baseUrl } = requireTransport(fetchImpl, env);
   const response = await fetchImpl(`${baseUrl}/api/v1/conversations/events`, {
     method: 'POST',
-    headers: {
-      ...buildHeaders(token),
-      'Content-Type': 'application/json'
-    },
+    headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(event),
     signal: AbortSignal.timeout(10000)
   });
@@ -80,14 +81,55 @@ async function requestConversationDecision({ identity, platform = 'ELANVISUAL', 
       history: []
     };
   }
-  const token = resolveConnectToken(env);
-  if (!token) throw Object.assign(new Error('CONNECT_INTERNAL_TOKEN_REQUIRED'), { code: 'CONNECT_INTERNAL_TOKEN_REQUIRED' });
-  const response = await fetchImpl(`${resolveConnectUrl(env).replace(/\/+$/, '')}/api/v1/conversations/decision`, {
+  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const response = await fetchImpl(`${baseUrl}/api/v1/conversations/decision`, {
     method: 'POST', headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify({ identity, platform, message, ownerMode }), signal: AbortSignal.timeout(15000)
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) throw Object.assign(new Error(payload?.error?.message || `CONNECT_DECISION_HTTP_${response.status}`), { code: payload?.error?.code || 'CONNECT_CONVERSATION_DECISION_FAILED', status: response.status });
+  return payload;
+}
+
+async function readUnifiedMemory({ actorKey, actorRole, platform = 'ELANVISUAL', limit = 20 } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  const key = clean(actorKey);
+  if (!key) throw Object.assign(new Error('ACTOR_KEY_REQUIRED'), { code: 'ACTOR_KEY_REQUIRED' });
+  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const query = new URLSearchParams({
+    actorKey: key,
+    actorRole: clean(actorRole),
+    platform: clean(platform) || 'ELANVISUAL',
+    limit: String(Math.max(1, Math.min(Number(limit) || 20, 50)))
+  });
+  const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory?${query.toString()}`, {
+    headers: buildHeaders(token),
+    signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok === false) {
+    throw Object.assign(new Error(payload?.error?.message || `CONNECT_MEMORY_HTTP_${response.status}`), {
+      code: payload?.error?.code || 'CONNECT_UNIFIED_MEMORY_FAILED',
+      status: response.status
+    });
+  }
+  return payload;
+}
+
+async function publishUnifiedMemoryEvent(event, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory/events`, {
+    method: 'POST',
+    headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(event),
+    signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok === false) {
+    throw Object.assign(new Error(payload?.error?.message || `CONNECT_MEMORY_HTTP_${response.status}`), {
+      code: payload?.error?.code || 'CONNECT_UNIFIED_MEMORY_EVENT_FAILED',
+      status: response.status
+    });
+  }
   return payload;
 }
 
@@ -104,11 +146,27 @@ async function publishConversationEventSafely(event, options) {
   }
 }
 
+async function publishUnifiedMemoryEventSafely(event, options) {
+  try {
+    return await publishUnifiedMemoryEvent(event, options);
+  } catch (error) {
+    console.error('[CONNECT_UNIFIED_MEMORY_EVENT_FAILED]', {
+      code: error.code || null,
+      status: error.status || null,
+      message: error.message
+    });
+    return { ok: false, error: error.code || error.message };
+  }
+}
+
 module.exports = {
   DEFAULT_CONNECT_URL,
   isPriorityLiveCommand,
   publishConversationEvent,
   publishConversationEventSafely,
+  publishUnifiedMemoryEvent,
+  publishUnifiedMemoryEventSafely,
+  readUnifiedMemory,
   requestConversationDecision,
   resolveConnectToken,
   resolveConnectUrl

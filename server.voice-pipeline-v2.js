@@ -18,6 +18,12 @@ require('./services/ownerBusinessCustomerFieldsPatch');
 // required so WhatsApp Owner commands can use the external supervisor safely.
 require('./services/ownerOpsSupervisorCommandPatch');
 
+// Install the shared ELAN Runtime before either WAHA handler imports
+// messageService. This preserves Owner OPS and the existing business gateway,
+// while routing supported conversational tools through the same CONNECT executor
+// used by ELAN Live.
+require('./services/elanUnifiedRuntimeMessagePatch').installElanUnifiedRuntimeMessagePatch();
+
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
   const v2Exports = require('./api/wahaWebhookApiV2');
