@@ -25,6 +25,11 @@ const {
 } = require('./sellerOnboardingService');
 const { addItemByHumanReference } = require('./ownerQuotationHomonymResolver');
 const { parseAddQuotationItemRequest } = require('./ownerQuotationHumanReferenceParser');
+const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
+const {
+  detectSellerBusinessCommand,
+  executeSellerBusinessCommand
+} = require('./sellerBusinessCommandService');
 
 const QUOTATION_ITEM_ADD = 'business_quotation_item_add';
 const INSTALL_MARK = Symbol.for('elankav.ownerBusinessProcessMessageGateway.installed');
@@ -99,6 +104,47 @@ function transactionalSuccess({ args, context, command, execution }) {
   };
 }
 
+function sellerTransactionalFailure({ args, context, command, actor, error }) {
+  const errorCode = error?.code || 'SELLER_BUSINESS_COMMAND_FAILED';
+  const detail = error?.message || 'No fue posible completar la operación comercial.';
+  console.error('[SELLER_BUSINESS_RESULT]', {
+    handler: command?.type || null,
+    status: 'failed',
+    errorCode,
+    sellerId: actor?.sellerId || actor?.actorId || null,
+    platform: context?.platform || args?.platform || 'elanvisual'
+  });
+  return {
+    message: String(args?.message || '').trim(),
+    reply: ['No pude completar la operación comercial solicitada.', `Error: ${errorCode}`, detail, 'No creé un registro alternativo ni cambié el propietario del dato.'].join('\n'),
+    provider: 'elankav', model: 'elankav-seller-business-command', responseId: null, status: 'failed', usage: null,
+    suppressDelivery: false, command: command?.type || null, jobId: null, ownerCommercialQuery: false, ownerCrmCommand: false,
+    ownerBusinessCommand: false, sellerBusinessCommand: true, actorRole: 'seller',
+    actorId: actor?.actorId || actor?.sellerId || null, accessScopes: actor?.scopes || null, runtimeVersion: null,
+    knowledgeAvailable: null, historyMessages: null,
+    context: { version: context?.version || null, platform: context?.platform || null, channel: context?.channel || null, externalUserId: context?.externalUserId || null, ownerMode: false }
+  };
+}
+
+function sellerTransactionalSuccess({ args, context, command, actor, execution }) {
+  console.log('[SELLER_BUSINESS_RESULT]', {
+    handler: command?.type || null,
+    status: 'completed',
+    sellerId: actor?.sellerId || actor?.actorId || null,
+    platform: context?.platform || args?.platform || 'elanvisual'
+  });
+  return {
+    message: String(args?.message || '').trim(),
+    reply: String(execution?.outputText || '').trim(),
+    provider: 'elankav', model: 'elankav-seller-business-command', responseId: null, status: 'completed', usage: null,
+    suppressDelivery: false, command: command?.type || null, jobId: null, ownerCommercialQuery: false, ownerCrmCommand: false,
+    ownerBusinessCommand: false, sellerBusinessCommand: true, actorRole: 'seller',
+    actorId: actor?.actorId || actor?.sellerId || null, accessScopes: actor?.scopes || null, runtimeVersion: null,
+    knowledgeAvailable: null, historyMessages: null,
+    context: { version: context?.version || null, platform: context?.platform || null, channel: context?.channel || null, externalUserId: context?.externalUserId || null, ownerMode: false }
+  };
+}
+
 function sellerOnboardingResult({ args, context, onboarding }) {
   return {
     message: String(args?.message || '').trim(),
@@ -130,10 +176,21 @@ function sellerOnboardingResult({ args, context, onboarding }) {
   };
 }
 
-function createOwnerBusinessProcessMessage({ originalProcessMessage, buildContextImpl = buildContext, detectCommandImpl = detectOwnerBusinessCommand, executeCommandImpl = executeOwnerBusinessCommand, onboardingImpl = processSellerOnboardingReply } = {}) {
+function createOwnerBusinessProcessMessage({
+  originalProcessMessage,
+  buildContextImpl = buildContext,
+  detectCommandImpl = detectOwnerBusinessCommand,
+  executeCommandImpl = executeOwnerBusinessCommand,
+  onboardingImpl = processSellerOnboardingReply,
+  resolveActorImpl = resolveCommercialActorSafely,
+  detectSellerCommandImpl = detectSellerBusinessCommand,
+  executeSellerCommandImpl = executeSellerBusinessCommand
+} = {}) {
   if (typeof originalProcessMessage !== 'function') throw new TypeError('originalProcessMessage es obligatorio');
+
   return async function processMessageWithOwnerBusinessGateway(args = {}) {
     const context = buildOwnerContext(args, buildContextImpl);
+
     if (!context?.owner?.isOwner) {
       try {
         const onboarding = await onboardingImpl({ message: args.message, phone: context?.phone || args.phone || null });
@@ -144,8 +201,37 @@ function createOwnerBusinessProcessMessage({ originalProcessMessage, buildContex
       } catch (error) {
         console.error('[SELLER_ONBOARDING_FAILED]', { code: error?.code || null, message: error?.message || 'unknown' });
       }
+
+      const actor = await resolveActorImpl({
+        phone: context?.phone || args.phone || null,
+        platform: context?.platform || args.platform || 'ELANVISUAL'
+      });
+
+      if (String(actor?.role || '').toLowerCase() === 'seller' && actor?.platformAllowed !== false) {
+        const sellerCommand = detectSellerCommandImpl(args.message);
+        if (sellerCommand) {
+          console.log('[SELLER_ROUTE_SELECTED]', {
+            handler: sellerCommand.type,
+            sellerId: actor?.sellerId || actor?.actorId || null,
+            platform: context?.platform || args.platform || 'elanvisual'
+          });
+          try {
+            const execution = await executeSellerCommandImpl(sellerCommand, actor);
+            if (!execution?.handled) {
+              const error = new Error(`Handler vendedor ${sellerCommand.type} fue detectado pero no ejecutado.`);
+              error.code = 'SELLER_BUSINESS_HANDLER_NOT_EXECUTED';
+              return sellerTransactionalFailure({ args, context, command: sellerCommand, actor, error });
+            }
+            return sellerTransactionalSuccess({ args, context, command: sellerCommand, actor, execution });
+          } catch (error) {
+            return sellerTransactionalFailure({ args, context, command: sellerCommand, actor, error });
+          }
+        }
+      }
+
       return originalProcessMessage(args);
     }
+
     const command = detectCommandImpl(args.message);
     if (!command) return originalProcessMessage(args);
 
@@ -172,7 +258,16 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
   const wrappedProcessMessage = createOwnerBusinessProcessMessage({ originalProcessMessage });
   Object.defineProperty(messageService, INSTALL_MARK, { value: true, enumerable: false, configurable: false, writable: false });
   messageService.processMessage = wrappedProcessMessage;
-  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', { boundary: 'processMessage', quotationItemAdd: true, connectRuntimeAudit: true, priceCatalogAdmin: true, sellerRead: true, sellerAccessDelivery: true, sellerOnboarding: true });
+  console.log('[OWNER_BUSINESS_GATEWAY_INSTALLED]', {
+    boundary: 'processMessage',
+    quotationItemAdd: true,
+    connectRuntimeAudit: true,
+    priceCatalogAdmin: true,
+    sellerRead: true,
+    sellerAccessDelivery: true,
+    sellerOnboarding: true,
+    sellerBusinessTransactions: true
+  });
   return wrappedProcessMessage;
 }
 
