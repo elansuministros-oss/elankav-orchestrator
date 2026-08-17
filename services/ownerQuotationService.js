@@ -311,6 +311,24 @@ function money(amount, currency) {
   return `${currency} ${Number(amount || 0).toFixed(2)}`;
 }
 
+function formalQuoteBlockForPricing(pricing = {}, explicitPrice = null) {
+  if (explicitPrice) return null;
+  if (String(pricing?.status || '').toUpperCase() !== 'BASE_PRICE_ONLY') return null;
+  const itemName = String(pricing?.item?.name || pricing?.query || 'este producto').trim();
+  const minimum = Number(pricing?.item?.minimumPrice);
+  const currency = String(pricing?.item?.currency || 'USD').trim().toUpperCase();
+  return {
+    ready: false,
+    blocked: true,
+    code: 'FORMAL_QUOTATION_FROM_PRICE_NOT_ALLOWED',
+    question: [
+      `“${itemName}” tiene una tarifa DESDE y no puede generar una cotización formal automática.`,
+      Number.isFinite(minimum) && minimum > 0 ? `Referencia mínima: ${currency} ${minimum.toFixed(2)}.` : '',
+      'La tarifa DESDE solo puede mostrarse como referencia. Para una cotización formal se necesita un precio final distinto y autorizado.'
+    ].filter(Boolean).join('\n')
+  };
+}
+
 async function prepareActiveQuotationDelivery() {
   const context = await readContext();
   if (!context.activeProjectId || !context.activeQuotationId) {
@@ -541,6 +559,16 @@ async function prepareAndCreateQuotation(input) {
       pricing = { status: 'NOT_FOUND' };
     }
 
+    const formalQuoteBlock = formalQuoteBlockForPricing(pricing, input.explicitPrice || null);
+    if (formalQuoteBlock) {
+      trace('blocked-from-price', {
+        code: formalQuoteBlock.code,
+        productQuery: input.productQuery || null,
+        pricingStatus: pricing.status || null
+      });
+      return formalQuoteBlock;
+    }
+
     if (!input.explicitPrice) {
       if (pricing.status === 'NOT_FOUND') return { ready: false, question: `No encontré “${input.productQuery}” en la biblioteca oficial. Necesito identificar el producto o servicio correcto antes de cotizar.` };
       if (pricing.status === 'MULTIPLE') {
@@ -645,6 +673,7 @@ async function prepareAndCreateQuotation(input) {
 module.exports = {
   editActiveQuotation,
   errorDetails,
+  formalQuoteBlockForPricing,
   hasLogisticsIntent,
   parseCarrier,
   parseDestination,
