@@ -7,7 +7,7 @@ const {
   resolvePlatform
 } = require('./platformResolver');
 
-const CONTEXT_VERSION = 'ORCH-038';
+const CONTEXT_VERSION = 'ORCH-039';
 const DEFAULT_OWNER_PHONES = Object.freeze([
   '50588388940'
 ]);
@@ -32,7 +32,9 @@ function normalizeChannel(value) {
 }
 
 function normalizePhone(value) {
-  const digits = String(value || '').replace(/\D/g, '');
+  const raw = String(value || '').trim();
+  if (!raw || raw.toLowerCase().endsWith('@lid')) return '';
+  const digits = raw.replace(/\D/g, '');
 
   if (!digits) {
     return '';
@@ -107,9 +109,13 @@ function buildContext(input = {}) {
   const receivedIdentity =
     input.externalUserId ||
     input.phone ||
+    input.metadata?.senderRaw ||
+    input.metadata?.chatId ||
     input.metadata?.phone;
   const identity = resolveCanonicalIdentity(receivedIdentity);
-  const phone = normalizePhone(identity.canonicalId);
+  const directPhone = normalizePhone(input.phone || input.metadata?.phone);
+  const aliasPhone = identity.matchedAlias ? normalizePhone(identity.canonicalId) : '';
+  const phone = directPhone || aliasPhone;
   const ownerPhones = getOwnerPhones();
   const message = input.message || findMessage(args);
   const platformResolution = resolvePlatform({
@@ -118,6 +124,7 @@ function buildContext(input = {}) {
     metadata: input.metadata
   });
   const channel = normalizeChannel(input.channel);
+  const rawIdentity = normalizeText(receivedIdentity);
 
   return Object.freeze({
     version: CONTEXT_VERSION,
@@ -127,14 +134,15 @@ function buildContext(input = {}) {
     message,
     platform: platformResolution.platform,
     channel: channel || null,
-    externalUserId: phone || null,
+    externalUserId: rawIdentity || null,
+    phone: phone || rawIdentity || null,
     owner: Object.freeze({
       isOwner: Boolean(phone && ownerPhones.includes(phone)),
       phone: phone || null
     }),
     identity: Object.freeze({
-      receivedId: identity.receivedId,
-      canonicalId: phone || null,
+      receivedId: rawIdentity || identity.receivedId,
+      canonicalId: phone || identity.canonicalId || null,
       matchedAlias: identity.matchedAlias,
       source: identity.source
     }),
@@ -144,8 +152,8 @@ function buildContext(input = {}) {
     metadata: Object.freeze({
       argumentCount: args.length,
       transparentMode: true,
-      identityReceivedId: identity.receivedId,
-      identityCanonicalId: phone || null,
+      identityReceivedId: rawIdentity || identity.receivedId,
+      identityCanonicalId: phone || identity.canonicalId || null,
       identityMatchedAlias: identity.matchedAlias,
       identitySource: identity.source,
       platformResolution: Object.freeze({
