@@ -43,6 +43,7 @@ function detectOwnerPriceCatalogCommand(message) {
   if (!text.includes('elan')) return null;
 
   if (/^elan confirma reemplazar precios elanvisual$/.test(text)) return Object.freeze({ type: COMMAND_TYPE, action: 'replace_confirm' });
+  if (/^elan confirma autorizar precios elanvisual$/.test(text)) return Object.freeze({ type: COMMAND_TYPE, action: 'authorize_all' });
   if ((/reemplaza|reemplazar|limpia|limpiar|carga|cargar/.test(text)) && /catalogo/.test(text) && /precio|tarifa/.test(text) && /elanvisual/.test(text)) return Object.freeze({ type: COMMAND_TYPE, action: 'replace_preview' });
 
   const create = raw.match(/(?:agrega|agregar|crea|crear)\s+(?:una\s+)?(?:tarifa|precio)(?:\s+nuev[ao])?\s+(?:para|de)\s+(.+?)\s+a\s+((?:USD|US\$|U\$|C\$|NIO)?\s*[0-9]+(?:[.,][0-9]+)?)(.*)$/i);
@@ -74,6 +75,10 @@ function formatReplace(payload) {
   const d = payload?.data || payload || {};
   return ['✅ Catálogo de Precios de ELANVISUAL reemplazado.', `Registros retirados: ${d.removed ?? '?'}`, `Registros cargados: ${d.inserted ?? '?'}`, `SKU únicos: ${d.uniqueSkus ?? '?'}`, `Pendientes de revisión/conflicto: ${d.review ?? '?'}`, `Snapshot de recuperación: ${d.snapshotId || 'creado'}`, 'Todos los precios nuevos quedaron en REVISIÓN y NO PUBLICADOS.', 'CONNECT y ELAN operan la misma data oficial.'].join('\n');
 }
+function formatAuthorization(payload) {
+  const d = payload?.data || payload || {};
+  return ['✅ Catálogo de Precios de ELANVISUAL autorizado.', `Registros totales: ${d.total ?? '?'}`, `Aprobados: ${d.approved ?? '?'}`, `Publicados: ${d.published ?? '?'}`, `Activos para ELAN: ${d.active ?? '?'}`, `Definiciones Owner aplicadas: ${d.ownerOverridesApplied ?? '?'}`, `Vigencia desde: ${d.effectiveFrom || '?'}`, 'Las tarifas “desde” quedan como referencia mínima y NO como precio final automático.', 'CONNECT y ELAN usan la misma autoridad oficial de Precios.'].join('\n');
+}
 function priceLabel(item) { if (item.pricePerM2 != null) return `${item.currency || 'USD'} ${item.pricePerM2}/m²`; if (item.pricePerLinearMeter != null) return `${item.currency || 'USD'} ${item.pricePerLinearMeter}/m`; if (item.unitPrice != null) return `${item.currency || 'USD'} ${item.unitPrice}/unidad`; if (item.basePrice != null) return `${item.currency || 'USD'} ${item.basePrice}`; return 'sin tarifa'; }
 function formatMatches(matches) { return (matches || []).slice(0, 10).map((item, index) => `${index + 1}. ${item.name} [${item.sku}] — ${priceLabel(item)}`).join('\n'); }
 async function resolveUnique(query, requestConnectImpl) { const payload = await requestConnectImpl(`/api/v1/business/vqs/pricing/catalog-admin/search?q=${encodeURIComponent(query)}`, { method: 'GET' }); const d = payload?.data || payload || {}; const matches = Array.isArray(d.matches) ? d.matches : []; return { count: matches.length, matches }; }
@@ -81,6 +86,7 @@ async function resolveUnique(query, requestConnectImpl) { const payload = await 
 async function executeOwnerPriceCatalogCommand(command, requestConnectImpl = requestConnect) {
   if (command.action === 'replace_preview') { const payload = await requestConnectImpl('/api/v1/business/vqs/pricing/catalog-admin/preview', { method: 'GET' }); return { handled: true, outputText: formatPreview(payload), result: payload?.data || payload }; }
   if (command.action === 'replace_confirm') { const payload = await requestConnectImpl('/api/v1/business/vqs/pricing/catalog-admin/replace', { method: 'POST', body: { confirm: 'REPLACE_ELANVISUAL_PRICES' } }); return { handled: true, outputText: formatReplace(payload), result: payload?.data || payload }; }
+  if (command.action === 'authorize_all') { const payload = await requestConnectImpl('/api/v1/business/vqs/pricing/catalog-admin/authorize-all', { method: 'POST', body: { confirm: 'AUTHORIZE_ELANVISUAL_PRICES' } }); return { handled: true, outputText: formatAuthorization(payload), result: payload?.data || payload }; }
 
   if (command.action === 'create_price') {
     const payload = await requestConnectImpl('/api/v1/business/vqs/pricing/catalog-admin/create', { method: 'POST', body: { name: command.name, technology: command.technology, amount: command.amount, currency: command.currency, formulaType: command.formulaType } });
@@ -111,4 +117,4 @@ async function executeOwnerPriceCatalogCommand(command, requestConnectImpl = req
   return { handled: false };
 }
 
-module.exports = { COMMAND_TYPE, detectOwnerPriceCatalogCommand, executeOwnerPriceCatalogCommand, formatPreview, formatReplace, inferFormula, inferTechnology, parseMoney };
+module.exports = { COMMAND_TYPE, detectOwnerPriceCatalogCommand, executeOwnerPriceCatalogCommand, formatPreview, formatReplace, formatAuthorization, inferFormula, inferTechnology, parseMoney };
