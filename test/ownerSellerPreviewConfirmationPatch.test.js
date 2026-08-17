@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const connect = require('../services/ownerBusinessConnectClient');
 require('../services/ownerSellerTemporaryCredentialPatch');
 const preview = require('../services/ownerSellerPreviewConfirmationPatch');
+require('../services/ownerSellerPreviewSanitizePatch');
 const commandService = require('../services/elanUnifiedOwnerCommandService');
 
 function tempEnv(name) {
