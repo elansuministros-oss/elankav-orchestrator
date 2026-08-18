@@ -114,7 +114,7 @@ function detectUpdateOutreachStart(message) {
   if (!/\b(escribile|escribele|escrivele|contacta|contactalo|contactala|mandale|mensajea)\b/.test(normalized)) return null;
   if (!/\b(actualiza|actualizar|actualizale|actualice|actualicele|renova|renovar|verifica|verificar)\b/.test(normalized)) return null;
   if (!/\b(informacion|datos|perfil|registro)\b/.test(normalized)) return null;
-  const match = raw.match(/\b(?:escribile|escribele|escrivele|contacta|contactalo|contactala|mandale|mensajea)\s+(?:a\s+)?(.+?)\s+(?:y\s+)?(?:actualiza|actualizar|actualizale|actualice|actualicele|renova|renovar|verifica|verificar)\b/i);
+  const match = raw.match(/\b(?:escribile|escribele|escrivele|contacta|contactalo|contactala|mandale|mensajea)\s+(?:a\s+)?(.+?)\s+(?:y\s+)?(?:actualiz[aá]|actualizar|actualiz[aá]le|actualice|actualicele|renova|renovar|verifica|verificar)\b/i);
   const name = String(match?.[1] || '').trim().replace(/[,:;]+$/g, '').trim();
   return name ? { query: name } : null;
 }
