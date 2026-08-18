@@ -16,6 +16,11 @@ const enabled = String(process.env.VOICE_PIPELINE_V2_ENABLED || '').toLowerCase(
 // preserving official registered-provider precedence.
 require('./services/providerCandidateRelationshipPatch').installProviderCandidateRelationshipPatch();
 
+// Candidate conversations are intentionally prevented from inheriting the
+// generic sales-prospect actor. This grants no providerId and no scopes; it only
+// keeps the AI in supplier-evaluation mode until Owner formalizes the relation.
+require('./services/providerCandidateActorIdentityPatch').installProviderCandidateActorIdentityPatch();
+
 // Patch Owner business customer formatting before ownerCommandService is loaded,
 // so WhatsApp can honor requested official customer profile fields.
 require('./services/ownerBusinessCustomerFieldsPatch');
