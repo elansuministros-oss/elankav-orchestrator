@@ -12,23 +12,26 @@ const MANIFEST_PATH = '/api/v1/elan-runtime/tools';
 const EXECUTE_PATH = '/api/v1/elan-runtime/execute';
 const MEMORY_EVENT_PATH = '/api/v1/elan-runtime/memory/event';
 
+function internalTokens(env = process.env) {
+  return [
+    env.ORCHESTRATOR_INTERNAL_TOKEN,
+    env.ELANKAV_ORCHESTRATOR_INTERNAL_TOKEN,
+    env.CONNECT_INTERNAL_TOKEN,
+    env.VQS_API_TOKEN
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+}
+
 function internalToken(env = process.env) {
-  return String(
-    env.ORCHESTRATOR_INTERNAL_TOKEN ||
-    env.ELANKAV_ORCHESTRATOR_INTERNAL_TOKEN ||
-    env.CONNECT_INTERNAL_TOKEN ||
-    env.VQS_API_TOKEN ||
-    ''
-  ).trim();
+  return internalTokens(env)[0] || '';
 }
 
 function authorized(req, env = process.env) {
-  const expected = internalToken(env);
-  if (!expected) return { ok: false, status: 503, code: 'ELAN_RUNTIME_AUTH_NOT_CONFIGURED' };
+  const expected = internalTokens(env);
+  if (!expected.length) return { ok: false, status: 503, code: 'ELAN_RUNTIME_AUTH_NOT_CONFIGURED' };
   const authorization = String(req?.headers?.authorization || '').trim();
   const internal = String(req?.headers?.['x-elankav-internal-token'] || '').trim();
   const supplied = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : internal;
-  return supplied === expected
+  return supplied && expected.includes(supplied)
     ? { ok: true }
     : { ok: false, status: 401, code: 'ELAN_RUNTIME_UNAUTHORIZED' };
 }
@@ -141,5 +144,6 @@ module.exports = {
   MEMORY_EVENT_PATH,
   authorized,
   handleElanUnifiedRuntimeApi,
-  internalToken
+  internalToken,
+  internalTokens
 };
