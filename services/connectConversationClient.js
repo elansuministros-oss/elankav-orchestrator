@@ -15,6 +15,10 @@ function isPriorityLiveCommand(value) {
     /^(?:modo\s*)?(?:copiloto|elan live)$/.test(normalized);
 }
 
+function isRegisteredProviderMessage(value) {
+  return /^\s*\[PROVEEDOR REGISTRADO:/i.test(clean(value));
+}
+
 function resolveConnectUrl(env = process.env) {
   return clean(env.ELANKAV_CONNECT_URL || env.CONNECT_URL || env.CONNECT_API_URL) || DEFAULT_CONNECT_URL;
 }
@@ -88,6 +92,15 @@ async function requestConversationDecision({ identity, platform = 'ELANVISUAL', 
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) throw Object.assign(new Error(payload?.error?.message || `CONNECT_DECISION_HTTP_${response.status}`), { code: payload?.error?.code || 'CONNECT_CONVERSATION_DECISION_FAILED', status: response.status });
+
+  if (isRegisteredProviderMessage(message)) {
+    return {
+      ...payload,
+      welcome: { ...(payload?.welcome || {}), send: false, text: '' },
+      reason: payload?.reason || 'registered_provider_continuity'
+    };
+  }
+
   return payload;
 }
 
@@ -99,7 +112,7 @@ async function readUnifiedMemory({ actorKey, actorRole, platform = 'ELANVISUAL',
     actorKey: key,
     actorRole: clean(actorRole),
     platform: clean(platform) || 'ELANVISUAL',
-    limit: String(Math.max(1, Math.min(Number(limit) || 20, 50)))
+    limit: String(Math.max(1, Math.min(Number(limit) || 20, 50))
   });
   const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory?${query.toString()}`, {
     headers: buildHeaders(token),
@@ -162,6 +175,7 @@ async function publishUnifiedMemoryEventSafely(event, options) {
 module.exports = {
   DEFAULT_CONNECT_URL,
   isPriorityLiveCommand,
+  isRegisteredProviderMessage,
   publishConversationEvent,
   publishConversationEventSafely,
   publishUnifiedMemoryEvent,
