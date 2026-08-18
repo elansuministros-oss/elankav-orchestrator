@@ -1,6 +1,7 @@
 'use strict';
 
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
+const { loadProviderContinuityHistory } = require('./providerConversationContinuityService');
 
 function clean(value) {
   return String(value || '').trim();
@@ -17,6 +18,12 @@ function isPriorityLiveCommand(value) {
 
 function isRegisteredProviderMessage(value) {
   return /^\s*\[PROVEEDOR REGISTRADO:/i.test(clean(value));
+}
+
+function isProviderConversationEvent(event = {}) {
+  const actorType = clean(event?.actorType).toLowerCase();
+  const metadata = event?.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+  return actorType === 'provider' || metadata.providerRecognized === true || metadata.providerMode === true;
 }
 
 function resolveConnectUrl(env = process.env) {
@@ -74,7 +81,10 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
   return payload;
 }
 
-async function requestConversationDecision({ identity, platform = 'ELANVISUAL', message = '', ownerMode = false } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
+async function requestConversationDecision(
+  { identity, platform = 'ELANVISUAL', message = '', ownerMode = false, phone = '' } = {},
+  { fetchImpl = globalThis.fetch, env = process.env, providerContinuityLoader = loadProviderContinuityHistory } = {}
+) {
   if (isPriorityLiveCommand(message)) {
     return {
       ok: true,
@@ -85,6 +95,34 @@ async function requestConversationDecision({ identity, platform = 'ELANVISUAL', 
       history: []
     };
   }
+
+  // A registered provider must never enter CONNECT's prospect decision path.
+  // The webhook resolves provider identity first, and this branch restores the
+  // latest pending Owner request from durable audit history.
+  if (isRegisteredProviderMessage(message)) {
+    let history = [];
+    try {
+      history = await providerContinuityLoader({ message, phone: phone || identity });
+    } catch (error) {
+      console.error('[PROVIDER_CONTINUITY_LOAD_FAILED]', {
+        code: error?.code || null,
+        message: error?.message || String(error)
+      });
+    }
+    return {
+      ok: true,
+      action: 'RESPOND',
+      reason: 'registered_provider_continuity',
+      platform: { platformId: String(platform || 'ELANVISUAL').toUpperCase() },
+      instructions: 'El remitente es un proveedor registrado. Continuá exclusivamente la relación comercial pendiente. No lo trates como cliente, lead o prospecto y no envíes bienvenida de ventas.',
+      prospect: null,
+      history,
+      platformHistory: history,
+      conversationId: null,
+      welcome: { send: false, text: '' }
+    };
+  }
+
   const { token, baseUrl } = requireTransport(fetchImpl, env);
   const response = await fetchImpl(`${baseUrl}/api/v1/conversations/decision`, {
     method: 'POST', headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
@@ -92,15 +130,6 @@ async function requestConversationDecision({ identity, platform = 'ELANVISUAL', 
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) throw Object.assign(new Error(payload?.error?.message || `CONNECT_DECISION_HTTP_${response.status}`), { code: payload?.error?.code || 'CONNECT_CONVERSATION_DECISION_FAILED', status: response.status });
-
-  if (isRegisteredProviderMessage(message)) {
-    return {
-      ...payload,
-      welcome: { ...(payload?.welcome || {}), send: false, text: '' },
-      reason: payload?.reason || 'registered_provider_continuity'
-    };
-  }
-
   return payload;
 }
 
@@ -147,6 +176,12 @@ async function publishUnifiedMemoryEvent(event, { fetchImpl = globalThis.fetch, 
 }
 
 async function publishConversationEventSafely(event, options) {
+  // crm_conversations currently has prospect-centric persistence. Until that
+  // schema is generalized, provider events are intentionally kept out of it;
+  // provider commercial intelligence and Owner audit remain the durable sources.
+  if (isProviderConversationEvent(event)) {
+    return { ok: true, skipped: true, reason: 'REGISTERED_PROVIDER_NOT_PROSPECT' };
+  }
   try {
     return await publishConversationEvent(event, options);
   } catch (error) {
@@ -175,6 +210,7 @@ async function publishUnifiedMemoryEventSafely(event, options) {
 module.exports = {
   DEFAULT_CONNECT_URL,
   isPriorityLiveCommand,
+  isProviderConversationEvent,
   isRegisteredProviderMessage,
   publishConversationEvent,
   publishConversationEventSafely,
