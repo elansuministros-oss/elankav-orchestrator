@@ -16,10 +16,23 @@ const enabled = String(process.env.VOICE_PIPELINE_V2_ENABLED || '').toLowerCase(
 // preserving official registered-provider precedence.
 require('./services/providerCandidateRelationshipPatch').installProviderCandidateRelationshipPatch();
 
+// Global Owner response control wraps the same decision client before webhook
+// imports it. External messages remain observable for delegation tracking while
+// OWNER_ONLY prevents welcome/reply delivery to third parties.
+require('./services/ownerGlobalDecisionPatch').installOwnerGlobalDecisionPatch();
+
 // Candidate conversations are intentionally prevented from inheriting the
 // generic sales-prospect actor. This grants no providerId and no scopes; it only
 // keeps the AI in supplier-evaluation mode until Owner formalizes the relation.
 require('./services/providerCandidateActorIdentityPatch').installProviderCandidateActorIdentityPatch();
+
+// Registered-provider quote/status sends keep their existing executor. This
+// wrapper only adds a persistent business delegation after a successful send.
+require('./services/businessDelegationOutboundPatch').installProviderCommandDelegationPatch();
+
+// Business delegations survive Orchestrator restarts because they use their own
+// waiting_external/information_partial states rather than technical pending jobs.
+require('./services/businessDelegationService').startDelegationMonitor();
 
 // Patch Owner business customer formatting before ownerCommandService is loaded,
 // so WhatsApp can honor requested official customer profile fields.
@@ -75,6 +88,18 @@ require('./services/humanLanguageMessagePatch').installHumanLanguageMessagePatch
 // official provider; the relationship remains provider_candidate until Owner
 // explicitly formalizes it.
 require('./services/ownerProviderCandidateOutreachMessagePatch').installOwnerProviderCandidateOutreachMessagePatch();
+
+// Only after candidate outreach is installed do we attach the persistent
+// delegation. The original send remains authoritative and unchanged.
+require('./services/businessDelegationOutboundPatch').installProviderCandidateDelegationMessagePatch();
+
+// Owner can globally stop/re-enable external replies from WhatsApp. This wrapper
+// changes control state only for recognized Owner identities.
+require('./services/ownerGlobalControlMessagePatch').installOwnerGlobalControlMessagePatch();
+
+// Conservative final guard: clients/prospects can be transferred to human when
+// continuing automatically is unsafe. Providers, sellers and Owner are excluded.
+require('./services/humanHandoffPolicyPatch').installHumanHandoffPolicyPatch();
 
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
