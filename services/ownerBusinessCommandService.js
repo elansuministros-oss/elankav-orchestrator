@@ -132,6 +132,21 @@ function parseProviderQuoteRequest(message) {
     .replace(/[.!?]+$/g, '')
     .trim();
 
+  const directMessageMatch = normalized.match(
+    /^(?:escribe|escribile|escribeles|envia|enviale|manda|mandale|contacta|contactale)\s+(?:al\s+)?(?:proveedor|provedor)\s+(.+?)\s+(?:y\s+)?(?:pregunta|preguntale|consulta|consultale)\s+(?:por|sobre)\s+(.+)$/
+  );
+  if (directMessageMatch) {
+    const providerName = directMessageMatch[1].trim();
+    const item = directMessageMatch[2].trim();
+    if (!providerName || !item) return null;
+    return {
+      type: BUSINESS_COMMANDS.PROVIDER_QUOTE_REQUEST,
+      providerName,
+      item,
+      requestKind: 'status'
+    };
+  }
+
   const match = normalized.match(
     /^(?:pedi|pedile|pide|pidale|solicita|solicitale|consulta|consultale|cotiza|cotizale)\s+(?:el\s+)?(?:precio|cotizacion)\s+(?:a|al)\s+(.+?)\s+(?:de|por|para)\s+(?:(?:un|una|el|la)\s+)?(.+)$/
   );
@@ -144,7 +159,8 @@ function parseProviderQuoteRequest(message) {
   return {
     type: BUSINESS_COMMANDS.PROVIDER_QUOTE_REQUEST,
     providerName,
-    item
+    item,
+    requestKind: 'quote'
   };
 }
 
@@ -363,7 +379,17 @@ function formatProviderList(result, countOnly = false) {
   return [header, '', ...providers.map((provider, index) => formatProvider(provider, index + 1))].join('\n\n');
 }
 
-function buildProviderQuoteMessage(item) {
+function buildProviderQuoteMessage(item, requestKind = 'quote') {
+  if (requestKind === 'status') {
+    return [
+      'Hola, buen día.',
+      '',
+      `Quisiera consultar por ${item}. ¿Podrían confirmarnos el estado y cuándo estaría listo para revisión o entrega?`,
+      '',
+      'Gracias.'
+    ].join('\n');
+  }
+
   return [
     'Hola, buen día. Somos ELANKAV.',
     '',
@@ -471,12 +497,12 @@ async function executeOwnerBusinessCommand(command) {
       };
     }
 
-    const message = buildProviderQuoteMessage(command.item);
+    const message = buildProviderQuoteMessage(command.item, command.requestKind || 'quote');
     const delivery = createWahaDeliveryAdapter();
     const sent = await delivery.sendText({ phone, text: message });
 
     await recordAuditSafely({
-      capability: 'business.provider.quote-request.send',
+      capability: command.requestKind === 'status' ? 'business.provider.message.send' : 'business.provider.quote-request.send',
       target: 'waha',
       source: 'owner-whatsapp',
       success: true,
@@ -484,6 +510,7 @@ async function executeOwnerBusinessCommand(command) {
         providerId: provider.id || provider.providerId || null,
         provider: providerDisplayName(provider),
         item: command.item,
+        requestKind: command.requestKind || 'quote',
         phone,
         chatId: sent.chatId || null,
         messageId: sent.messageId || null
@@ -493,14 +520,14 @@ async function executeOwnerBusinessCommand(command) {
     return {
       handled: true,
       outputText: [
-        '✅ Solicitud enviada al proveedor.',
+        command.requestKind === 'status' ? '✅ Mensaje enviado al proveedor.' : '✅ Solicitud enviada al proveedor.',
         '',
         `Proveedor: ${providerDisplayName(provider)}`,
-        `Producto/servicio: ${command.item}`,
+        command.requestKind === 'status' ? `Asunto: ${command.item}` : `Producto/servicio: ${command.item}`,
         `WhatsApp: ${provider.whatsapp || phone}`,
         sent.messageId ? `Mensaje: ${sent.messageId}` : ''
       ].filter(Boolean).join('\n'),
-      result: { provider, sent, item: command.item }
+      result: { provider, sent, item: command.item, requestKind: command.requestKind || 'quote' }
     };
   }
 
