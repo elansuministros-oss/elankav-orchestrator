@@ -7,13 +7,48 @@ const {
 } = require('./providerCandidateRelationshipService');
 
 let installed = false;
+const CANDIDATE_IDENTITY_TTL_MS = 10 * 60 * 1000;
+const candidateIdentityCache = new Map();
+
+function clean(value) {
+  return String(value || '').trim();
+}
 
 function isRegisteredProviderMessage(value) {
-  return /^\s*\[PROVEEDOR REGISTRADO:/i.test(String(value || '').trim());
+  return /^\s*\[PROVEEDOR REGISTRADO:/i.test(clean(value));
 }
 
 function actorKeyFromEvent(event = {}) {
-  return String(event.phone || event.externalUserId || event.chatId || '').trim();
+  return clean(event.phone || event.externalUserId || event.chatId);
+}
+
+function cacheCandidateIdentity(event = {}, candidate, now = Date.now()) {
+  if (!candidate) return;
+  const keys = [event.externalUserId, event.chatId, event.phone]
+    .map(clean)
+    .filter(Boolean);
+  for (const key of keys) {
+    candidateIdentityCache.set(key, {
+      candidate,
+      expiresAt: now + CANDIDATE_IDENTITY_TTL_MS
+    });
+  }
+}
+
+function cachedCandidateForIdentity(identity, now = Date.now()) {
+  const key = clean(identity);
+  if (!key) return null;
+  const entry = candidateIdentityCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= now) {
+    candidateIdentityCache.delete(key);
+    return null;
+  }
+  return entry.candidate || null;
+}
+
+function clearCandidateIdentityCache() {
+  candidateIdentityCache.clear();
 }
 
 function candidateDecision(candidate, memory, platform) {
@@ -58,23 +93,25 @@ function installProviderCandidateRelationshipPatch() {
     args = {},
     options = {}
   ) {
-    const message = String(args.message || '').trim();
+    const message = clean(args.message);
 
     // Registered providers always keep precedence over any older candidate audit.
     if (isRegisteredProviderMessage(message) || args.ownerMode === true) {
       return previousDecision(args, options);
     }
 
-    let candidate = null;
-    try {
-      candidate = await resolveProviderCandidateRelationship({
-        phone: args.phone || args.identity
-      });
-    } catch (error) {
-      console.error('[PROVIDER_CANDIDATE_RESOLVE_FAILED]', {
-        code: error?.code || null,
-        message: error?.message || String(error)
-      });
+    let candidate = cachedCandidateForIdentity(args.identity);
+    if (!candidate) {
+      try {
+        candidate = await resolveProviderCandidateRelationship({
+          phone: args.phone || args.identity
+        });
+      } catch (error) {
+        console.error('[PROVIDER_CANDIDATE_RESOLVE_FAILED]', {
+          code: error?.code || null,
+          message: error?.message || String(error)
+        });
+      }
     }
 
     if (!candidate) return previousDecision(args, options);
@@ -121,7 +158,12 @@ function installProviderCandidateRelationshipPatch() {
 
     if (!candidate) return previousPublish(event, options);
 
-    const text = String(event.text || '').trim();
+    // Cache every inbound identity representation (phone, @c.us, @lid) so the
+    // decision call that immediately follows can recover the candidate even when
+    // WAHA exposes a LID instead of the canonical phone.
+    cacheCandidateIdentity(event, candidate);
+
+    const text = clean(event.text);
     if (text && ['inbound', 'outbound'].includes(String(event.direction || '').toLowerCase())) {
       await publishMemory({
         actorKey: candidate.phone,
@@ -155,14 +197,19 @@ function installProviderCandidateRelationshipPatch() {
   console.log('[PROVIDER_CANDIDATE_RELATIONSHIP_PATCH_INSTALLED]', {
     prospectIsolation: true,
     unifiedMemory: true,
+    lidBridge: true,
     registeredProviderPrecedence: true
   });
   return true;
 }
 
 module.exports = {
+  CANDIDATE_IDENTITY_TTL_MS,
   actorKeyFromEvent,
+  cacheCandidateIdentity,
+  cachedCandidateForIdentity,
   candidateDecision,
+  clearCandidateIdentityCache,
   installProviderCandidateRelationshipPatch,
   isRegisteredProviderMessage
 };
