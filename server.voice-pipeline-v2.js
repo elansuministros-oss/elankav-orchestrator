@@ -34,6 +34,11 @@ require('./services/businessDelegationOutboundPatch').installProviderCommandDele
 // waiting_external/information_partial states rather than technical pending jobs.
 require('./services/businessDelegationService').startDelegationMonitor();
 
+// Registered-provider text/document fast paths can otherwise reply before the
+// standard conversation decision is reached. Track those replies as delegation
+// updates and honor OWNER_ONLY without losing commercial intelligence.
+require('./services/providerDelegationInboundPatch').installProviderDelegationInboundPatch();
+
 // Patch Owner business customer formatting before ownerCommandService is loaded,
 // so WhatsApp can honor requested official customer profile fields.
 require('./services/ownerBusinessCustomerFieldsPatch');
