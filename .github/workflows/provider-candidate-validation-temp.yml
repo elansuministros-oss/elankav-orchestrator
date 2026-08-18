@@ -1,0 +1,38 @@
+name: TEMP Provider Candidate Validation
+
+on:
+  push:
+    branches:
+      - feature/OWNER-PROVIDER-CANDIDATE-01
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install
+      - name: Syntax
+        run: |
+          node --check server.voice-pipeline-v2.js
+          node --check services/providerCandidateRelationshipService.js
+          node --check services/providerCandidateRelationshipPatch.js
+          node --check services/providerCandidateActorIdentityPatch.js
+          node --check services/ownerProviderCandidateOutreachMessagePatch.js
+          node --check services/connectConversationClient.js
+          node --check services/providerInboundIntelligenceService.js
+      - name: New regression tests
+        run: |
+          node --test \
+            tests/providerCandidateRelationshipRegression.test.js \
+            tests/providerCandidateActorIdentityRegression.test.js \
+            tests/ownerProviderCandidateOutreachRegression.test.js
+      - name: Existing regression guards
+        run: |
+          node --test \
+            tests/ownerProviderMessageRegression.test.js \
+            tests/sellerUnifiedRuntimeRegression.test.js \
+            tests/ownerWahaSend01.test.js
