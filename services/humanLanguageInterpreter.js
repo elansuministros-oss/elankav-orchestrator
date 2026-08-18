@@ -17,6 +17,8 @@ const EXACT_ALIASES = new Map(Object.entries({
   agragale: 'agregale',
   agragalo: 'agregalo',
   agragala: 'agregala',
+  genrale: 'generale',
+  generle: 'generale',
   wasap: 'whatsapp',
   wassap: 'whatsapp',
   whatsap: 'whatsapp',
@@ -40,9 +42,9 @@ const EXACT_ALIASES = new Map(Object.entries({
 
 const FUZZY_CANONICAL = [
   'escribile', 'actualiza', 'actualizale', 'informacion', 'agrega', 'agregale',
-  'agregalo', 'agregala', 'whatsapp', 'vendedor', 'vendedora', 'correo',
-  'elimina', 'desactiva', 'confirmar', 'cancelar', 'corregir', 'mostrame',
-  'buscar', 'ventas', 'acceso', 'credencial'
+  'agregalo', 'agregala', 'genera', 'generale', 'crear', 'crea', 'whatsapp',
+  'vendedor', 'vendedora', 'correo', 'elimina', 'desactiva', 'confirmar',
+  'cancelar', 'corregir', 'mostrame', 'buscar', 'ventas', 'acceso', 'credencial'
 ];
 
 function fold(value) {
@@ -115,12 +117,13 @@ function cleanTarget(value) {
 function detectSellerAccessDelivery(message) {
   const raw = normalizeHumanMessage(message);
   const normalized = fold(raw);
-  if (!/\b(envia|enviar|enviale|mandale|manda|comparti|compartile)\b/.test(normalized)) return null;
+  const action = '(?:envia|enviar|enviale|mandale|manda|comparti|compartile|genera|generale|generar|crea|creale|crear|restablece|restablecer)';
+  if (!new RegExp(`\\b${action}\\b`).test(normalized)) return null;
   if (!/\b(acceso|credencial|usuario|contrasena|informacion de acceso|datos de acceso)\b/.test(normalized)) return null;
 
-  let match = raw.match(/\b(?:envia|enviar|enviale|mandale|manda|comparti|compartile)\s+(?:a\s+)?(.+?)\s+(?:su\s+)?(?:informacion|datos)\s+de\s+acceso\b/i);
+  let match = raw.match(new RegExp(`\\b${action}\\s+(?:a\\s+)?(.+?)\\s+(?:su\\s+|una\\s+|un\\s+)?(?:informacion|datos)\\s+de\\s+acceso\\b`, 'i'));
   if (!match) {
-    match = raw.match(/\b(?:envia|enviar|enviale|mandale|manda|comparti|compartile)\s+(?:a\s+)?(.+?)\s+(?:su\s+)?(?:acceso|credencial(?:es)?|usuario|contrasena)\b/i);
+    match = raw.match(new RegExp(`\\b${action}\\s+(?:a\\s+)?(.+?)\\s+(?:su\\s+|una\\s+|un\\s+)?(?:acceso|credencial(?:es)?|usuario|contrasena)\\b`, 'i'));
   }
   const target = cleanTarget(match?.[1] || '');
   if (!target) return null;
