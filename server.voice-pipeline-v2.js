@@ -43,6 +43,12 @@ require('./services/elanUnifiedRuntimeMessagePatch').installElanUnifiedRuntimeMe
 // confirmation gate without bypassing CONNECT or generating credentials early.
 require('./services/ownerSellerRecruitmentMessagePatch').installOwnerSellerRecruitmentMessagePatch();
 
+// Existing-seller maintenance workflow: the Owner can identify a seller by human
+// name only, ELAN resolves the official CONNECT record, contacts that seller, and
+// returns proposed changes through the same PREVIEW + CONFIRMATION guard. Access
+// credential rotation remains a separate second preview.
+require('./services/ownerSellerUpdateOutreachMessagePatch').installOwnerSellerUpdateOutreachMessagePatch();
+
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
   const v2Exports = require('./api/wahaWebhookApiV2');
