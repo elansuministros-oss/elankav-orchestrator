@@ -69,20 +69,41 @@ async function readJsonResponse(response) {
   return payload;
 }
 
+function providerMatchesPhone(item, normalized) {
+  if (!item || item.status !== 'active' || !normalized) return false;
+  return [item.whatsapp, item.phone]
+    .map(normalizePhone)
+    .some(value => value && value === normalized);
+}
+
+async function fetchProviderRows(url, fetchImpl) {
+  const response = await fetchImpl(url, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(15_000)
+  });
+  if (!response.ok) return [];
+  const rows = await response.json().catch(() => []);
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function resolveRegisteredProvider({ phone, fetchImpl = fetch }) {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
-  const response = await fetchImpl(
-    `${connectBaseUrl()}/api/v1/providers?search=${encodeURIComponent(normalized)}&status=active`,
-    { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15_000) }
+
+  const baseUrl = connectBaseUrl();
+  const searched = await fetchProviderRows(
+    `${baseUrl}/api/v1/providers?search=${encodeURIComponent(normalized)}&status=active`,
+    fetchImpl
   );
-  if (!response.ok) return null;
-  const rows = await response.json().catch(() => []);
-  if (!Array.isArray(rows)) return null;
-  return rows.find(item => {
-    const providerPhone = normalizePhone(item?.whatsapp || item?.phone);
-    return providerPhone && providerPhone === normalized && item?.status === 'active';
-  }) || null;
+  const direct = searched.find(item => providerMatchesPhone(item, normalized));
+  if (direct) return direct;
+
+  // The provider search endpoint historically indexed whatsapp_normalized but not
+  // every legacy phone value. Fall back to the active provider directory and
+  // compare both official contact fields locally so a provider contacted through
+  // `phone` is still recognized when replying inbound.
+  const active = await fetchProviderRows(`${baseUrl}/api/v1/providers?status=active`, fetchImpl);
+  return active.find(item => providerMatchesPhone(item, normalized)) || null;
 }
 
 async function ingestProviderText({ providerId, text, externalMessageId, receivedAt, fetchImpl = fetch }) {
@@ -193,5 +214,6 @@ module.exports = {
   ingestProviderDocument,
   ingestProviderText,
   normalizePhone,
+  providerMatchesPhone,
   resolveRegisteredProvider
 };
