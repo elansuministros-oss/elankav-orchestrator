@@ -51,6 +51,24 @@ test('routes email and zone updates by human name without UUIDs', () => {
   assert.equal(zone?.data?.zone, 'Masaya');
 });
 
+test('routes natural access information delivery into the existing credential preview', () => {
+  const command = interpreter.detectSellerAccessDelivery(
+    'ELAN, enviale a Arq. Karen Vega Flores su informacion de acceso a ELANVISUAL.'
+  );
+  assert.equal(command?.sellerPreview, true);
+  assert.equal(command?.action, 'credential');
+  assert.equal(command?.query, 'Arq. Karen Vega Flores');
+  assert.equal(command?.tool, 'previsualizar_credencial_vendedor');
+});
+
+test('accepts short human variants for seller access delivery', () => {
+  const command = interpreter.detectSellerAccessDelivery('mandale a Karen Vega su acceso');
+  assert.equal(command?.sellerPreview, true);
+  assert.equal(command?.action, 'credential');
+  assert.equal(command?.query, 'Karen Vega');
+});
+
 test('does not invent a structured seller mutation from unrelated conversation', () => {
   assert.equal(interpreter.detectSellerFieldUpdate('Karen dijo que mañana llega temprano.'), null);
+  assert.equal(interpreter.detectSellerAccessDelivery('Karen dijo que mañana entra a ELANVISUAL.'), null);
 });
