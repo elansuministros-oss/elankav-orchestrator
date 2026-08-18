@@ -32,6 +32,11 @@ require('./services/ownerSellerPreviewSanitizePatch');
 // This keeps delete/deactivate requests inside PREVIEW + CONFIRMATION.
 require('./services/ownerSellerMutationPriorityPatch');
 
+// Human-language intent adapter sits above the specialized seller guards. It
+// accepts short, imperfect phrases and converts only the understood business
+// intent into the same structured PREVIEW flow; it never writes directly.
+require('./services/ownerHumanLanguageIntentPatch');
+
 // Install the shared ELAN Runtime before either WAHA handler imports
 // messageService. This preserves Owner OPS and the existing business gateway,
 // while routing supported conversational tools through the same CONNECT executor
@@ -48,6 +53,11 @@ require('./services/ownerSellerRecruitmentMessagePatch').installOwnerSellerRecru
 // returns proposed changes through the same PREVIEW + CONFIRMATION guard. Access
 // credential rotation remains a separate second preview.
 require('./services/ownerSellerUpdateOutreachMessagePatch').installOwnerSellerUpdateOutreachMessagePatch();
+
+// Final inbound wrapper for every conversational user: normalize only operational
+// vocabulary (including common spelling mistakes) before any downstream router
+// sees the message, while preserving the original text in the result/history.
+require('./services/humanLanguageMessagePatch').installHumanLanguageMessagePatch();
 
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
