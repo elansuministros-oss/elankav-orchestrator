@@ -10,6 +10,12 @@
 
 const enabled = String(process.env.VOICE_PIPELINE_V2_ENABLED || '').toLowerCase() === 'true';
 
+// Provider-candidate continuity must be installed before messageService or the
+// WAHA webhook destructure CONNECT conversation helpers. This isolates Owner-
+// initiated supplier exploration from the prospect/customer pipeline while
+// preserving official registered-provider precedence.
+require('./services/providerCandidateRelationshipPatch').installProviderCandidateRelationshipPatch();
+
 // Patch Owner business customer formatting before ownerCommandService is loaded,
 // so WhatsApp can honor requested official customer profile fields.
 require('./services/ownerBusinessCustomerFieldsPatch');
@@ -58,6 +64,12 @@ require('./services/ownerSellerUpdateOutreachMessagePatch').installOwnerSellerUp
 // vocabulary (including common spelling mistakes) before any downstream router
 // sees the message, while preserving the original text in the result/history.
 require('./services/humanLanguageMessagePatch').installHumanLanguageMessagePatch();
+
+// Owner-only direct outreach to an unregistered possible provider is additive and
+// intentionally outermost. It can send to a supplied number, but never creates an
+// official provider; the relationship remains provider_candidate until Owner
+// explicitly formalizes it.
+require('./services/ownerProviderCandidateOutreachMessagePatch').installOwnerProviderCandidateOutreachMessagePatch();
 
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
