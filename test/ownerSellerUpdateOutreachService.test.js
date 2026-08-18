@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const flow = require('../services/ownerSellerUpdateOutreachService');
+const { routingArgs } = require('../services/ownerSellerUpdateOutreachMessagePatch');
 
 function tempEnv() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elan-seller-update-'));
@@ -20,9 +21,12 @@ function tempEnv() {
 function fakeDelivery(sent) {
   return { async sendText(input) { sent.push(input); return { chatId: `${flow.normalizePhone(input.phone)}@c.us`, messageId: `m-${sent.length}` }; } };
 }
+function routedMessage(message) {
+  return routingArgs({ message }).message;
+}
 
-test('detects short update outreach using seller name only', () => {
-  const detected = flow.detectUpdateOutreachStart('ELAN, escribile a Arq. Karen Vega y actualizá su información.');
+test('detects the real accented short update command using seller name only', () => {
+  const detected = flow.detectUpdateOutreachStart(routedMessage('ELAN, escribile a Arq. Karen Vega y actualizá su información.'));
   assert.equal(detected?.query, 'Arq. Karen Vega');
 });
 
@@ -39,7 +43,7 @@ test('starts outreach by name and sends to official CONNECT WhatsApp', async () 
   const env = tempEnv();
   const sent = [];
   const result = await flow.startUpdateOutreach({
-    message: 'ELAN, escribile a Arq. Karen Vega y actualizá su información.',
+    message: routedMessage('ELAN, escribile a Arq. Karen Vega y actualizá su información.'),
     phone: '50588388940',
     env
   }, {
@@ -56,7 +60,7 @@ test('does not guess when more than one seller matches the name', async () => {
   const env = tempEnv();
   const sent = [];
   const result = await flow.startUpdateOutreach({
-    message: 'ELAN, escribile a Karen Vega y actualizá su información.',
+    message: routedMessage('ELAN, escribile a Karen Vega y actualizá su información.'),
     phone: '50588388940',
     env
   }, {
@@ -85,7 +89,7 @@ test('seller reply produces edit preview and sends it to Owner', async () => {
     }
   };
   await flow.startUpdateOutreach({
-    message: 'ELAN, escribile a Arq. Karen Vega y actualizá su información.',
+    message: routedMessage('ELAN, escribile a Arq. Karen Vega y actualizá su información.'),
     phone: '50588388940',
     env
   }, deps);
@@ -118,7 +122,7 @@ test('first confirmation prepares a separate credential preview', async () => {
     }
   };
   await flow.startUpdateOutreach({
-    message: 'ELAN, escribile a Karen Vega y actualizá su información.',
+    message: routedMessage('ELAN, escribile a Karen Vega y actualizá su información.'),
     phone: '50588388940',
     env
   }, deps);
