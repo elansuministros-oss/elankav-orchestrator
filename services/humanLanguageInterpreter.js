@@ -4,7 +4,6 @@ const EXACT_ALIASES = new Map(Object.entries({
   escrivele: 'escribile',
   escribele: 'escribile',
   escribile: 'escribile',
-  escribile: 'escribile',
   escribale: 'escribile',
   actualisa: 'actualiza',
   actualisale: 'actualizale',
@@ -118,7 +117,7 @@ function detectSellerFieldUpdate(message) {
   const action = '(?:agrega|agregale|agregalo|cambia|cambiale|actualiza|actualizale|modifica|modificale|ponele|ponle)';
   const field = '(whatsapp|telefono|celular|correo|email|zona|territorio)';
 
-  let match = raw.match(new RegExp(`\\b${action}\\s+(?:a\\s+)?(.+?)\\s+(?:el\\s+|su\\s+)?${field}\\s*(?:a|por|es|:|=)?\\s*(.+?)\\s*$`, 'i'));
+  let match = raw.match(new RegExp(`\\b${action}\\s+(?:a\\s+)?(.+?)\\s+(?:(?:el|la|su)\\s+)?${field}\\s*(?:a|por|es|:|=)?\\s*(.+?)\\s*$`, 'i'));
   let target;
   let fieldName;
   let value;
@@ -128,7 +127,7 @@ function detectSellerFieldUpdate(message) {
     fieldName = fold(match[2]);
     value = String(match[3] || '').trim().replace(/[.!]+$/, '').trim();
   } else {
-    match = raw.match(new RegExp(`\\b${action}\\s+(?:el\\s+|su\\s+)?${field}\\s+(?:a|de)\\s+(.+?)\\s+(?:a|por|es|:|=)\\s*(.+?)\\s*$`, 'i'));
+    match = raw.match(new RegExp(`\\b${action}\\s+(?:(?:el|la|su)\\s+)?${field}\\s+(?:a|de)\\s+(.+?)\\s+(?:a|por|es|:|=)\\s*(.+?)\\s*$`, 'i'));
     if (!match) return null;
     fieldName = fold(match[1]);
     target = cleanTarget(match[2]);
@@ -143,8 +142,6 @@ function detectSellerFieldUpdate(message) {
     const formatted = `+${phone}`;
     if (fieldName === 'whatsapp') data.whatsapp = formatted;
     else data.phone = formatted;
-    // In seller records WhatsApp and phone represent the reachable contact.
-    // Keep both aligned when the user provides a new WhatsApp/mobile number.
     if (fieldName === 'whatsapp' || fieldName === 'celular') {
       data.whatsapp = formatted;
       data.phone = formatted;
