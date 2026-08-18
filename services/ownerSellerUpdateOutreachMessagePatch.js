@@ -5,6 +5,13 @@ const updateFlow = require('./ownerSellerUpdateOutreachService');
 
 let installed = false;
 
+function routingArgs(args = {}) {
+  const message = String(args?.message || '')
+    .replace(/actualizále/gi, 'actualizale')
+    .replace(/actualizá/gi, 'actualiza');
+  return { ...args, message };
+}
+
 function flowResult(args, handled) {
   const message = String(args?.message || '').trim();
   return {
@@ -37,7 +44,8 @@ function installOwnerSellerUpdateOutreachMessagePatch() {
   }
 
   messageService.processMessage = async function processMessageWithSellerUpdateOutreach(args = {}) {
-    const pre = await updateFlow.beforeMessage(args);
+    const routed = routingArgs(args);
+    const pre = await updateFlow.beforeMessage(routed);
     if (pre?.handled) return flowResult(args, pre);
 
     const result = await previousProcessMessage(args);
@@ -47,13 +55,13 @@ function installOwnerSellerUpdateOutreachMessagePatch() {
     // that verified identity instead of falling back to the generic assistant.
     if (String(result?.actorRole || '').toLowerCase() === 'owner') {
       const start = await updateFlow.startUpdateOutreach({
-        ...args,
+        ...routed,
         ownerVerified: true
       });
       if (start?.handled) return flowResult(args, { ...start, actorRole: 'owner' });
     }
 
-    return updateFlow.afterOwnerMessage(args, result);
+    return updateFlow.afterOwnerMessage(routed, result);
   };
 
   installed = true;
@@ -66,4 +74,4 @@ function installOwnerSellerUpdateOutreachMessagePatch() {
   return true;
 }
 
-module.exports = { installOwnerSellerUpdateOutreachMessagePatch };
+module.exports = { installOwnerSellerUpdateOutreachMessagePatch, routingArgs };
