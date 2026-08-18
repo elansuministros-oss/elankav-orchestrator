@@ -2,58 +2,9 @@
 
 const crypto = require('node:crypto');
 const { addJob } = require('./jobs/jobQueue');
-const { publishConversationEventSafely } = require('./connectConversationClient');
 
 function createAuditId(now = Date.now()) {
   return `AUDIT-${now}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function isProviderOutboundCapability(capability) {
-  return [
-    'business.provider.message.send',
-    'business.provider.quote-request.send'
-  ].includes(String(capability || '').trim());
-}
-
-function providerConversationText(capability, metadata = {}) {
-  const provider = String(metadata.provider || '').trim() || 'proveedor';
-  const item = String(metadata.item || '').trim() || 'solicitud pendiente';
-  if (capability === 'business.provider.quote-request.send') {
-    return `Solicitud enviada por Owner a ${provider}: pedir cotización/precio de ${item}. Quedamos a la espera de la respuesta del proveedor.`;
-  }
-  return `Solicitud enviada por Owner a ${provider}: consultar seguimiento/estado de ${item}. Quedamos a la espera de la respuesta del proveedor.`;
-}
-
-async function persistProviderOutboundContinuity({ capability, metadata, createdAt }) {
-  if (!isProviderOutboundCapability(capability)) return null;
-  const chatId = String(metadata?.chatId || '').trim();
-  const phone = String(metadata?.phone || '').trim();
-  if (!chatId && !phone) return null;
-
-  const resolvedChatId = chatId || `${phone.replace(/\D/g, '')}@c.us`;
-  return publishConversationEventSafely({
-    platform: 'ELANVISUAL',
-    channel: 'whatsapp',
-    externalUserId: resolvedChatId,
-    phone: phone || null,
-    chatId: resolvedChatId,
-    direction: 'outbound',
-    text: providerConversationText(capability, metadata),
-    messageType: 'text',
-    externalMessageId: metadata?.messageId || null,
-    actorType: 'owner',
-    actorName: 'Owner',
-    occurredAt: createdAt,
-    metadata: {
-      source: 'owner-provider-outbound-continuity',
-      providerMode: true,
-      providerId: metadata?.providerId || null,
-      providerName: metadata?.provider || null,
-      requestKind: metadata?.requestKind || null,
-      pendingProviderRequest: true,
-      subject: metadata?.item || null
-    }
-  });
 }
 
 async function recordAudit({
@@ -81,7 +32,7 @@ async function recordAudit({
         success: Boolean(success),
         errorCode: errorCode || null,
         metadata: metadata && typeof metadata === 'object' ? metadata : {},
-        // Deliberately metadata-only. stdout/stderr, secrets and raw message bodies
+        // Deliberately metadata-only. stdout/stderr, secrets and message bodies
         // must never be persisted by this audit service.
         outputPersisted: false,
         createdAt: now
@@ -94,11 +45,7 @@ async function recordAudit({
     finishedAt: now
   };
 
-  const savedJob = await addJob(entry);
-  if (success && isProviderOutboundCapability(capability)) {
-    await persistProviderOutboundContinuity({ capability, metadata, createdAt: now });
-  }
-  return savedJob;
+  return addJob(entry);
 }
 
 async function recordAuditSafely(input) {
@@ -116,9 +63,6 @@ async function recordAuditSafely(input) {
 
 module.exports = {
   createAuditId,
-  isProviderOutboundCapability,
-  persistProviderOutboundContinuity,
-  providerConversationText,
   recordAudit,
   recordAuditSafely
 };
