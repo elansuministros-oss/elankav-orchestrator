@@ -61,6 +61,22 @@ test('routes natural access information delivery into the existing credential pr
   assert.equal(command?.tool, 'previsualizar_credencial_vendedor');
 });
 
+test('routes natural credential generation wording into the same safe preview', () => {
+  const command = interpreter.detectSellerAccessDelivery(
+    'ELAN, generale a Arq. Karen Vega Flores una credencial temporal de ELANVISUAL y envíasela por WhatsApp.'
+  );
+  assert.equal(command?.sellerPreview, true);
+  assert.equal(command?.action, 'credential');
+  assert.equal(command?.query, 'Arq. Karen Vega Flores');
+  assert.equal(command?.tool, 'previsualizar_credencial_vendedor');
+});
+
+test('accepts misspelled generate wording for credential preview', () => {
+  const command = interpreter.detectSellerAccessDelivery('elan genrale a Karen Vega una credensial temporal');
+  assert.equal(command?.sellerPreview, true);
+  assert.equal(command?.query, 'Karen Vega');
+});
+
 test('accepts short human variants for seller access delivery', () => {
   const command = interpreter.detectSellerAccessDelivery('mandale a Karen Vega su acceso');
   assert.equal(command?.sellerPreview, true);
