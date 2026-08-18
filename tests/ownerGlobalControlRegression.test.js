@@ -15,7 +15,7 @@ function memoryStore() {
   return {
     async saveJob(job) { rows.set(job.id, structuredClone(job)); return structuredClone(job); },
     async getJob(id) { return rows.has(id) ? structuredClone(rows.get(id)) : null; },
-    async listJobs() { return [...rows.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map(structuredClone); },
+    async listJobs() { return [...rows.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map(row => structuredClone(row)); },
     async markInterruptedJobs() { return []; }
   };
 }
