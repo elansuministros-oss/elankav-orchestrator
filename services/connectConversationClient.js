@@ -141,7 +141,7 @@ async function readUnifiedMemory({ actorKey, actorRole, platform = 'ELANVISUAL',
     actorKey: key,
     actorRole: clean(actorRole),
     platform: clean(platform) || 'ELANVISUAL',
-    limit: String(Math.max(1, Math.min(Number(limit) || 20, 50))
+    limit: String(Math.max(1, Math.min(Number(limit) || 20, 50)))
   });
   const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory?${query.toString()}`, {
     headers: buildHeaders(token),
