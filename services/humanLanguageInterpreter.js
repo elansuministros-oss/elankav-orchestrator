@@ -42,7 +42,7 @@ const FUZZY_CANONICAL = [
   'escribile', 'actualiza', 'actualizale', 'informacion', 'agrega', 'agregale',
   'agregalo', 'agregala', 'whatsapp', 'vendedor', 'vendedora', 'correo',
   'elimina', 'desactiva', 'confirmar', 'cancelar', 'corregir', 'mostrame',
-  'buscar', 'ventas'
+  'buscar', 'ventas', 'acceso', 'credencial'
 ];
 
 function fold(value) {
@@ -112,6 +112,28 @@ function cleanTarget(value) {
     .trim();
 }
 
+function detectSellerAccessDelivery(message) {
+  const raw = normalizeHumanMessage(message);
+  const normalized = fold(raw);
+  if (!/\b(envia|enviar|enviale|mandale|manda|comparti|compartile)\b/.test(normalized)) return null;
+  if (!/\b(acceso|credencial|usuario|contrasena|informacion de acceso|datos de acceso)\b/.test(normalized)) return null;
+
+  let match = raw.match(/\b(?:envia|enviar|enviale|mandale|manda|comparti|compartile)\s+(?:a\s+)?(.+?)\s+(?:su\s+)?(?:informacion|datos)\s+de\s+acceso\b/i);
+  if (!match) {
+    match = raw.match(/\b(?:envia|enviar|enviale|mandale|manda|comparti|compartile)\s+(?:a\s+)?(.+?)\s+(?:su\s+)?(?:acceso|credencial(?:es)?|usuario|contrasena)\b/i);
+  }
+  const target = cleanTarget(match?.[1] || '');
+  if (!target) return null;
+
+  return {
+    sellerPreview: true,
+    action: 'credential',
+    query: target,
+    tool: 'previsualizar_credencial_vendedor',
+    humanLanguageIntent: 'SELLER_ACCESS_DELIVERY'
+  };
+}
+
 function detectSellerFieldUpdate(message) {
   const raw = normalizeHumanMessage(message);
   const action = '(?:agrega|agregale|agregalo|cambia|cambiale|actualiza|actualizale|modifica|modificale|ponele|ponle)';
@@ -165,6 +187,7 @@ function detectSellerFieldUpdate(message) {
 }
 
 module.exports = {
+  detectSellerAccessDelivery,
   detectSellerFieldUpdate,
   fold,
   levenshtein,
