@@ -5,7 +5,7 @@ const recruitment = require('./ownerSellerRecruitmentService');
 
 let installed = false;
 
-function recruitmentResult(args, handled) {
+function recruitmentResult(args, handled, actorRole = null) {
   const message = String(args?.message || '').trim();
   return {
     message,
@@ -20,12 +20,21 @@ function recruitmentResult(args, handled) {
     jobId: null,
     ownerCommercialQuery: false,
     ownerCrmCommand: true,
-    actorRole: null,
-    actorId: null,
-    accessScopes: null,
+    actorRole,
+    actorId: actorRole === 'owner' ? 'owner' : null,
+    accessScopes: actorRole === 'owner' ? ['*'] : null,
     runtimeVersion: null,
     knowledgeAvailable: null,
     historyMessages: null
+  };
+}
+
+function trustedOwnerArgs(args = {}, result = {}) {
+  if (String(result?.actorRole || '').toLowerCase() !== 'owner') return args;
+  return {
+    ...args,
+    phone: recruitment.DEFAULT_OWNER_PHONE,
+    externalUserId: recruitment.DEFAULT_OWNER_PHONE
   };
 }
 
@@ -37,11 +46,22 @@ function installOwnerSellerRecruitmentMessagePatch() {
   }
 
   messageService.processMessage = async function processMessageWithSellerRecruitment(args = {}) {
+    // Fast path for normal phone-based identities and candidate replies.
     const pre = await recruitment.beforeMessage(args);
-    if (pre?.handled) return recruitmentResult(args, pre);
+    if (pre?.handled) return recruitmentResult(args, pre, recruitment.isOwnerIdentity(args) ? 'owner' : null);
 
+    // Let the canonical context resolver identify the actor. This is essential for
+    // WhatsApp/GOWS messages that arrive as @lid, where the raw phone is not
+    // available to this outer patch even though CONNECT correctly resolves Owner.
     const result = await previousProcessMessage(args);
-    return recruitment.afterOwnerMessage(args, result);
+    const ownerArgs = trustedOwnerArgs(args, result);
+
+    if (String(result?.actorRole || '').toLowerCase() === 'owner') {
+      const retry = await recruitment.startRecruitment(ownerArgs);
+      if (retry?.handled) return recruitmentResult(args, retry, 'owner');
+    }
+
+    return recruitment.afterOwnerMessage(ownerArgs, result);
   };
 
   installed = true;
@@ -49,9 +69,10 @@ function installOwnerSellerRecruitmentMessagePatch() {
     shortCommand: true,
     candidateReplies: true,
     ownerPreview: true,
-    credentialSecondPreview: true
+    credentialSecondPreview: true,
+    ownerLidFallback: true
   });
   return true;
 }
 
-module.exports = { installOwnerSellerRecruitmentMessagePatch };
+module.exports = { installOwnerSellerRecruitmentMessagePatch, trustedOwnerArgs };
