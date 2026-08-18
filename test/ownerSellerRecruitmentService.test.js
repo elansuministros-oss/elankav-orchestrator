@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const recruitment = require('../services/ownerSellerRecruitmentService');
+const { trustedOwnerArgs } = require('../services/ownerSellerRecruitmentMessagePatch');
 
 function tempEnv() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elan-recruitment-'));
@@ -45,6 +46,21 @@ test('accepts common Owner spelling variants without requiring a long instructio
   );
   assert.equal(command?.candidateName, 'Maria Lopez');
   assert.equal(command?.candidatePhone, '50588887777');
+});
+
+test('uses canonical Owner identity after runtime resolves an incoming WhatsApp LID', () => {
+  const raw = {
+    message: 'ELAN, escribile a Juan Ruiz al +505 7511 4256 y agregalo a Ventas.',
+    phone: '',
+    externalUserId: '123456789012345@lid'
+  };
+  const effective = trustedOwnerArgs(raw, { actorRole: 'owner' });
+  assert.equal(effective.phone, recruitment.DEFAULT_OWNER_PHONE);
+  assert.equal(effective.externalUserId, recruitment.DEFAULT_OWNER_PHONE);
+  assert.equal(effective.message, raw.message);
+
+  const untouched = trustedOwnerArgs(raw, { actorRole: 'prospect' });
+  assert.equal(untouched.externalUserId, raw.externalUserId);
 });
 
 test('does not contact a candidate when that WhatsApp already belongs to a seller', async () => {
