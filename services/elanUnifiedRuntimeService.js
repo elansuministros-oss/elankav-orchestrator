@@ -14,9 +14,20 @@ function resolveActor(input = {}) {
   const role = String(input.role || '').trim().toLowerCase() || 'unknown';
   const identity = resolveCanonicalIdentity(input.phone || input.canonicalPhone || input.actorId || input.sub || '');
   const owner = role === 'owner' || String(input.authority || '').toLowerCase() === 'owner_identity';
+  const actorId = owner
+    ? 'owner'
+    : (String(input.actorId || input.sub || identity.canonicalId || '').trim() || null);
+  const sellerId = role === 'seller'
+    ? (String(input.sellerId || actorId || '').trim() || null)
+    : null;
+  const sellerName = role === 'seller'
+    ? (String(input.sellerName || input.displayName || input.name || '').trim() || null)
+    : null;
   return Object.freeze({
     role: owner ? 'owner' : role,
-    actorId: owner ? 'owner' : (String(input.actorId || input.sub || identity.canonicalId || '').trim() || null),
+    actorId,
+    ...(sellerId ? { sellerId } : {}),
+    ...(sellerName ? { sellerName } : {}),
     registered: input.registered !== false,
     platformAllowed: input.platformAllowed !== false,
     platforms: Array.isArray(input.platforms) ? input.platforms : (owner ? ['*'] : []),
