@@ -8,8 +8,11 @@ on:
       - 'services/elanUnified*.js'
       - 'services/ownerBusinessConnectClient.js'
       - 'services/ownerSeller*.js'
+      - 'services/ownerHumanLanguage*.js'
+      - 'services/humanLanguage*.js'
       - 'server.voice-pipeline-v2.js'
       - 'test/ownerSeller*.test.js'
+      - 'test/humanLanguageInterpreter.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   push:
     branches:
@@ -18,8 +21,11 @@ on:
       - 'services/elanUnified*.js'
       - 'services/ownerBusinessConnectClient.js'
       - 'services/ownerSeller*.js'
+      - 'services/ownerHumanLanguage*.js'
+      - 'services/humanLanguage*.js'
       - 'server.voice-pipeline-v2.js'
       - 'test/ownerSeller*.test.js'
+      - 'test/humanLanguageInterpreter.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   workflow_dispatch:
 
@@ -46,6 +52,9 @@ jobs:
           node --check services/ownerSellerRecruitmentMessagePatch.js
           node --check services/ownerSellerUpdateOutreachService.js
           node --check services/ownerSellerUpdateOutreachMessagePatch.js
+          node --check services/humanLanguageInterpreter.js
+          node --check services/ownerHumanLanguageIntentPatch.js
+          node --check services/humanLanguageMessagePatch.js
           node --check server.voice-pipeline-v2.js
       - name: Install dependencies
         run: npm install --ignore-scripts
@@ -56,11 +65,12 @@ jobs:
             tests/ownerBusinessProcessMessageGateway.test.js \
             tests/ownerBusinessProcessMessageIntegration.test.js \
             tests/ownerQuotationHomonymResolver.test.js
-      - name: Seller preview confirmation regression tests
+      - name: Seller and human-language regression tests
         run: |
           node --test \
             test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js \
             test/ownerSellerTemporaryCredentialPatch.test.js \
             test/ownerSellerPreviewConfirmationPatch.test.js \
             test/ownerSellerRecruitmentService.test.js \
-            test/ownerSellerUpdateOutreachService.test.js
+            test/ownerSellerUpdateOutreachService.test.js \
+            test/humanLanguageInterpreter.test.js
