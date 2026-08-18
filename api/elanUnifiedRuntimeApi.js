@@ -17,6 +17,7 @@ function internalToken(env = process.env) {
     env.ORCHESTRATOR_INTERNAL_TOKEN ||
     env.ELANKAV_ORCHESTRATOR_INTERNAL_TOKEN ||
     env.CONNECT_INTERNAL_TOKEN ||
+    env.VQS_API_TOKEN ||
     ''
   ).trim();
 }
