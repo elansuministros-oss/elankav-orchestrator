@@ -9,8 +9,8 @@ function isLiveModeRequest(text) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  return /(?:elan\s*)?(?:activa(?:te)?|abre|abrime|inicia|entrar|dame acceso).*(?:modo\s*)?(?:copiloto|live)/.test(normalized) ||
-    /^(?:modo\s*)?(?:copiloto|elan live)$/.test(normalized);
+  return /(?:elan\s*)?(?:activa(?:te)?|abre|abrime|inicia|entrar|dame acceso).*(?:modo\s*)?(?:copiloto|piloto|live)/.test(normalized) ||
+    /^(?:elan\s*)?(?:modo\s*)?(?:copiloto|piloto|elan live|live)$/.test(normalized);
 }
 
 async function requestLiveSession({ phone, externalUserId, platform = 'ELANVISUAL', fetchImpl = globalThis.fetch, env = process.env } = {}) {
