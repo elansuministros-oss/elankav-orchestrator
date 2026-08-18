@@ -1,6 +1,7 @@
 'use strict';
 
 const connect = require('./ownerBusinessConnectClient');
+const seller = require('./sellerBusinessConnectClient');
 
 const searchParam = { type:'object', properties:{ query:{ type:'string' } }, additionalProperties:false };
 const qParam = { type:'object', properties:{ query:{ type:'string' } }, required:['query'], additionalProperties:false };
@@ -8,11 +9,12 @@ const idPatchParam = (idField) => ({ type:'object', properties:{ [idField]:{type
 const idOnlyParam = (idField) => ({ type:'object', properties:{ [idField]:{type:'string'} }, required:[idField], additionalProperties:false });
 
 const TOOL_DEFINITIONS = Object.freeze([
-  { name:'buscar_precio_autorizado', description:'Busca exclusivamente el precio comercial autorizado y publicado en CONNECT. Nunca estima ni inventa.', scope:'price.authorized.read', parameters:{type:'object',properties:{query:{type:'string'},width:{type:'number'},height:{type:'number'},quantity:{type:'number'}},required:['query'],additionalProperties:false}},
+  { name:'buscar_precio_autorizado', description:'Busca exclusivamente el precio comercial autorizado y publicado en CONNECT. Nunca estima ni inventa.', scope:'price.authorized.read', sellerAllowed:true, parameters:{type:'object',properties:{query:{type:'string'},width:{type:'number'},height:{type:'number'},quantity:{type:'number'}},required:['query'],additionalProperties:false}},
   { name:'listar_precios_autorizados', description:'Lista coincidencias del catálogo comercial autorizado de ELANVISUAL.', scope:'price.authorized.read', parameters:qParam },
-  { name:'buscar_cliente', description:'Busca clientes oficiales o lista todos si no se especifica query.', scope:'customer.read', parameters:searchParam },
-  { name:'crear_cliente', description:'Crea un cliente oficial en CONNECT.', ownerOnly:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
-  { name:'editar_cliente', description:'Edita un cliente oficial.', ownerOnly:true, parameters:idPatchParam('customerId') },
+  { name:'solicitar_presupuesto', description:'Prepara un presupuesto PREVIEW para vendedor usando exclusivamente precios autorizados de CONNECT. No crea una cotización.', sellerOnly:true, parameters:{type:'object',properties:{items:{type:'array',items:{type:'object'}}},required:['items'],additionalProperties:false}},
+  { name:'buscar_cliente', description:'Busca clientes oficiales o lista todos si no se especifica query. Para vendedor solo devuelve sus clientes asignados.', scope:'customer.read', sellerAllowed:true, parameters:searchParam },
+  { name:'crear_cliente', description:'Crea un cliente oficial en CONNECT. Para vendedor queda asignado a su sellerId.', sellerAllowed:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
+  { name:'editar_cliente', description:'Edita un cliente oficial. El vendedor solo puede editar clientes asignados a su sellerId.', sellerAllowed:true, parameters:idPatchParam('customerId') },
   { name:'desactivar_cliente', description:'Desactiva un cliente conservando trazabilidad histórica.', ownerOnly:true, parameters:idOnlyParam('customerId') },
   { name:'buscar_proveedor', description:'Busca proveedores oficiales o lista todos.', scope:'provider.read', parameters:searchParam },
   { name:'crear_proveedor', description:'Crea un proveedor oficial.', ownerOnly:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
@@ -30,9 +32,9 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'desactivar_familiar', description:'Desactiva un familiar autorizado.', ownerOnly:true, parameters:idOnlyParam('familyId') },
   { name:'buscar_contacto', description:'Busca simultáneamente clientes, proveedores, vendedores y familia.', ownerOnly:true, parameters:searchParam },
   { name:'enviar_mensaje_whatsapp', description:'Envía un mensaje WhatsApp a un contacto oficial resuelto por tipo, id o nombre. Solo confirma si CONNECT/WAHA confirma entrega.', ownerOnly:true, parameters:{type:'object',properties:{recipientType:{type:'string',enum:['customer','provider','seller','family']},recipientId:{type:'string'},query:{type:'string'},text:{type:'string'}},required:['text'],additionalProperties:false}},
-  { name:'buscar_cotizacion', description:'Consulta cotizaciones oficiales. Puede recibir projectId; sin projectId lista recientes.', scope:'quotation.read', parameters:{type:'object',properties:{projectId:{type:'string'}},additionalProperties:false}},
-  { name:'crear_cotizacion', description:'Crea una cotización oficial.', ownerOnly:true, parameters:{type:'object',properties:{document:{type:'object'},idempotencyKey:{type:'string'}},required:['document'],additionalProperties:false}},
-  { name:'editar_cotizacion', description:'Actualiza una cotización oficial.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},document:{type:'object'}},required:['projectId','document'],additionalProperties:false}},
+  { name:'buscar_cotizacion', description:'Consulta cotizaciones oficiales. Para vendedor solo consulta sus propias cotizaciones.', scope:'quotation.read', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'}},additionalProperties:false}},
+  { name:'crear_cotizacion', description:'Crea una cotización oficial. Para vendedor CONNECT revalida cliente propio y cada precio autorizado antes de guardar.', sellerAllowed:true, parameters:{type:'object',properties:{document:{type:'object'},idempotencyKey:{type:'string'}},required:['document'],additionalProperties:false}},
+  { name:'editar_cotizacion', description:'Actualiza una cotización oficial. El vendedor solo puede editar una cotización propia y todos los precios se vuelven a validar.', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'},document:{type:'object'}},required:['projectId','document'],additionalProperties:false}},
   { name:'cargar_imagen_cotizacion', description:'Carga o reemplaza una imagen de una cotización en borrador.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},imageBase64:{type:'string'},mimeType:{type:'string'},filename:{type:'string'},itemId:{type:'string'},mode:{type:'string',enum:['add','replace']}},required:['projectId','imageBase64','mimeType'],additionalProperties:false}},
   { name:'quitar_imagen_cotizacion', description:'Quita la imagen de un ítem de cotización en borrador.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},itemId:{type:'string'}},required:['projectId'],additionalProperties:false}},
   { name:'enviar_cotizacion_cliente', description:'Envía una cotización oficial al WhatsApp del cliente.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},body:{type:'object'}},required:['projectId'],additionalProperties:false}},
@@ -46,7 +48,15 @@ const TOOL_DEFINITIONS = Object.freeze([
 
 function scopesOf(actor={}){return Array.isArray(actor.scopes)?actor.scopes.map(value=>String(value)):[]}
 function isOwner(actor={}){return String(actor.role||'').toLowerCase()==='owner'||String(actor.authority||'').toLowerCase()==='owner_identity'}
-function isAllowed(definition,actor={}){if(definition.ownerOnly)return isOwner(actor);const scopes=scopesOf(actor);return isOwner(actor)||scopes.includes('*')||!definition.scope||scopes.includes(definition.scope)}
+function isSeller(actor={}){return String(actor.role||'').toLowerCase()==='seller'}
+function isAllowed(definition,actor={}){
+  if(definition.sellerOnly)return isSeller(actor);
+  if(definition.ownerOnly)return isOwner(actor);
+  if(isOwner(actor))return true;
+  if(isSeller(actor)&&definition.sellerAllowed)return true;
+  const scopes=scopesOf(actor);
+  return scopes.includes('*')||!definition.scope||scopes.includes(definition.scope);
+}
 function getToolManifest(actor={}){return TOOL_DEFINITIONS.filter(definition=>isAllowed(definition,actor)).map(definition=>({type:'function',name:definition.name,description:definition.description,parameters:definition.parameters}))}
 function requiredText(value,field){const normalized=String(value||'').trim();if(!normalized){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return normalized}
 function requiredObject(value,field='data'){if(!value||typeof value!=='object'||Array.isArray(value)){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return value}
@@ -56,12 +66,14 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
   const name=String(tool||'').trim();const definition=TOOL_DEFINITIONS.find(candidate=>candidate.name===name);
   if(!definition)throw Object.assign(new Error(`La herramienta ${name||'(vacía)'} todavía no está disponible en ELAN Runtime.`),{code:'ELAN_TOOL_NOT_AVAILABLE',statusCode:404});
   if(!isAllowed(definition,actor))throw Object.assign(new Error('El actor no tiene permiso para ejecutar esta herramienta.'),{code:'ELAN_TOOL_FORBIDDEN',statusCode:403});
+  const sellerActor=isSeller(actor);
   switch(name){
-    case'buscar_precio_autorizado':{const input={query:requiredText(args.query,'query'),quantity:Number(args.quantity)>0?Number(args.quantity):1};if(Number(args.width)>0)input.width=Number(args.width);if(Number(args.height)>0)input.height=Number(args.height);return connect.resolveCatalogPricing(input,env)}
+    case'buscar_precio_autorizado':{const input={query:requiredText(args.query,'query'),quantity:Number(args.quantity)>0?Number(args.quantity):1};if(Number(args.width)>0)input.width=Number(args.width);if(Number(args.height)>0)input.height=Number(args.height);return sellerActor?seller.resolveCatalogPricing(input,actor,env):connect.resolveCatalogPricing(input,env)}
     case'listar_precios_autorizados':return connect.listAuthorizedPrices(requiredText(args.query,'query'),env);
-    case'buscar_cliente':return connect.listOwnerCustomers(optionalText(args.query),env);
-    case'crear_cliente':return connect.createOwnerCustomer(requiredObject(args.data),env);
-    case'editar_cliente':return connect.updateOwnerCustomer(requiredText(args.customerId,'customerId'),requiredObject(args.data),env);
+    case'solicitar_presupuesto':return seller.prepareBudget(Array.isArray(args.items)?args.items:[],actor,env);
+    case'buscar_cliente':return sellerActor?seller.listSellerCustomers(actor,optionalText(args.query),env):connect.listOwnerCustomers(optionalText(args.query),env);
+    case'crear_cliente':return sellerActor?seller.createSellerCustomer(requiredObject(args.data),actor,env):connect.createOwnerCustomer(requiredObject(args.data),env);
+    case'editar_cliente':return sellerActor?seller.updateSellerCustomer(requiredText(args.customerId,'customerId'),requiredObject(args.data),actor,env):connect.updateOwnerCustomer(requiredText(args.customerId,'customerId'),requiredObject(args.data),env);
     case'desactivar_cliente':return connect.deactivateOwnerCustomer(requiredText(args.customerId,'customerId'),env);
     case'buscar_proveedor':return connect.listOwnerProviders(optionalText(args.query),env);
     case'crear_proveedor':return connect.createOwnerProvider(requiredObject(args.data),env);
@@ -79,9 +91,9 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
     case'desactivar_familiar':return connect.deactivateOwnerFamily(requiredText(args.familyId,'familyId'),env);
     case'buscar_contacto':return connect.searchOwnerContacts(optionalText(args.query),env);
     case'enviar_mensaje_whatsapp':return connect.sendOwnerWhatsApp({...(args.recipientType?{recipientType:args.recipientType}:{}),...(args.recipientId?{recipientId:args.recipientId}:{}),...(args.query?{query:args.query}:{}),text:requiredText(args.text,'text')},env);
-    case'buscar_cotizacion':return args.projectId?connect.getQuotation(requiredText(args.projectId,'projectId'),env):connect.listQuotations(env);
-    case'crear_cotizacion':return connect.createQuotation(requiredObject(args.document,'document'),args.idempotencyKey,env);
-    case'editar_cotizacion':return connect.updateQuotation(requiredText(args.projectId,'projectId'),requiredObject(args.document,'document'),env);
+    case'buscar_cotizacion':return sellerActor?(args.projectId?seller.getQuotation(requiredText(args.projectId,'projectId'),actor,env):seller.listQuotations(actor,env)):(args.projectId?connect.getQuotation(requiredText(args.projectId,'projectId'),env):connect.listQuotations(env));
+    case'crear_cotizacion':return sellerActor?seller.createQuotation(requiredObject(args.document,'document'),args.idempotencyKey,actor,env):connect.createQuotation(requiredObject(args.document,'document'),args.idempotencyKey,env);
+    case'editar_cotizacion':return sellerActor?seller.updateQuotation(requiredText(args.projectId,'projectId'),requiredObject(args.document,'document'),actor,env):connect.updateQuotation(requiredText(args.projectId,'projectId'),requiredObject(args.document,'document'),env);
     case'cargar_imagen_cotizacion':return connect.uploadQuotationImage(requiredText(args.projectId,'projectId'),{imageBase64:requiredText(args.imageBase64,'imageBase64'),mimeType:requiredText(args.mimeType,'mimeType'),...(args.filename?{filename:args.filename}:{}),...(args.itemId?{itemId:args.itemId}:{}),...(args.mode?{mode:args.mode}:{})},env);
     case'quitar_imagen_cotizacion':return connect.removeQuotationImage(requiredText(args.projectId,'projectId'),args.itemId?{itemId:args.itemId}:{},env);
     case'enviar_cotizacion_cliente':return connect.sendQuotationWhatsApp(requiredText(args.projectId,'projectId'),args.body&&typeof args.body==='object'?args.body:{},env);
@@ -95,4 +107,4 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
   }
 }
 
-module.exports={TOOL_DEFINITIONS,executeTool,getToolManifest,isAllowed,isOwner};
+module.exports={TOOL_DEFINITIONS,executeTool,getToolManifest,isAllowed,isOwner,isSeller};
