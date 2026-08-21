@@ -77,7 +77,7 @@ function targetFromMutation(message,type){
   const entity=entityPattern(type);
   const direct=firstLine.match(new RegExp(`\\b(?:edita|editar|actualiza|actualizar|cambia|cambiar|modifica|modificar)\\s+(?:al\\s+|el\\s+|la\\s+)?${entity}\\b\\s+(.+)$`,'i'));
   if(direct?.[1]){
-    const target=direct[1].split(/(?:\\s+(?=(?:contacto|persona\\s+de\\s+contacto|whatsapp|wasap|telefono|teléfono|celular|email|correo|nuevo\\s+nombre|nombre|direccion|dirección|ciudad|pais|país|plataforma|plataformas|tipo|tipos|categoria|categoría|categorias|categorías|especialidad|especialidades)\\s*[:=]?)|[,;])/i)[0].replace(/[.!?]+$/g,'').trim();
+    const target=direct[1].split(/(?:[ \t]+(?=(?:contacto|persona[ \t]+de[ \t]+contacto|whatsapp|wasap|telefono|teléfono|celular|email|correo|nuevo[ \t]+nombre|nombre|direccion|dirección|ciudad|pais|país|plataforma|plataformas|tipo|tipos|categoria|categoría|categorias|categorías|especialidad|especialidades)[ \t]*[:=]?)|[,;])/i)[0].replace(/[.!?]+$/g,'').trim();
     if(target)return cleanHumanName(target);
   }
   const match=firstLine.match(new RegExp(`\\b${entity}\\b\\s+(.+?)(?=\\s+(?:cambia|cambiar|cambiale|actualiza|actualizar|edita|editar|modifica|modificar)\\b|\\s+(?:whatsapp|wasap|telefono|teléfono|celular|email|correo|nuevo nombre|nombre|direccion|dirección|ciudad|relacion|relación|parentesco|zona|contacto|pais|país|plataforma|plataformas|tipo|tipos|categoria|categoría|categorias|categorías|especialidad|especialidades)\\s*[:=]?|[,;]|$)`,'i'));
