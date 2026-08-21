@@ -5,7 +5,7 @@
   "description": "Centro de control remoto del ecosistema ELANKAV",
   "main": "server.js",
   "scripts": {
-    "start": "node --require ./services/ownerBusinessQuotationItemPatch.js --require ./services/liveCopilotMessagePatch.js server.js",
+    "start": "node --require ./services/ownerBusinessQuotationItemPatch.js --require ./services/liveCopilotMessagePatch.js --require ./services/sellerBusinessRuntimeIntegration.js server.js",
     "test": "node --test",
     "postinstall": "node deploy/schedule-owner-ops-supervisor-refresh.js"
   },
