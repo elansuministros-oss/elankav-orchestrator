@@ -225,7 +225,10 @@ function startElanSelfAuditMonitor(options = {}) {
   const env = options.env || process.env;
   const intervalMs = positiveInteger(env.ELAN_SELF_AUDIT_INTERVAL_MS, DEFAULT_INTERVAL_MS);
   const initialDelayMs = positiveInteger(env.ELAN_SELF_AUDIT_INITIAL_DELAY_MS, DEFAULT_INITIAL_DELAY_MS);
+  console.log('[ELAN_SELF_AUDIT_MONITOR_STARTED]', { intervalMs, initialDelayMs });
   const runner = async () => {
+    const startedAt = Date.now();
+    console.log('[ELAN_SELF_AUDIT_RUN_START]', { source: 'scheduled-monitor' });
     try {
       const result = await runTrackedSelfAudit({ ...options, source: 'scheduled-monitor' });
       console.log('[ELAN_SELF_AUDIT]', {
@@ -233,10 +236,15 @@ function startElanSelfAuditMonitor(options = {}) {
         degraded: result.report?.summary?.degraded || 0,
         unavailable: result.report?.summary?.unavailable || 0,
         changes: result.changes.length,
-        notified: result.notification.sent === true
+        notified: result.notification.sent === true,
+        elapsedMs: Date.now() - startedAt
       });
     } catch (error) {
-      console.error('[ELAN_SELF_AUDIT_FAILED]', { code: error?.code || null, message: error?.message || String(error) });
+      console.error('[ELAN_SELF_AUDIT_FAILED]', {
+        code: error?.code || null,
+        message: error?.message || String(error),
+        elapsedMs: Date.now() - startedAt
+      });
     }
   };
 

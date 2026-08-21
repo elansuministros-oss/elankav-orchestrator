@@ -22,6 +22,8 @@ const STATUS = Object.freeze({
   NOT_GRANTED: 'NOT_GRANTED'
 });
 
+const DEFAULT_PROBE_TIMEOUT_MS = 15_000;
+
 const LIVE_READ_PROBES = Object.freeze({
   'business.customer.read': 'customers',
   'business.quotation.read': 'quotations',
@@ -57,12 +59,25 @@ function errorCode(error, fallback) {
   return String(error?.code || error?.message || fallback || 'SELF_AUDIT_PROBE_FAILED');
 }
 
-async function safeProbe(name, fn) {
+async function safeProbe(name, fn, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS) {
+  let timer = null;
   try {
-    const value = await fn();
+    const timeout = Math.max(1, Number(timeoutMs) || DEFAULT_PROBE_TIMEOUT_MS);
+    const value = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('SELF_AUDIT_PROBE_TIMEOUT');
+          error.code = 'SELF_AUDIT_PROBE_TIMEOUT';
+          reject(error);
+        }, timeout);
+      })
+    ]);
     return Object.freeze({ name, ok: true, value, error: null });
   } catch (error) {
     return Object.freeze({ name, ok: false, value: null, error: errorCode(error) });
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -204,16 +219,17 @@ async function runElanSelfAudit(options = {}) {
     listOwnerProviders: options.listOwnerProvidersImpl || listOwnerProviders
   };
 
+  const probeTimeoutMs = Math.max(1, Number(options.probeTimeoutMs) || DEFAULT_PROBE_TIMEOUT_MS);
   const [production, waha, customers, quotations, priceAuthorizations, logisticsRules, family, sellers, providers] = await Promise.all([
-    safeProbe('production', () => deps.readProductionAudit()),
-    safeProbe('waha', () => deps.readWahaSession()),
-    safeProbe('customers', () => deps.listCustomers()),
-    safeProbe('quotations', () => deps.listQuotations()),
-    safeProbe('priceAuthorizations', () => deps.listPriceAuthorizations()),
-    safeProbe('logisticsRules', () => deps.listLogisticsRules()),
-    safeProbe('family', () => deps.listOwnerFamily()),
-    safeProbe('sellers', () => deps.listOwnerSellers()),
-    safeProbe('providers', () => deps.listOwnerProviders())
+    safeProbe('production', () => deps.readProductionAudit(), probeTimeoutMs),
+    safeProbe('waha', () => deps.readWahaSession(), probeTimeoutMs),
+    safeProbe('customers', () => deps.listCustomers(), probeTimeoutMs),
+    safeProbe('quotations', () => deps.listQuotations(), probeTimeoutMs),
+    safeProbe('priceAuthorizations', () => deps.listPriceAuthorizations(), probeTimeoutMs),
+    safeProbe('logisticsRules', () => deps.listLogisticsRules(), probeTimeoutMs),
+    safeProbe('family', () => deps.listOwnerFamily(), probeTimeoutMs),
+    safeProbe('sellers', () => deps.listOwnerSellers(), probeTimeoutMs),
+    safeProbe('providers', () => deps.listOwnerProviders(), probeTimeoutMs)
   ]);
 
   const probes = { production, waha, customers, quotations, priceAuthorizations, logisticsRules, family, sellers, providers };

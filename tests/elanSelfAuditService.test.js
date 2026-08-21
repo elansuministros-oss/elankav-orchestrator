@@ -115,3 +115,16 @@ test('self-audit output tells Owner exactly what is verified and what still lack
   assert.match(output, /Escrituras ejecutadas: NO/);
   assert.match(output, /Secretos expuestos: NO/);
 });
+
+
+test('self-audit converts a hanging authority into UNAVAILABLE after bounded probe timeout', async () => {
+  const report = await runElanSelfAudit(successfulOptions({
+    probeTimeoutMs: 20,
+    listCustomersImpl: async () => new Promise(() => {})
+  }));
+
+  const customerRead = report.capabilities.find((item) => item.id === 'business.customer.read');
+  assert.equal(customerRead.status, STATUS.UNAVAILABLE);
+  assert.equal(customerRead.reason, 'SELF_AUDIT_PROBE_TIMEOUT');
+  assert.ok(report.probeErrors.some(item => item.probe === 'customers' && item.error === 'SELF_AUDIT_PROBE_TIMEOUT'));
+});
