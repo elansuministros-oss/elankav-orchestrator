@@ -7,12 +7,15 @@ on:
     paths:
       - 'services/elanUnified*.js'
       - 'services/ownerBusinessConnectClient.js'
+      - 'services/ownerEntityCreateContinuityService.js'
       - 'services/ownerSeller*.js'
       - 'services/ownerHumanLanguage*.js'
       - 'services/humanLanguage*.js'
       - 'server.voice-pipeline-v2.js'
       - 'test/ownerSeller*.test.js'
       - 'test/humanLanguageInterpreter.test.js'
+      - 'tests/ownerEntityCreateContinuity.test.js'
+      - 'tests/ownerProviderStructuredContinuity.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   push:
     branches:
@@ -20,12 +23,15 @@ on:
     paths:
       - 'services/elanUnified*.js'
       - 'services/ownerBusinessConnectClient.js'
+      - 'services/ownerEntityCreateContinuityService.js'
       - 'services/ownerSeller*.js'
       - 'services/ownerHumanLanguage*.js'
       - 'services/humanLanguage*.js'
       - 'server.voice-pipeline-v2.js'
       - 'test/ownerSeller*.test.js'
       - 'test/humanLanguageInterpreter.test.js'
+      - 'tests/ownerEntityCreateContinuity.test.js'
+      - 'tests/ownerProviderStructuredContinuity.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   workflow_dispatch:
 
@@ -42,6 +48,7 @@ jobs:
       - name: Syntax
         run: |
           node --check services/ownerBusinessConnectClient.js
+          node --check services/ownerEntityCreateContinuityService.js
           node --check services/elanUnifiedToolRegistry.js
           node --check services/elanUnifiedRuntimeService.js
           node --check services/elanUnifiedRuntimeMessagePatch.js
@@ -56,6 +63,8 @@ jobs:
           node --check services/ownerHumanLanguageIntentPatch.js
           node --check services/humanLanguageMessagePatch.js
           node --check server.voice-pipeline-v2.js
+          node --check tests/ownerEntityCreateContinuity.test.js
+          node --check tests/ownerProviderStructuredContinuity.test.js
       - name: Install dependencies
         run: npm install --ignore-scripts
       - name: Existing Owner business regression tests
@@ -65,6 +74,11 @@ jobs:
             tests/ownerBusinessProcessMessageGateway.test.js \
             tests/ownerBusinessProcessMessageIntegration.test.js \
             tests/ownerQuotationHomonymResolver.test.js
+      - name: Owner entity continuity regression tests
+        run: |
+          node --test \
+            tests/ownerEntityCreateContinuity.test.js \
+            tests/ownerProviderStructuredContinuity.test.js
       - name: Seller and human-language regression tests
         run: |
           node --test \
