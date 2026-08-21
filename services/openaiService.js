@@ -121,7 +121,7 @@ function normalizeIntentText(value) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9\s?¿!¡]/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -130,14 +130,14 @@ function detectVerifiedIdentityQuestion(input) {
   const text = normalizeIntentText(input);
   if (!text) return false;
 
-  return /(?:^|\s)(?:quien soy|sabes quien soy|sabes quien soy yo|decime quien soy|dime quien soy|como estoy registrado|como estoy registrada|que rol tengo|cual es mi rol|me reconoces)(?:\s|[?¿!¡]|$)/i.test(text);
+  return /(?:^|\s)(?:quien soy|sabes quien soy|sabes quien soy yo|decime quien soy|dime quien soy|como estoy registrado|como estoy registrada|que rol tengo|cual es mi rol|me reconoces)(?:\s|$)/i.test(text);
 }
 
 function detectVerifiedActivationRequest(input) {
   const text = normalizeIntentText(input);
   if (!text) return false;
 
-  return /^(?:elan\s+)?(?:activate|activa|activame|activar)(?:\s+elan)?[?¿!¡]*$/i.test(text);
+  return /^(?:elan\s+)?(?:activate|activa|activame|activar)(?:\s+elan)?$/i.test(text);
 }
 
 function verifiedRoleLabel(role) {
