@@ -108,6 +108,77 @@ async function testOpenAIConnection() {
   }
 }
 
+function verifiedActorValue(value, maxLength = 160) {
+  return String(value || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeIntentText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectVerifiedIdentityQuestion(input) {
+  const text = normalizeIntentText(input);
+  if (!text) return false;
+
+  return /(?:^|\s)(?:quien soy|sabes quien soy|sabes quien soy yo|decime quien soy|dime quien soy|como estoy registrado|como estoy registrada|que rol tengo|cual es mi rol|me reconoces)(?:\s|$)/i.test(text);
+}
+
+function detectVerifiedActivationRequest(input) {
+  const text = normalizeIntentText(input);
+  if (!text) return false;
+
+  return /^(?:elan\s+)?(?:activate|activa|activame|activar)(?:\s+elan)?$/i.test(text);
+}
+
+function verifiedRoleLabel(role) {
+  const normalizedRole = verifiedActorValue(role, 40).toLowerCase();
+  const labels = {
+    seller: 'vendedor interno',
+    provider: 'proveedor registrado',
+    customer: 'cliente registrado',
+    family: 'miembro autorizado de familia'
+  };
+
+  return labels[normalizedRole] || normalizedRole || 'usuario registrado';
+}
+
+function buildVerifiedActorDirectResponse({ input, context } = {}) {
+  const actor = context?.actor && typeof context.actor === 'object'
+    ? context.actor
+    : null;
+
+  if (!actor || actor.registered !== true) return null;
+
+  const actorName = verifiedActorValue(actor.displayName, 160);
+  const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
+
+  if (!actorName || !actorRole) return null;
+
+  const identityQuestion = detectVerifiedIdentityQuestion(input);
+  const activationRequest = detectVerifiedActivationRequest(input);
+
+  if (!identityQuestion && !activationRequest) return null;
+
+  const platform = verifiedActorValue(context?.platform || 'ELANVISUAL', 80).toUpperCase();
+  const roleLabel = verifiedRoleLabel(actorRole);
+
+  if (activationRequest) {
+    return `✅ ELAN activada para ${actorName}. Te reconozco como ${roleLabel} de ${platform}. Voy a trabajar con los permisos asociados a tu cuenta y con tus registros autorizados. ¿Qué querés hacer ahora?`;
+  }
+
+  return `Sos ${actorName}. Te tengo registrado en ${platform} con rol de ${roleLabel}. Tu identidad está verificada y voy a trabajar con los permisos asociados a tu cuenta.`;
+}
+
 function buildContextInstructions(context) {
   if (!context || typeof context !== 'object') return '';
 
@@ -118,6 +189,39 @@ function buildContextInstructions(context) {
   if (context.ownerMode) {
     lines.push('ownerMode=true.');
     lines.push(`Identidad del remitente: ${context.ownerName || 'Erick Cano'}, propietario del ecosistema ELANKAV.`);
+  }
+
+  const actor = context.actor && typeof context.actor === 'object'
+    ? context.actor
+    : null;
+
+  if (actor) {
+    const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
+    const actorName = verifiedActorValue(actor.displayName, 160);
+    const actorAuthority = verifiedActorValue(actor.authority, 80);
+    const actorRegistered = actor.registered === true;
+
+    if (actorRole) {
+      lines.push(`Rol comercial verificado por CONNECT: ${actorRole}.`);
+    }
+
+    if (actorName) {
+      lines.push(`Nombre verificado del remitente: ${actorName}.`);
+    }
+
+    if (actorRegistered) {
+      lines.push('El remitente está registrado oficialmente en la autoridad comercial correspondiente.');
+    }
+
+    if (actorAuthority) {
+      lines.push(`Autoridad de identidad verificada: ${actorAuthority}.`);
+    }
+
+    if (actorName && actorRole && actorRegistered) {
+      lines.push(
+        `En conversaciones normales, tratá al remitente explícitamente como ${actorName} con rol ${actorRole} cuando sea relevante. No respondas únicamente con una etiqueta genérica como “vendedor interno” cuando existe un nombre verificado.`
+      );
+    }
   }
 
   if (context.externalUserId) lines.push(`externalUserId=${context.externalUserId}.`);
@@ -178,6 +282,18 @@ function buildContextInstructions(context) {
 }
 
 async function generateText({ input, instructions, context, history }) {
+  const verifiedActorResponse = buildVerifiedActorDirectResponse({ input, context });
+
+  if (verifiedActorResponse) {
+    return {
+      outputText: verifiedActorResponse,
+      model: 'elankav-verified-actor',
+      id: null,
+      status: 'completed',
+      usage: null
+    };
+  }
+
   const contextInstructions = buildContextInstructions(context);
   const resolvedInstructions = [instructions, contextInstructions]
     .filter(value => typeof value === 'string' && value.trim())
@@ -196,5 +312,11 @@ module.exports = {
   testOpenAIConnection,
   buildContextInstructions,
   resolveOfficialPlatformFacts,
+  verifiedActorValue,
+  normalizeIntentText,
+  detectVerifiedIdentityQuestion,
+  detectVerifiedActivationRequest,
+  verifiedRoleLabel,
+  buildVerifiedActorDirectResponse,
   generateText
 };
