@@ -88,3 +88,25 @@ jobs:
             test/ownerSellerRecruitmentService.test.js \
             test/ownerSellerUpdateOutreachService.test.js \
             test/humanLanguageInterpreter.test.js
+
+  owner_entity_continuity:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax continuity
+        run: |
+          node --check services/ownerEntityCreateContinuityService.js
+          node --check tests/ownerEntityCreateContinuity.test.js
+          node --check tests/ownerProviderStructuredContinuity.test.js
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Owner entity continuity tests
+        run: |
+          node --test \
+            tests/ownerEntityCreateContinuity.test.js \
+            tests/ownerProviderStructuredContinuity.test.js
