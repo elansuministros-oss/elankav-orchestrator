@@ -13,7 +13,8 @@ const ALLOWED_KEYS = new Set([
   'activeWorkOrderId',
   'lastQuotationTotalUsd',
   'lastEntityType',
-  'lastEntityId'
+  'lastEntityId',
+  'pendingEntityCreate'
 ]);
 
 function storePath(env = process.env) {
