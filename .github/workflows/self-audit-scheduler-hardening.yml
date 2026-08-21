@@ -1,0 +1,61 @@
+name: ELAN Self-Audit Scheduler Hardening
+
+on:
+  push:
+    branches:
+      - feature/ELAN-SELF-AUDIT-VALIDATION-01
+    paths:
+      - 'scripts/apply-self-audit-scheduler-hardening.mjs'
+      - '.github/workflows/self-audit-scheduler-hardening.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/ELAN-SELF-AUDIT-VALIDATION-01
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply scoped hardening
+        run: node scripts/apply-self-audit-scheduler-hardening.mjs
+      - name: Install
+        run: npm install
+      - name: Syntax
+        run: |
+          node --check services/elanSelfAuditService.js
+          node --check services/elanSelfAuditMonitorService.js
+      - name: Self-Audit tests
+        run: |
+          node --test \
+            tests/elanSelfAuditService.test.js \
+            tests/elanSelfAuditMonitorService.test.js \
+            tests/elanSelfAuditOwnerCommand.test.js
+      - name: Identity regression
+        run: node --test tests/connectActorIdentityFailClosed.test.js
+      - name: Owner regression
+        run: |
+          node --test \
+            test/ownerOpsCommandRouting.test.js \
+            test/ownerOpsReadService.test.js \
+            test/ownerOpsConfirmation.test.js \
+            test/ownerOpsAudit.test.js \
+            tests/ownerBusinessModesPricingLogistics.test.js
+      - name: Commit generated runtime hardening
+        run: |
+          if git diff --quiet; then
+            echo 'No runtime changes generated'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add services/elanSelfAuditService.js services/elanSelfAuditMonitorService.js tests/elanSelfAuditService.test.js
+          git commit -m 'fix(self-audit): bound scheduled probes and expose lifecycle logs'
+          git push origin HEAD:feature/ELAN-SELF-AUDIT-VALIDATION-01
