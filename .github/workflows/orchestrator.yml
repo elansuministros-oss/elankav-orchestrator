@@ -13,6 +13,7 @@ on:
       - fix/OWNER-PUBLISH-OFFICIAL-PRICE-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
       - feature/OWNER-PRICE-CATALOG-ADMIN-01
+      - feature/ELAN-SELF-AUDIT-VALIDATION-01
 
 jobs:
   health:
@@ -46,6 +47,7 @@ jobs:
           node --check services/ownerBusinessCommandService.js
           node --check services/ownerBusinessProcessMessageGateway.js
           node --check services/ownerConnectRuntimeAuditService.js
+          node --check services/elanSelfAuditService.js
           node --check services/ownerPriceCatalogAdminService.js
           node --check services/ownerSellerConnectClient.js
           node --check services/ownerSellerIdentityExtractionService.js
@@ -78,7 +80,8 @@ jobs:
             test/ownerSellerRegistration.test.js \
             tests/ownerBusinessModesPricingLogistics.test.js \
             tests/ownerConnectRuntimeAuditService.test.js \
-            tests/ownerPriceCatalogAdminService.test.js
+            tests/ownerPriceCatalogAdminService.test.js \
+            tests/elanSelfAuditService.test.js
 
       - name: Success
         run: echo "ELANKAV ORCHESTRATOR OWNER OPS OK"
