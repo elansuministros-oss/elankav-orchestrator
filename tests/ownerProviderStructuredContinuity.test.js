@@ -50,13 +50,14 @@ test('structured provider create accepts Empresa and preserves supported CONNECT
     phone: '+50582850298',
     whatsapp: '+50582850298',
     contactName: 'Katy',
+    country: 'Nicaragua',
     platforms: ['ELANVISUAL'],
     kinds: ['materials_products'],
     categories: ['Publicidad / promocionales / impresión']
   });
 });
 
-test('provider continuity retains contact category platform and type while asking only for missing name', async t => {
+test('provider continuity retains contact country category platform and type while asking only for missing name', async t => {
   const { env, cleanup } = await fixture();
   t.after(cleanup);
 
@@ -65,6 +66,7 @@ test('provider continuity retains contact category platform and type while askin
       'ELAN, registrá este proveedor en CONNECT.',
       'Contacto: Katy',
       'WhatsApp: +505 8285 0298',
+      'País: Nicaragua',
       'Plataforma: ELANVISUAL',
       'Tipo: Materiales y productos',
       'Categoría: Publicidad / promocionales / impresión'
@@ -82,6 +84,7 @@ test('provider continuity retains contact category platform and type while askin
   assert.equal(pending.type, 'provider');
   assert.equal(pending.data.contactName, 'Katy');
   assert.equal(pending.data.phone, '+50582850298');
+  assert.equal(pending.data.country, 'Nicaragua');
   assert.deepEqual(pending.data.platforms, ['ELANVISUAL']);
   assert.deepEqual(pending.data.kinds, ['materials_products']);
   assert.deepEqual(pending.data.categories, ['Publicidad / promocionales / impresión']);
@@ -100,6 +103,7 @@ test('provider continuity retains contact category platform and type while askin
     phone: '+50582850298',
     whatsapp: '+50582850298',
     contactName: 'Katy',
+    country: 'Nicaragua',
     platforms: ['ELANVISUAL'],
     kinds: ['materials_products'],
     categories: ['Publicidad / promocionales / impresión']
