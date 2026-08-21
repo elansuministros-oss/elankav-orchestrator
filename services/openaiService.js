@@ -133,13 +133,6 @@ function detectVerifiedIdentityQuestion(input) {
   return /(?:^|\s)(?:quien soy|sabes quien soy|sabes quien soy yo|decime quien soy|dime quien soy|como estoy registrado|como estoy registrada|que rol tengo|cual es mi rol|me reconoces)(?:\s|$)/i.test(text);
 }
 
-function detectVerifiedActivationRequest(input) {
-  const text = normalizeIntentText(input);
-  if (!text) return false;
-
-  return /^(?:elan\s+)?(?:activate|activa|activame|activar)(?:\s+elan)?$/i.test(text);
-}
-
 function verifiedRoleLabel(role) {
   const normalizedRole = verifiedActorValue(role, 40).toLowerCase();
   const labels = {
@@ -163,18 +156,10 @@ function buildVerifiedActorDirectResponse({ input, context } = {}) {
   const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
 
   if (!actorName || !actorRole) return null;
-
-  const identityQuestion = detectVerifiedIdentityQuestion(input);
-  const activationRequest = detectVerifiedActivationRequest(input);
-
-  if (!identityQuestion && !activationRequest) return null;
+  if (!detectVerifiedIdentityQuestion(input)) return null;
 
   const platform = verifiedActorValue(context?.platform || 'ELANVISUAL', 80).toUpperCase();
   const roleLabel = verifiedRoleLabel(actorRole);
-
-  if (activationRequest) {
-    return `✅ ELAN activada para ${actorName}. Te reconozco como ${roleLabel} de ${platform}. Voy a trabajar con los permisos asociados a tu cuenta y con tus registros autorizados. ¿Qué querés hacer ahora?`;
-  }
 
   return `Sos ${actorName}. Te tengo registrado en ${platform} con rol de ${roleLabel}. Tu identidad está verificada y voy a trabajar con los permisos asociados a tu cuenta.`;
 }
@@ -315,7 +300,6 @@ module.exports = {
   verifiedActorValue,
   normalizeIntentText,
   detectVerifiedIdentityQuestion,
-  detectVerifiedActivationRequest,
   verifiedRoleLabel,
   buildVerifiedActorDirectResponse,
   generateText
