@@ -9,7 +9,7 @@ const DEFAULT_PENDING_TTL_MS = 15 * 60 * 1000;
 const SUPPORTED_TYPES = Object.freeze(['customer', 'provider', 'family']);
 const PROVIDER_STRING_FIELDS = Object.freeze([
   'name', 'phone', 'whatsapp', 'email', 'legalName', 'taxId', 'contactName',
-  'city', 'address', 'website', 'currency', 'notes'
+  'city', 'country', 'address', 'website', 'currency', 'notes'
 ]);
 const PROVIDER_ARRAY_FIELDS = Object.freeze(['platforms', 'kinds', 'categories', 'specialties']);
 
@@ -136,6 +136,7 @@ function providerDataFromMessage(value) {
   const whatsappRaw = labeledValue(value, ['whatsapp', 'wasap']);
   const phoneRaw = labeledValue(value, ['telefono', 'teléfono', 'celular']);
   const city = labeledValue(value, ['ciudad', 'municipio']);
+  const country = labeledValue(value, ['pais', 'país']);
   const address = labeledValue(value, ['direccion', 'dirección']);
   const website = labeledValue(value, ['sitio web', 'web', 'website']);
   const currencyRaw = labeledValue(value, ['moneda']);
@@ -158,6 +159,7 @@ function providerDataFromMessage(value) {
     ...(phone ? { phone } : {}),
     ...(email ? { email } : {}),
     ...(city ? { city: cleanText(city, 120) } : {}),
+    ...(country ? { country: cleanText(country, 120) } : {}),
     ...(address ? { address: cleanText(address, 240) } : {}),
     ...(website ? { website: cleanText(website, 240) } : {}),
     ...(currency ? { currency } : {}),
@@ -173,7 +175,7 @@ function hasStructuredProviderData(value) {
   const data = providerDataFromMessage(value);
   return Boolean(
     data.name || data.contactName || data.legalName || data.taxId || data.whatsapp || data.phone ||
-    data.city || data.address || data.website || data.currency || data.notes ||
+    data.city || data.country || data.address || data.website || data.currency || data.notes ||
     data.categories?.length || data.specialties?.length || data.platforms?.length || data.kinds?.length
   );
 }
@@ -304,6 +306,7 @@ function finalizeData(type, common = {}) {
     const taxId = cleanText(common.taxId, 80);
     const contactName = cleanText(common.contactName, 160);
     const city = cleanText(common.city, 120);
+    const country = cleanText(common.country, 120);
     const address = cleanText(common.address, 240);
     const website = cleanText(common.website, 240);
     const currency = /^(USD|NIO)$/.test(cleanText(common.currency, 3).toUpperCase()) ? cleanText(common.currency, 3).toUpperCase() : '';
@@ -316,6 +319,7 @@ function finalizeData(type, common = {}) {
       ...(taxId ? { taxId } : {}),
       ...(contactName ? { contactName } : {}),
       ...(city ? { city } : {}),
+      ...(country ? { country } : {}),
       ...(address ? { address } : {}),
       ...(website ? { website } : {}),
       ...(currency ? { currency } : {}),
