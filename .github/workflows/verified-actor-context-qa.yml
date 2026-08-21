@@ -28,3 +28,5 @@ jobs:
         run: node --test tests/connectActorIdentityFailClosed.test.js
       - name: Message context regression
         run: node --test tests/clientContext01History.test.js tests/messageServiceDesignRouting.test.js
+      - name: QA marker
+        run: echo VERIFIED_ACTOR_CONTEXT_QA_OK
