@@ -32,6 +32,13 @@ const ROLE_SCOPES = Object.freeze({
     'provider.self.read',
     'provider.commercial_data.submit'
   ]),
+  family: Object.freeze([
+    'assistant.general',
+    'design.create',
+    'image.create',
+    'video.create',
+    'web.research'
+  ]),
   prospect: Object.freeze([
     'chat.customer',
     'price.read',
@@ -65,6 +72,18 @@ function resolveAccessPolicy({
   }
 
   const normalizedRole = String(actorRole || '').trim().toLowerCase();
+
+  // Identity infrastructure failures fail closed. They do not inherit public
+  // Prospect permissions and cannot execute business actions.
+  if (normalizedRole === 'unavailable' || normalizedRole === 'conflict') {
+    return Object.freeze({
+      role: normalizedRole,
+      fullAccess: false,
+      scopes: Object.freeze([]),
+      source: 'identity_unavailable'
+    });
+  }
+
   const roleScopes = ROLE_SCOPES[normalizedRole] || null;
 
   if (roleScopes) {
