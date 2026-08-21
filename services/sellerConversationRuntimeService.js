@@ -32,6 +32,23 @@ function isSeller(actor = {}) {
   return normalize(actor.role) === 'seller' && Boolean(sellerId(actor));
 }
 
+function isFrost(value) {
+  return /\b(?:vinil\s+)?fros(?:t|ted)?\b/i.test(normalize(value));
+}
+
+function hasUvPrintIntent(value) {
+  return /\b(?:uv|impresion|impreso|impresa|imprimir)\b/i.test(normalize(value));
+}
+
+function frostPresentationQuestion(value) {
+  const source = normalize(value);
+  return isFrost(source) && /\b(?:61|ancho|medida|presentacion|presentación|rollo|tienen|hay|disponible)\b/i.test(source);
+}
+
+function canonicalFrostUvProduct() {
+  return 'vinil frost con impresión UV';
+}
+
 function parseMeasurements(message) {
   const source = text(message).replace(/,/g, '.');
   const matches = [...source.matchAll(/(\d+(?:\.\d+)?)\s*(?:x|\*|×)\s*(\d+(?:\.\d+)?)/gi)];
@@ -48,7 +65,8 @@ function quotationIntent(message) {
     .replace(/^\s*(?:de|para)?\s*/i, '')
     .trim();
   const first = cleaned.split(/[\n,.;]/).map((part) => part.trim()).find(Boolean) || cleaned;
-  const productQuery = first.replace(/^(?:el|la|los|las|un|una)\s+/i, '').trim();
+  let productQuery = first.replace(/^(?:el|la|los|las|un|una)\s+/i, '').trim();
+  if (isFrost(productQuery) && hasUvPrintIntent(source)) productQuery = canonicalFrostUvProduct();
   if (!productQuery) return null;
   const locationMatch = source.match(/\b(?:queda|est[aá]|ubicad[oa])\s+en\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ\s-]{1,40})(?:[,.]|$)/i);
   return {
@@ -202,6 +220,28 @@ async function handleSellerConversationMessage(message, actor) {
   if (!isSeller(actor)) return { handled: false };
   const id = sellerId(actor);
   const current = await readSellerContext(id);
+  const pendingProduct = current.pendingQuotation?.productQuery || '';
+
+  if ((frostPresentationQuestion(message) || (isFrost(pendingProduct) && /\b(?:61|ancho|medida|presentacion|presentación|rollo)\b/i.test(normalize(message)))) && (hasUvPrintIntent(message) || hasUvPrintIntent(current.pendingQuotation?.raw) || isFrost(pendingProduct))) {
+    return {
+      handled: true,
+      outputText: 'Para vinil Frost con impresión UV, la presentación autorizada es de 1.37 m de ancho y la tarifa autorizada es US$25 por m². El Frost sin impresión se maneja como tarifa separada; no corresponde asumir 61 cm para este trabajo.'
+    };
+  }
+
+  if (isFrost(pendingProduct) && hasUvPrintIntent(message)) {
+    const pending = {
+      ...current.pendingQuotation,
+      productQuery: canonicalFrostUvProduct(),
+      raw: `${text(current.pendingQuotation?.raw)}\n${text(message)}`.trim(),
+      updatedAt: new Date().toISOString()
+    };
+    await updateSellerContext(id, { pendingQuotation: pending });
+    return {
+      handled: true,
+      outputText: 'Actualicé el trabajo pendiente a vinil Frost con impresión UV: ancho autorizado 1.37 m y tarifa US$25 por m². Continuemos con las medidas o con la creación de la cotización.'
+    };
+  }
 
   if (isLinkFollowUp(message)) {
     if (!current.activeQuotationPublicUrl) {
@@ -232,7 +272,8 @@ async function handleSellerConversationMessage(message, actor) {
     };
     await updateSellerContext(id, { pendingQuotation: pending });
     if (!pending.measurements.length) {
-      return { handled: true, outputText: `Perfecto. Voy a cotizar ${pending.productQuery}${pending.location ? ` para ${pending.location}` : ''}. Pasame las medidas en ancho × alto.` };
+      const frostUvNote = pending.productQuery === canonicalFrostUvProduct() ? ' Usaré la tarifa autorizada de US$25/m² y presentación de 1.37 m.' : '';
+      return { handled: true, outputText: `Perfecto. Voy a cotizar ${pending.productQuery}${pending.location ? ` para ${pending.location}` : ''}.${frostUvNote} Pasame las medidas en ancho × alto.` };
     }
     return { handled: true, outputText: `Tengo ${pending.measurements.length} medida${pending.measurements.length === 1 ? '' : 's'} para ${pending.productQuery}. Ahora indicame el nombre y WhatsApp del cliente.` };
   }
@@ -278,8 +319,11 @@ async function handleSellerConversationMessage(message, actor) {
 
 module.exports = {
   buildQuotationDocument,
+  canonicalFrostUvProduct,
   createPendingQuotation,
+  frostPresentationQuestion,
   handleSellerConversationMessage,
+  hasUvPrintIntent,
   isCreateFollowUp,
   isLinkFollowUp,
   isSendFollowUp,
