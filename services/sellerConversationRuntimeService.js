@@ -50,7 +50,7 @@ function quotationIntent(message) {
   const first = cleaned.split(/[\n,.;]/).map((part) => part.trim()).find(Boolean) || cleaned;
   const productQuery = first.replace(/^(?:el|la|los|las|un|una)\s+/i, '').trim();
   if (!productQuery) return null;
-  const locationMatch = source.match(/(?:queda|ubicad[oa]|en)\s+(?:en\s+)?([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ\s-]{2,40})(?:[,.]|$)/i);
+  const locationMatch = source.match(/\b(?:queda|est[aá]|ubicad[oa])\s+en\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ\s-]{1,40})(?:[,.]|$)/i);
   return {
     productQuery,
     location: text(locationMatch?.[1]),
@@ -154,6 +154,50 @@ function buildQuotationDocument({ pending, customer, actor }) {
   };
 }
 
+async function createPendingQuotation(current, actor) {
+  const id = sellerId(actor);
+  const pending = current.pendingQuotation;
+  const pendingCustomer = current.pendingQuotationCustomer;
+  if (!pending?.productQuery) {
+    return { handled: true, outputText: 'No tengo una cotización pendiente estructurada para crear. Indicame primero qué producto o servicio querés cotizar.' };
+  }
+  if (!pendingCustomer?.customerId) {
+    return { handled: true, outputText: 'Tengo el trabajo pendiente, pero falta asociar el cliente con nombre y WhatsApp antes de crear la cotización.' };
+  }
+  const customers = await listSellerCustomers(actor, '');
+  const rows = Array.isArray(customers?.data?.results) ? customers.data.results : [];
+  const customer = rows.find((row) => text(row.customerId || row.id) === text(pendingCustomer.customerId));
+  if (!customer) {
+    return { handled: true, outputText: 'El cliente pendiente ya no aparece en tu cartera autorizada. No voy a crear una cotización sin esa relación oficial.' };
+  }
+
+  const document = buildQuotationDocument({ pending, customer, actor });
+  const createdResponse = await createQuotation(document, `seller-conversation-${id}-${randomUUID()}`, actor);
+  const created = createdResponse?.data || createdResponse || {};
+  await updateSellerContext(id, {
+    activeQuotationId: created.quotationId || null,
+    activeQuotationNumber: created.quotationNumber || null,
+    activeQuotationPublicUrl: created.publicUrl || null,
+    activeProjectId: created.projectId || null,
+    lastQuotationTotalUsd: created.totalUsd || created.pricing?.totalUsd || null,
+    lastEntityType: 'quotation',
+    lastEntityId: created.quotationId || created.projectId || null,
+    pendingQuotation: null,
+    pendingQuotationCustomer: null
+  });
+
+  return {
+    handled: true,
+    result: created,
+    outputText: [
+      '✅ Cotización oficial creada en CONNECT.',
+      created.quotationNumber ? `Cotización: ${created.quotationNumber}` : '',
+      created.publicUrl ? `Enlace: ${created.publicUrl}` : '',
+      'Podés revisarla y luego decir “mandásela”.'
+    ].filter(Boolean).join('\n')
+  };
+}
+
 async function handleSellerConversationMessage(message, actor) {
   if (!isSeller(actor)) return { handled: false };
   const id = sellerId(actor);
@@ -174,10 +218,8 @@ async function handleSellerConversationMessage(message, actor) {
     return { handled: true, outputText: '✅ Cotización enviada al cliente desde el registro oficial.' };
   }
 
-  const direct = detectSellerBusinessCommand(message);
-  if (direct) {
-    const outcome = await executeSellerBusinessCommand(direct, actor);
-    if (outcome?.handled) return outcome;
+  if (isCreateFollowUp(message)) {
+    return createPendingQuotation(current, actor);
   }
 
   const quote = quotationIntent(message);
@@ -225,48 +267,10 @@ async function handleSellerConversationMessage(message, actor) {
     };
   }
 
-  if (isCreateFollowUp(message)) {
-    const refreshed = await readSellerContext(id);
-    const pending = refreshed.pendingQuotation;
-    const pendingCustomer = refreshed.pendingQuotationCustomer;
-    if (!pending?.productQuery) {
-      return { handled: true, outputText: 'No tengo una cotización pendiente estructurada para crear. Indicame primero qué producto o servicio querés cotizar.' };
-    }
-    if (!pendingCustomer?.customerId) {
-      return { handled: true, outputText: 'Tengo el trabajo pendiente, pero falta asociar el cliente con nombre y WhatsApp antes de crear la cotización.' };
-    }
-    const customers = await listSellerCustomers(actor, '');
-    const rows = Array.isArray(customers?.data?.results) ? customers.data.results : [];
-    const customer = rows.find((row) => text(row.customerId || row.id) === text(pendingCustomer.customerId));
-    if (!customer) {
-      return { handled: true, outputText: 'El cliente pendiente ya no aparece en tu cartera autorizada. No voy a crear una cotización sin esa relación oficial.' };
-    }
-
-    const document = buildQuotationDocument({ pending, customer, actor });
-    const createdResponse = await createQuotation(document, `seller-conversation-${id}-${randomUUID()}`, actor);
-    const created = createdResponse?.data || createdResponse || {};
-    await updateSellerContext(id, {
-      activeQuotationId: created.quotationId || null,
-      activeQuotationNumber: created.quotationNumber || null,
-      activeQuotationPublicUrl: created.publicUrl || null,
-      activeProjectId: created.projectId || null,
-      lastQuotationTotalUsd: created.totalUsd || created.pricing?.totalUsd || null,
-      lastEntityType: 'quotation',
-      lastEntityId: created.quotationId || created.projectId || null,
-      pendingQuotation: null,
-      pendingQuotationCustomer: null
-    });
-
-    return {
-      handled: true,
-      result: created,
-      outputText: [
-        '✅ Cotización oficial creada en CONNECT.',
-        created.quotationNumber ? `Cotización: ${created.quotationNumber}` : '',
-        created.publicUrl ? `Enlace: ${created.publicUrl}` : '',
-        'Podés revisarla y luego decir “mandásela”.'
-      ].filter(Boolean).join('\n')
-    };
+  const direct = detectSellerBusinessCommand(message);
+  if (direct) {
+    const outcome = await executeSellerBusinessCommand(direct, actor);
+    if (outcome?.handled) return outcome;
   }
 
   return { handled: false };
@@ -274,6 +278,7 @@ async function handleSellerConversationMessage(message, actor) {
 
 module.exports = {
   buildQuotationDocument,
+  createPendingQuotation,
   handleSellerConversationMessage,
   isCreateFollowUp,
   isLinkFollowUp,
