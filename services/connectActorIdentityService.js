@@ -99,6 +99,15 @@ function unavailableActor(authority, error = null) {
   };
 }
 
+function identityUnavailableError(error) {
+  const failure = new Error('IDENTITY_AUTHORITY_UNAVAILABLE');
+  failure.code = 'IDENTITY_AUTHORITY_UNAVAILABLE';
+  failure.status = Number(error?.status) || 503;
+  failure.actor = unavailableActor('identity_unavailable', error);
+  failure.cause = error;
+  return failure;
+}
+
 async function resolvePhoneFromWahaIdentity(identity, {
   fetchImpl = globalThis.fetch,
   env = process.env
@@ -132,7 +141,7 @@ async function resolveCommercialActor(input = {}, {
   env = process.env
 } = {}) {
   if (typeof fetchImpl !== 'function') {
-    throw Object.assign(new Error('FETCH_NOT_AVAILABLE'), { code: 'FETCH_NOT_AVAILABLE' });
+    throw Object.assign(new Error('FETCH_NOT_AVAILABLE'), { code: 'FETCH_NOT_AVAILABLE', status: 503 });
   }
 
   const identities = collectIdentityCandidates(input);
@@ -145,15 +154,19 @@ async function resolveCommercialActor(input = {}, {
     }
   }
 
-  // Missing technical identity is not equivalent to a confirmed new Prospect.
+  // An absent technical identity is not evidence of a new Prospect.
   if (!normalizedPhone && !identities.length) {
-    return unavailableActor('identity_missing');
+    throw Object.assign(new Error('IDENTITY_REQUIRED'), {
+      code: 'IDENTITY_REQUIRED',
+      status: 400
+    });
   }
 
   const token = resolveConnectToken(env);
   if (!token) {
     throw Object.assign(new Error('CONNECT_INTERNAL_TOKEN_REQUIRED'), {
-      code: 'CONNECT_INTERNAL_TOKEN_REQUIRED'
+      code: 'CONNECT_INTERNAL_TOKEN_REQUIRED',
+      status: 503
     });
   }
 
@@ -205,15 +218,16 @@ async function resolveCommercialActorSafely(input, options) {
       message: error.message
     });
 
-    // Fail closed. A database, schema, timeout or CONNECT error is never evidence
-    // that the person is a Prospect.
-    return unavailableActor('identity_unavailable', error);
+    // Fail closed through the runtime. Do not continue to AI with Prospect
+    // instructions when identity authority is unavailable.
+    throw identityUnavailableError(error);
   }
 }
 
 module.exports = {
   collectIdentityCandidates,
   findPhoneInContactPayload,
+  identityUnavailableError,
   isLid,
   normalizePhone,
   resolveCommercialActor,
