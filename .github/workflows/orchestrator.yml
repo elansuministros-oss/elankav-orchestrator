@@ -2,6 +2,7 @@ name: ELANKAV Orchestrator
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches:
       - feature/OWNER-OPS-GATEWAY-READONLY-01
