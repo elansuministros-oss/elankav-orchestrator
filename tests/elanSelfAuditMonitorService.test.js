@@ -5,7 +5,9 @@ const test = require('node:test');
 const {
   compareSnapshots,
   runTrackedSelfAudit,
-  snapshotReport
+  snapshotReport,
+  startElanSelfAuditMonitor,
+  stopElanSelfAuditMonitor
 } = require('../services/elanSelfAuditMonitorService');
 
 function report(status = 'AVAILABLE') {
@@ -88,4 +90,28 @@ test('failed notification leaves previous notified baseline so the alert can ret
   assert.equal(result.notification.sent, false);
   assert.equal(result.notification.reason, 'WAHA_DOWN');
   assert.equal(saved.lastNotifiedSnapshot.capabilities['business.customer.read'].status, 'AVAILABLE');
+});
+
+test('scheduled monitor timer actually fires the tracked audit runner', async () => {
+  let runs = 0;
+  stopElanSelfAuditMonitor();
+
+  const started = startElanSelfAuditMonitor({
+    env: {
+      ELAN_SELF_AUDIT_INITIAL_DELAY_MS: '5',
+      ELAN_SELF_AUDIT_INTERVAL_MS: '1000'
+    },
+    statePath: '/tmp/not-used.json',
+    runElanSelfAuditImpl: async () => {
+      runs += 1;
+      return report('AVAILABLE');
+    },
+    loadStateImpl: async () => ({}),
+    saveStateImpl: async () => {}
+  });
+
+  assert.equal(started.started, true);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  stopElanSelfAuditMonitor();
+  assert.ok(runs >= 1, `expected scheduled audit to run at least once, got ${runs}`);
 });
