@@ -20,6 +20,7 @@ const {
   getDesignPortalWorkerState,
   startDesignPortalWorker
 } = require('./services/designPortalWorkerService');
+const { startElanSelfAuditMonitor } = require('./services/elanSelfAuditMonitorService');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -666,6 +667,7 @@ async function startServer() {
   }
 
   startDesignPortalWorker();
+  startElanSelfAuditMonitor();
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);

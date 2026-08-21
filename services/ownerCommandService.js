@@ -49,6 +49,8 @@ const {
 const {
   getCapability
 } = require('./ownerOpsCapabilityRegistry');
+const { formatElanSelfAudit } = require('./elanSelfAuditService');
+const { runTrackedSelfAudit } = require('./elanSelfAuditMonitorService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -68,6 +70,7 @@ const OWNER_COMMANDS = Object.freeze({
   MODE_SET: 'mode_set',
   MODE_PERMISSIONS: 'mode_permissions',
   LANGUAGE_LEARN: 'language_learn',
+  SELF_AUDIT: 'self_audit',
   BUSINESS_TRANSACTION: 'business_transaction'
 });
 
@@ -105,6 +108,8 @@ const INFORMATION_ONLY_PATTERN =
 const TECHNICAL_ACTION_QUERY_PATTERN =
   /\b(service\.restart|service\.logs|git\.status|file\.inspect|test\.run|reiniciar|reinicia|restart|logs|git|tests?|pruebas?|deploy|archivo|repositorio)\b/;
 
+const SELF_AUDIT_PATTERN = /\b(auditate|autoaudita|auto audita|audita tus capacidades|audita tus accesos|audita lo que puedes|audita lo que podes|revisa tus capacidades|revisa tus accesos|que te falta|que podes hacer realmente|que puedes hacer realmente|estado de tus capacidades)\b/;
+
 function normalizeCommand(value) {
   return String(value || '')
     .trim()
@@ -113,6 +118,11 @@ function normalizeCommand(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[.!?]+$/g, '')
     .replace(/\s+/g, ' ');
+}
+
+function detectElanSelfAuditCommand(normalizedMessage) {
+  if (!SELF_AUDIT_PATTERN.test(normalizedMessage)) return null;
+  return Object.freeze({ type: OWNER_COMMANDS.SELF_AUDIT });
 }
 
 function cleanOwnerLanguageLearnValue(value) {
@@ -464,6 +474,9 @@ function detectOwnerCommand(message) {
   const opsStatusCommand = detectOpsStatusCommand(message, normalized);
   if (opsStatusCommand) return opsStatusCommand;
 
+  const selfAuditCommand = detectElanSelfAuditCommand(normalized);
+  if (selfAuditCommand) return selfAuditCommand;
+
   const permissionCommand =
     detectOwnerPermissionAuditCommand(normalized);
 
@@ -547,8 +560,18 @@ function formatJobStatusResult(job) {
   ].join('\n');
 }
 
-async function executeOwnerCommand({ command, platform }) {
+async function executeOwnerCommand({ command, platform, ownerPhone = null }) {
   const type = typeof command === 'string' ? command : command?.type;
+
+  if (type === OWNER_COMMANDS.SELF_AUDIT) {
+    const tracked = await runTrackedSelfAudit({ source: 'owner-command', ownerPhone });
+    return {
+      command: type,
+      job: null,
+      outputText: formatElanSelfAudit(tracked.report),
+      selfAudit: tracked.report
+    };
+  }
 
   if (type === OWNER_COMMANDS.MODE_GET) {
     const state = await getOperatorState({ operatorId: 'owner', role: 'OWNER' });
@@ -797,6 +820,7 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectElanSelfAuditCommand,
   detectOwnerLanguageLearnCommand,
   detectOwnerModeCommand,
   detectOwnerOpsConfirmation,

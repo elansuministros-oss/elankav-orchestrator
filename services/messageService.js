@@ -372,7 +372,11 @@ async function processMessage({ message, platform, channel, externalUserId, phon
       const ownerLanguageMessage = ownerLanguageLearnCommand ? normalizedMessage : await normalizeOwnerLanguage(normalizedMessage);
       const ownerCommand = ownerLanguageLearnCommand || detectOwnerCommand(ownerLanguageMessage);
       if (ownerCommand) {
-        const commandResult = await executeOwnerCommand({ command: ownerCommand, platform: context.platform || platform || 'elankav' });
+        const commandResult = await executeOwnerCommand({
+          command: ownerCommand,
+          platform: context.platform || platform || 'elankav',
+          ownerPhone: context.phone || phone || context?.identity?.canonicalId || null
+        });
         return {
           outputText: commandResult.outputText,
           model: 'elankav-owner-command',

@@ -46,7 +46,30 @@ const CAPABILITIES = Object.freeze({
   'business.price-authorization.create': Object.freeze({ id: 'business.price-authorization.create', risk: RISK.CONFIRM_REQUIRED, description: 'Crea una excepción comercial de precio autorizada por Owner.' }),
   'business.price-authorization.revoke': Object.freeze({ id: 'business.price-authorization.revoke', risk: RISK.CONFIRM_REQUIRED, description: 'Revoca una autorización comercial de precio vigente.' }),
   'business.logistics.read': Object.freeze({ id: 'business.logistics.read', risk: RISK.READ, description: 'Consulta reglas, rutas y tarifas logísticas oficiales.' }),
-  'business.logistics.rule.write': Object.freeze({ id: 'business.logistics.rule.write', risk: RISK.LOW_RISK, description: 'Registra una regla logística proporcionada por Owner sin crear transacciones financieras.' })
+  'business.logistics.rule.write': Object.freeze({ id: 'business.logistics.rule.write', risk: RISK.LOW_RISK, description: 'Registra una regla logística proporcionada por Owner sin crear transacciones financieras.' }),
+  'business.customer.update': Object.freeze({ id: 'business.customer.update', risk: RISK.LOW_RISK, description: 'Actualiza o desactiva un cliente en la autoridad oficial.' }),
+  'business.provider.read': Object.freeze({ id: 'business.provider.read', risk: RISK.READ, description: 'Consulta proveedores oficiales mediante CONNECT.' }),
+  'business.provider.create': Object.freeze({ id: 'business.provider.create', risk: RISK.LOW_RISK, description: 'Crea un proveedor oficial mediante CONNECT.' }),
+  'business.provider.update': Object.freeze({ id: 'business.provider.update', risk: RISK.LOW_RISK, description: 'Actualiza o desactiva un proveedor oficial.' }),
+  'business.seller.read': Object.freeze({ id: 'business.seller.read', risk: RISK.READ, description: 'Consulta vendedores oficiales y sus plataformas.' }),
+  'business.seller.create': Object.freeze({ id: 'business.seller.create', risk: RISK.CONFIRM_REQUIRED, description: 'Registra un vendedor y acceso comercial.' }),
+  'business.seller.update': Object.freeze({ id: 'business.seller.update', risk: RISK.CONFIRM_REQUIRED, description: 'Actualiza o desactiva un vendedor.' }),
+  'business.seller.delete': Object.freeze({ id: 'business.seller.delete', risk: RISK.CONFIRM_REQUIRED, description: 'Elimina un vendedor cuando la política lo permite.' }),
+  'business.seller.platforms.write': Object.freeze({ id: 'business.seller.platforms.write', risk: RISK.CONFIRM_REQUIRED, description: 'Administra plataformas permitidas de un vendedor.' }),
+  'business.family.read': Object.freeze({ id: 'business.family.read', risk: RISK.READ, description: 'Consulta integrantes familiares registrados.' }),
+  'business.family.create': Object.freeze({ id: 'business.family.create', risk: RISK.CONFIRM_REQUIRED, description: 'Registra un integrante familiar.' }),
+  'business.family.update': Object.freeze({ id: 'business.family.update', risk: RISK.CONFIRM_REQUIRED, description: 'Actualiza o desactiva un integrante familiar.' }),
+  'business.contact.read': Object.freeze({ id: 'business.contact.read', risk: RISK.READ, description: 'Busca contactos oficiales en CONNECT.' }),
+  'business.price.read': Object.freeze({ id: 'business.price.read', risk: RISK.READ, description: 'Consulta catálogo y precios oficiales autorizados.' }),
+  'business.price.resolve': Object.freeze({ id: 'business.price.resolve', risk: RISK.READ, description: 'Resuelve precio oficial aplicable para una solicitud.' }),
+  'business.quotation.update': Object.freeze({ id: 'business.quotation.update', risk: RISK.LOW_RISK, description: 'Actualiza una cotización oficial.' }),
+  'business.quotation.media.update': Object.freeze({ id: 'business.quotation.media.update', risk: RISK.LOW_RISK, description: 'Administra imágenes de una cotización oficial.' }),
+  'business.payment.read': Object.freeze({ id: 'business.payment.read', risk: RISK.READ, description: 'Consulta pagos oficiales de una cotización.' }),
+  'business.design.read': Object.freeze({ id: 'business.design.read', risk: RISK.READ, description: 'Consulta estado de solicitudes de diseño.' }),
+  'business.design.create': Object.freeze({ id: 'business.design.create', risk: RISK.LOW_RISK, description: 'Crea una solicitud de diseño oficial.' }),
+  'business.design.update': Object.freeze({ id: 'business.design.update', risk: RISK.LOW_RISK, description: 'Revisa o actualiza una solicitud de diseño.' }),
+  'business.design.send-whatsapp': Object.freeze({ id: 'business.design.send-whatsapp', risk: RISK.CONFIRM_REQUIRED, description: 'Envía un diseño por WhatsApp.' }),
+  'business.whatsapp.send': Object.freeze({ id: 'business.whatsapp.send', risk: RISK.CONFIRM_REQUIRED, description: 'Envía un mensaje WhatsApp desde el gateway oficial.' })
 });
 
 function getCapability(id) {
