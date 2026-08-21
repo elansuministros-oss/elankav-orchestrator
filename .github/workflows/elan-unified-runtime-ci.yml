@@ -110,3 +110,21 @@ jobs:
           node --test \
             tests/ownerEntityCreateContinuity.test.js \
             tests/ownerProviderStructuredContinuity.test.js
+
+  owner_provider_edit:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax provider edit
+        run: |
+          node --check services/elanUnifiedOwnerCommandService.js
+          node --check test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Provider edit parser regression tests
+        run: node --test test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js
