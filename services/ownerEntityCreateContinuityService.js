@@ -7,6 +7,11 @@ const {
 
 const DEFAULT_PENDING_TTL_MS = 15 * 60 * 1000;
 const SUPPORTED_TYPES = Object.freeze(['customer', 'provider', 'family']);
+const PROVIDER_STRING_FIELDS = Object.freeze([
+  'name', 'phone', 'whatsapp', 'email', 'legalName', 'taxId', 'contactName',
+  'city', 'address', 'website', 'currency', 'notes'
+]);
+const PROVIDER_ARRAY_FIELDS = Object.freeze(['platforms', 'kinds', 'categories', 'specialties']);
 
 function normalize(value) {
   return String(value || '')
@@ -81,6 +86,98 @@ function extractRelation(value) {
   return '';
 }
 
+function labeledValue(value, labels = []) {
+  const lines = String(value || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const normalizedLine = normalize(line);
+    for (const label of labels) {
+      const prefix = `${normalize(label)}:`;
+      if (normalizedLine.startsWith(prefix)) {
+        return line.slice(line.indexOf(':') + 1).trim();
+      }
+    }
+  }
+  return '';
+}
+
+function splitList(value) {
+  return [...new Set(String(value || '')
+    .split(/[;,]/)
+    .map(item => cleanText(item, 160))
+    .filter(Boolean))];
+}
+
+function normalizeProviderPlatforms(value) {
+  const allowed = new Set(['ELANVISUAL', 'ELANHOME', 'ELANPET', 'ELANCENTER', 'ELANKAV', 'OTRA']);
+  return splitList(value)
+    .map(item => item.toUpperCase().replace(/[\s_-]+/g, ''))
+    .map(item => item === 'ELANVISUAL' ? 'ELANVISUAL'
+      : item === 'ELANHOME' ? 'ELANHOME'
+        : item === 'ELANPET' ? 'ELANPET'
+          : item === 'ELANCENTER' ? 'ELANCENTER'
+            : item === 'ELANKAV' ? 'ELANKAV'
+              : item === 'OTRA' || item === 'OTRO' ? 'OTRA' : '')
+    .filter(item => allowed.has(item));
+}
+
+function normalizeProviderKinds(value) {
+  const text = normalize(value);
+  const kinds = [];
+  if (/\b(material|materiales|producto|productos|insumo|insumos)\b/.test(text)) kinds.push('materials_products');
+  if (/\b(servicio|servicios|subcontratacion|subcontrataciones|subcontrato|subcontratos)\b/.test(text)) kinds.push('services_subcontracting');
+  return [...new Set(kinds)];
+}
+
+function providerDataFromMessage(value) {
+  const tradeName = labeledValue(value, ['empresa', 'nombre comercial', 'empresa / nombre comercial']);
+  const contactName = labeledValue(value, ['contacto', 'persona de contacto', 'atencion', 'atención']);
+  const legalName = labeledValue(value, ['razon social', 'razón social']);
+  const taxId = labeledValue(value, ['ruc', 'tax id', 'identificacion fiscal', 'identificación fiscal']);
+  const whatsappRaw = labeledValue(value, ['whatsapp', 'wasap']);
+  const phoneRaw = labeledValue(value, ['telefono', 'teléfono', 'celular']);
+  const city = labeledValue(value, ['ciudad', 'municipio']);
+  const address = labeledValue(value, ['direccion', 'dirección']);
+  const website = labeledValue(value, ['sitio web', 'web', 'website']);
+  const currencyRaw = labeledValue(value, ['moneda']);
+  const categories = splitList(labeledValue(value, ['categoria', 'categoría', 'categorias', 'categorías']));
+  const specialties = splitList(labeledValue(value, ['especialidad', 'especialidades']));
+  const platforms = normalizeProviderPlatforms(labeledValue(value, ['plataforma', 'plataformas']));
+  const kinds = normalizeProviderKinds(labeledValue(value, ['tipo', 'tipos', 'tipo de proveedor']));
+  const notes = labeledValue(value, ['observaciones', 'observacion', 'observación', 'notas', 'nota']);
+  const email = extractEmail(labeledValue(value, ['email', 'correo']) || value);
+  const whatsapp = extractPhone(whatsappRaw);
+  const phone = extractPhone(phoneRaw);
+  const currency = /\bNIO\b|c[oó]rdobas?/i.test(currencyRaw) ? 'NIO' : /\bUSD\b|d[oó]lares?/i.test(currencyRaw) ? 'USD' : '';
+
+  return {
+    ...(tradeName ? { name: cleanText(tradeName, 160) } : {}),
+    ...(contactName ? { contactName: cleanText(contactName, 160) } : {}),
+    ...(legalName ? { legalName: cleanText(legalName, 160) } : {}),
+    ...(taxId ? { taxId: cleanText(taxId, 80) } : {}),
+    ...(whatsapp ? { whatsapp } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(city ? { city: cleanText(city, 120) } : {}),
+    ...(address ? { address: cleanText(address, 240) } : {}),
+    ...(website ? { website: cleanText(website, 240) } : {}),
+    ...(currency ? { currency } : {}),
+    ...(categories.length ? { categories } : {}),
+    ...(specialties.length ? { specialties } : {}),
+    ...(platforms.length ? { platforms } : {}),
+    ...(kinds.length ? { kinds } : {}),
+    ...(notes ? { notes: cleanText(notes, 500) } : {})
+  };
+}
+
+function hasStructuredProviderData(value) {
+  const data = providerDataFromMessage(value);
+  return Boolean(
+    data.name || data.contactName || data.legalName || data.taxId || data.whatsapp || data.phone ||
+    data.city || data.address || data.website || data.currency || data.notes ||
+    data.categories?.length || data.specialties?.length || data.platforms?.length || data.kinds?.length
+  );
+}
+
 function stripKnownNoise(value) {
   let text = cleanText(value, 300);
   const phone = extractPhone(text);
@@ -138,23 +235,35 @@ function extractName(value, { allowStandalone = false } = {}) {
 }
 
 function commonDataFromMessage(value, options = {}) {
-  const name = extractName(value, options);
-  const phone = extractPhone(value);
-  const email = extractEmail(value);
+  const type = options.type || null;
+  const providerData = type === 'provider' ? providerDataFromMessage(value) : {};
+  const name = providerData.name || extractName(value, options);
+  const genericPhone = extractPhone(value);
+  const phone = providerData.phone || genericPhone;
+  const email = providerData.email || extractEmail(value);
   const relation = extractRelation(value);
   return {
     ...(name ? { name } : {}),
     ...(phone ? { phone } : {}),
     ...(email ? { email } : {}),
-    ...(relation ? { relation } : {})
+    ...(relation ? { relation } : {}),
+    ...providerData
   };
 }
 
 function mergeCommonData(current = {}, incoming = {}) {
   const next = { ...(current && typeof current === 'object' ? current : {}) };
-  for (const key of ['name', 'phone', 'email', 'relation']) {
-    const value = cleanText(incoming?.[key], key === 'name' ? 160 : 120);
+  const stringKeys = [...new Set(['name', 'phone', 'whatsapp', 'email', 'relation', ...PROVIDER_STRING_FIELDS])];
+  for (const key of stringKeys) {
+    const maxLength = key === 'notes' ? 500 : key === 'address' || key === 'website' ? 240 : key === 'name' || key === 'contactName' || key === 'legalName' ? 160 : 120;
+    const value = cleanText(incoming?.[key], maxLength);
     if (value) next[key] = value;
+  }
+  for (const key of PROVIDER_ARRAY_FIELDS) {
+    const currentValues = Array.isArray(next[key]) ? next[key] : [];
+    const incomingValues = Array.isArray(incoming?.[key]) ? incoming[key] : [];
+    const merged = [...new Set([...currentValues, ...incomingValues].map(item => cleanText(item, 160)).filter(Boolean))];
+    if (merged.length) next[key] = merged;
   }
   return next;
 }
@@ -170,9 +279,13 @@ function humanType(type) {
 function finalizeData(type, common = {}) {
   const name = cleanText(common.name, 160);
   const phone = cleanText(common.phone, 40);
+  const whatsapp = cleanText(common.whatsapp || phone, 40);
   const email = cleanText(common.email, 160);
   const relation = cleanText(common.relation, 80);
-  const contact = phone ? { phone, whatsapp: phone } : {};
+  const contact = {
+    ...(phone ? { phone } : {}),
+    ...(whatsapp ? { whatsapp } : {})
+  };
 
   if (type === 'customer') {
     return {
@@ -183,12 +296,34 @@ function finalizeData(type, common = {}) {
   }
 
   if (type === 'provider') {
+    const platforms = Array.isArray(common.platforms) && common.platforms.length ? common.platforms : ['ELANVISUAL'];
+    const kinds = Array.isArray(common.kinds) && common.kinds.length ? common.kinds : ['materials_products'];
+    const categories = Array.isArray(common.categories) ? common.categories : [];
+    const specialties = Array.isArray(common.specialties) ? common.specialties : [];
+    const legalName = cleanText(common.legalName, 160);
+    const taxId = cleanText(common.taxId, 80);
+    const contactName = cleanText(common.contactName, 160);
+    const city = cleanText(common.city, 120);
+    const address = cleanText(common.address, 240);
+    const website = cleanText(common.website, 240);
+    const currency = /^(USD|NIO)$/.test(cleanText(common.currency, 3).toUpperCase()) ? cleanText(common.currency, 3).toUpperCase() : '';
+    const notes = cleanText(common.notes, 500);
     return {
       tradeName: name,
       ...contact,
       ...(email ? { email } : {}),
-      platforms: ['ELANVISUAL'],
-      kinds: ['materials_products']
+      ...(legalName ? { legalName } : {}),
+      ...(taxId ? { taxId } : {}),
+      ...(contactName ? { contactName } : {}),
+      ...(city ? { city } : {}),
+      ...(address ? { address } : {}),
+      ...(website ? { website } : {}),
+      ...(currency ? { currency } : {}),
+      platforms,
+      kinds,
+      ...(categories.length ? { categories } : {}),
+      ...(specialties.length ? { specialties } : {}),
+      ...(notes ? { notes } : {})
     };
   }
 
@@ -260,6 +395,7 @@ function isContinuationCandidate(message, pending) {
   if (entityTypeFromText(message)) return true;
   if (hasCreateIntent(message)) return true;
   if (extractPhone(message) || extractEmail(message) || extractRelation(message)) return true;
+  if (pending?.type === 'provider' && hasStructuredProviderData(message)) return true;
   if (!pending?.data?.name && looksLikeStandaloneName(message)) return true;
   return false;
 }
@@ -270,7 +406,8 @@ async function handleOwnerEntityCreateContinuity({
   env = process.env,
   now = new Date()
 } = {}) {
-  const raw = cleanText(message, 500);
+  const originalMessage = String(message || '').trim().slice(0, 2000);
+  const raw = cleanText(originalMessage, 1000);
   if (!raw) return { handled: false };
 
   const nowDate = now instanceof Date ? now : new Date(now);
@@ -302,10 +439,13 @@ async function handleOwnerEntityCreateContinuity({
   if (!pending) {
     if (!createIntent) return { handled: false };
 
-    const initialData = commonDataFromMessage(raw, { allowStandalone: false });
+    const initialData = commonDataFromMessage(originalMessage, { allowStandalone: false, type: explicitType });
+    const structuredProviderCreate = explicitType === 'provider' && Boolean(providerDataFromMessage(originalMessage).name);
 
-    // Una orden completa ya la resuelve el parser oficial existente.
-    if (explicitType && initialData.name) return { handled: false };
+    // Una orden completa ya la resuelve el parser oficial existente. La excepción es
+    // el formato estructurado de proveedor (por ejemplo, "Empresa:"), que antes no
+    // reconocía el parser canónico y ahora entra por la misma herramienta oficial.
+    if (explicitType && initialData.name && !structuredProviderCreate) return { handled: false };
 
     // No secuestrar órdenes genéricas sin ningún dato de persona/empresa.
     if (!explicitType && !initialData.name && !initialData.phone && !initialData.email) {
@@ -324,11 +464,11 @@ async function handleOwnerEntityCreateContinuity({
     return { handled: true, pending, reply: promptForPending(pending) };
   }
 
-  if (!isContinuationCandidate(raw, pending)) return { handled: false };
+  if (!isContinuationCandidate(originalMessage, pending)) return { handled: false };
 
   const nextType = explicitType || pending.type || null;
   const allowStandalone = !pending?.data?.name;
-  const incoming = commonDataFromMessage(raw, { allowStandalone });
+  const incoming = commonDataFromMessage(originalMessage, { allowStandalone, type: nextType });
   const nextData = mergeCommonData(pending.data, incoming);
 
   pending = await savePending({
@@ -370,6 +510,7 @@ module.exports = {
   extractEmail,
   extractRelation,
   extractName,
+  providerDataFromMessage,
   commonDataFromMessage,
   mergeCommonData,
   finalizeData,
