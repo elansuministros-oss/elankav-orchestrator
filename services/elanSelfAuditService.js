@@ -259,6 +259,7 @@ async function runElanSelfAudit(options = {}) {
 function formatElanSelfAudit(report) {
   const summary = report?.summary || {};
   const diagnostics = report?.diagnostics || {};
+  const roleAccess = report?.roleAccess || {};
   const problems = (report?.capabilities || [])
     .filter((item) => item.status === STATUS.UNAVAILABLE || item.status === STATUS.DEGRADED)
     .slice(0, 12);
@@ -281,6 +282,14 @@ function formatElanSelfAudit(report) {
     `Registro de capacidades: ${diagnostics.registryComplete === false ? 'INCOMPLETO' : 'COMPLETO'}${diagnostics.registryGapCount ? ` (${diagnostics.registryGapCount} gaps)` : ''}`,
     `Clientes visibles: ${diagnostics.customerCount == null ? 'no disponible' : diagnostics.customerCount}`,
     `Cotizaciones visibles: ${diagnostics.quotationCount == null ? 'no disponible' : diagnostics.quotationCount}`,
+    '',
+    'MATRIZ DE ACCESO',
+    `Owner: ${Array.isArray(roleAccess.owner) ? roleAccess.owner.join(', ') : 'no disponible'}`,
+    `Seller: ${Array.isArray(roleAccess.seller) ? roleAccess.seller.length : 0} scopes`,
+    `Customer: ${Array.isArray(roleAccess.customer) ? roleAccess.customer.length : 0} scopes`,
+    `Provider: ${Array.isArray(roleAccess.provider) ? roleAccess.provider.length : 0} scopes`,
+    `Family: ${Array.isArray(roleAccess.family) ? roleAccess.family.length : 0} scopes`,
+    `Prospect: ${Array.isArray(roleAccess.prospect) ? roleAccess.prospect.length : 0} scopes`,
     '',
     'PENDIENTES / FALLAS',
     ...(problems.length
