@@ -108,6 +108,14 @@ async function testOpenAIConnection() {
   }
 }
 
+function verifiedActorValue(value, maxLength = 160) {
+  return String(value || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
 function buildContextInstructions(context) {
   if (!context || typeof context !== 'object') return '';
 
@@ -118,6 +126,39 @@ function buildContextInstructions(context) {
   if (context.ownerMode) {
     lines.push('ownerMode=true.');
     lines.push(`Identidad del remitente: ${context.ownerName || 'Erick Cano'}, propietario del ecosistema ELANKAV.`);
+  }
+
+  const actor = context.actor && typeof context.actor === 'object'
+    ? context.actor
+    : null;
+
+  if (actor) {
+    const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
+    const actorName = verifiedActorValue(actor.displayName, 160);
+    const actorAuthority = verifiedActorValue(actor.authority, 80);
+    const actorRegistered = actor.registered === true;
+
+    if (actorRole) {
+      lines.push(`Rol comercial verificado por CONNECT: ${actorRole}.`);
+    }
+
+    if (actorName) {
+      lines.push(`Nombre verificado del remitente: ${actorName}.`);
+    }
+
+    if (actorRegistered) {
+      lines.push('El remitente está registrado oficialmente en la autoridad comercial correspondiente.');
+    }
+
+    if (actorAuthority) {
+      lines.push(`Autoridad de identidad verificada: ${actorAuthority}.`);
+    }
+
+    if (actorName && actorRole && actorRegistered) {
+      lines.push(
+        `Si el remitente pregunta quién es, cómo está registrado, qué rol tiene, o activa ELAN, identificalo explícitamente como ${actorName} con rol ${actorRole} y hablale por su nombre de manera natural. No respondas únicamente con una etiqueta genérica como “vendedor interno” cuando existe un nombre verificado.`
+      );
+    }
   }
 
   if (context.externalUserId) lines.push(`externalUserId=${context.externalUserId}.`);
@@ -196,5 +237,6 @@ module.exports = {
   testOpenAIConnection,
   buildContextInstructions,
   resolveOfficialPlatformFacts,
+  verifiedActorValue,
   generateText
 };
