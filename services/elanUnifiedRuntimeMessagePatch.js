@@ -10,6 +10,10 @@ const {
 } = require('./elanUnifiedRuntimeService');
 const { installOwnerBusinessProcessMessageGateway } = require('./ownerBusinessProcessMessageGateway');
 const { detectOwnerUnifiedCommand, executeOwnerUnifiedCommand } = require('./elanUnifiedOwnerCommandService');
+const {
+  handleOwnerEntityCreateContinuity,
+  clearPendingEntityCreate
+} = require('./ownerEntityCreateContinuityService');
 
 const INSTALL_MARK = Symbol.for('elankav.elanUnifiedRuntimeMessagePatch.installed');
 
@@ -89,6 +93,20 @@ async function executeGenericOwnerCommand({command,context,args}){
   catch(error){console.error('[ELAN_UNIFIED_OWNER_COMMAND_FAILED]',{code:error?.code||null,message:error?.message||null});return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude completar la operación en CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No hice cambios alternativos.`,command:command?.tool||'elan_unified_runtime'})}
 }
 
+async function executeEntityCreateContinuity({continuity,context,args}){
+  if(!continuity?.handled)return null;
+  if(!continuity.command){return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:continuity.reply||'Necesito un dato adicional para completar el registro.',command:'owner_entity_create_continuity'})}
+  try{
+    const outcome=await executeOwnerUnifiedCommand({command:continuity.command,actor:ownerActor(context,args),channel:channelOf(context,args)});
+    if(!outcome?.handled){const error=new Error('La operación pendiente no fue ejecutada por el runtime oficial.');error.code='OWNER_ENTITY_CREATE_CONTINUITY_NOT_EXECUTED';throw error}
+    if(continuity.clearOnSuccess)await clearPendingEntityCreate();
+    return runtimeResult({args,context,execution:outcome.execution||{actor:ownerActor(context,args),version:'1.0.0'},reply:outcome.reply,command:outcome.tool||continuity.command.tool||'owner_entity_create_continuity'});
+  }catch(error){
+    console.error('[OWNER_ENTITY_CREATE_CONTINUITY_FAILED]',{code:error?.code||null,message:error?.message||null,tool:continuity.command?.tool||null});
+    return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude completar el registro en CONNECT. Error: ${error?.code||'OWNER_ENTITY_CREATE_CONTINUITY_FAILED'}. Conservé los datos pendientes para que puedas corregirlos o cancelar.`,command:continuity.command?.tool||'owner_entity_create_continuity'});
+  }
+}
+
 function installElanUnifiedRuntimeMessagePatch(messageService=require('./messageService')){
   installOwnerBusinessProcessMessageGateway(messageService);if(!messageService||typeof messageService.processMessage!=='function')throw new TypeError('messageService.processMessage no está disponible');if(messageService[INSTALL_MARK])return messageService.processMessage;
   const originalProcessMessage=messageService.processMessage;
@@ -102,10 +120,15 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
     let intent=detectAuthorizedPriceLookup(args.message);let measureFollowUp=false;if(!intent&&detectPriceMeasureFollowUp(args.message)){try{intent=await recoverPreviousPriceIntent({context,args});measureFollowUp=Boolean(intent)}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_MEMORY_LOOKUP_FAILED]',{code:error?.code||null,message:error?.message||null})}}
     if(intent){let result;try{const execution=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:intent.tool,arguments:intent.arguments});const reply=measureFollowUp?formatMeasureFollowUp(execution):formatAuthorizedPriceResult(execution);console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]',{channel:'whatsapp',tool:intent.tool,status:execution?.result?.status||'OK',followUp:measureFollowUp});result=runtimeResult({args,context,execution,reply,command:intent.tool})}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_FAILED]',{channel:'whatsapp',tool:intent.tool,code:error?.code||null});result=runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude consultar la autoridad comercial de CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No voy a inventar un precio.`,command:intent.tool})}await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
 
+    try{
+      const continuity=await handleOwnerEntityCreateContinuity({message:args.message,actorKey:context?.phone||args?.phone||context?.externalUserId||args?.externalUserId||''});
+      if(continuity?.handled){const result=await executeEntityCreateContinuity({continuity,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
+    }catch(error){console.error('[OWNER_ENTITY_CREATE_CONTINUITY_STATE_FAILED]',{code:error?.code||null,message:error?.message||null})}
+
     const unifiedCommand=detectOwnerUnifiedCommand(args.message);if(unifiedCommand){const result=await executeGenericOwnerCommand({command:unifiedCommand,context,args});if(result){await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}}
     const result=await originalProcessMessage(args);if(result?.reply&&result?.suppressDelivery!==true)await persistOwnerTurn({context,args,direction:'outbound',text:result.reply,externalMessageId:result.responseId?`elan:${result.responseId}`:null});return result;
   };
-  Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete'});return messageService.processMessage;
+  Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete',entityCreateContinuity:true});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,installElanUnifiedRuntimeMessagePatch};
+module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch};
