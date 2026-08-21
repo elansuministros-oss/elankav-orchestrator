@@ -1,0 +1,44 @@
+name: ELAN Self-Audit Final QA
+
+on:
+  push:
+    branches:
+      - feature/ELAN-SELF-AUDIT-VALIDATION-01
+    paths:
+      - '.github/workflows/self-audit-final-qa.yml'
+      - 'services/elanSelfAuditService.js'
+      - 'services/elanSelfAuditMonitorService.js'
+      - 'tests/elanSelfAuditService.test.js'
+      - 'tests/elanSelfAuditMonitorService.test.js'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Syntax
+        run: |
+          node --check services/elanSelfAuditService.js
+          node --check services/elanSelfAuditMonitorService.js
+      - name: Self-Audit suite
+        run: |
+          node --test \
+            tests/elanSelfAuditService.test.js \
+            tests/elanSelfAuditMonitorService.test.js \
+            tests/elanSelfAuditOwnerCommand.test.js
+      - name: Identity regression
+        run: node --test tests/connectActorIdentityFailClosed.test.js
+      - name: Owner regression
+        run: |
+          node --test \
+            test/ownerOpsCommandRouting.test.js \
+            test/ownerOpsReadService.test.js \
+            test/ownerOpsConfirmation.test.js \
+            test/ownerOpsAudit.test.js \
+            tests/ownerBusinessModesPricingLogistics.test.js
