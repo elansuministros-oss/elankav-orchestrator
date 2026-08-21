@@ -81,6 +81,24 @@ function findPhoneInContactPayload(value, depth = 0) {
   return '';
 }
 
+function unavailableActor(authority, error = null) {
+  return {
+    resolutionStatus: 'unavailable',
+    role: 'unavailable',
+    registered: false,
+    actorId: null,
+    sellerId: null,
+    customerId: null,
+    providerId: null,
+    familyId: null,
+    prospectId: null,
+    scopes: [],
+    platformAllowed: false,
+    authority,
+    errorCode: error?.code || null
+  };
+}
+
 async function resolvePhoneFromWahaIdentity(identity, {
   fetchImpl = globalThis.fetch,
   env = process.env
@@ -127,18 +145,9 @@ async function resolveCommercialActor(input = {}, {
     }
   }
 
+  // Missing technical identity is not equivalent to a confirmed new Prospect.
   if (!normalizedPhone && !identities.length) {
-    return {
-      role: 'prospect',
-      registered: false,
-      actorId: null,
-      sellerId: null,
-      customerId: null,
-      providerId: null,
-      prospectId: null,
-      scopes: ['price.read', 'quotation.formal.request_owner'],
-      authority: 'identity_missing'
-    };
+    return unavailableActor('identity_missing');
   }
 
   const token = resolveConnectToken(env);
@@ -176,7 +185,14 @@ async function resolveCommercialActor(input = {}, {
     throw error;
   }
 
-  return payload.data;
+  const actor = payload.data;
+  const inferredStatus = actor.resolutionStatus ||
+    (actor.role === 'prospect' && actor.registered !== true ? 'not_found' : 'resolved');
+
+  return {
+    ...actor,
+    resolutionStatus: inferredStatus
+  };
 }
 
 async function resolveCommercialActorSafely(input, options) {
@@ -189,17 +205,9 @@ async function resolveCommercialActorSafely(input, options) {
       message: error.message
     });
 
-    return {
-      role: 'prospect',
-      registered: false,
-      actorId: null,
-      sellerId: null,
-      customerId: null,
-      providerId: null,
-      prospectId: null,
-      scopes: ['price.read', 'quotation.formal.request_owner'],
-      authority: 'safe_fallback'
-    };
+    // Fail closed. A database, schema, timeout or CONNECT error is never evidence
+    // that the person is a Prospect.
+    return unavailableActor('identity_unavailable', error);
   }
 }
 
@@ -211,5 +219,6 @@ module.exports = {
   resolveCommercialActor,
   resolveCommercialActorSafely,
   resolvePhoneFromWahaIdentity,
-  scalarPhone
+  scalarPhone,
+  unavailableActor
 };
