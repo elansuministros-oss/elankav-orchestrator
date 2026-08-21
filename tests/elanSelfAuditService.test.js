@@ -104,6 +104,13 @@ test('self-audit output tells Owner exactly what is verified and what still lack
   assert.match(output, /Vendedores: AVAILABLE \(7\)/);
   assert.match(output, /Familia: AVAILABLE \(1\)/);
   assert.match(output, /Registro de capacidades: COMPLETO/);
+  assert.match(output, /MATRIZ DE ACCESO/);
+  assert.match(output, /Owner: \*/);
+  assert.match(output, /Seller: 10 scopes/);
+  assert.match(output, /Customer: 6 scopes/);
+  assert.match(output, /Provider: 3 scopes/);
+  assert.match(output, /Family: 5 scopes/);
+  assert.match(output, /Prospect: 3 scopes/);
   assert.match(output, /business\.customer\.create: DEGRADED — SAFE_DRY_RUN_PROBE_REQUIRED/);
   assert.match(output, /Escrituras ejecutadas: NO/);
   assert.match(output, /Secretos expuestos: NO/);
