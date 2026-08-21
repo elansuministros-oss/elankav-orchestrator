@@ -1,0 +1,37 @@
+name: Apply ELAN Self-Audit Integration
+
+on:
+  push:
+    branches:
+      - feature/ELAN-SELF-AUDIT-VALIDATION-01
+    paths:
+      - 'scripts/apply-elan-self-audit-integration.mjs'
+      - '.github/workflows/self-audit-integration-apply.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/ELAN-SELF-AUDIT-VALIDATION-01
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply controlled integration patch
+        run: node scripts/apply-elan-self-audit-integration.mjs
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "No integration changes pending"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/ownerCommandService.js services/messageService.js services/ownerOpsCapabilityRegistry.js services/elanSelfAuditService.js server.js
+          git commit -m "feat(self-audit): wire owner command monitor and registry coverage"
+          git push origin HEAD:feature/ELAN-SELF-AUDIT-VALIDATION-01
