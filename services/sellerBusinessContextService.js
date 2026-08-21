@@ -12,7 +12,9 @@ const ALLOWED_KEYS = new Set([
   'activeProjectId',
   'lastQuotationTotalUsd',
   'lastEntityType',
-  'lastEntityId'
+  'lastEntityId',
+  'pendingQuotation',
+  'pendingQuotationCustomer'
 ]);
 
 function cleanSellerId(value) {
