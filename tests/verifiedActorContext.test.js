@@ -7,7 +7,6 @@ const {
   buildContextInstructions,
   verifiedActorValue,
   detectVerifiedIdentityQuestion,
-  detectVerifiedActivationRequest,
   buildVerifiedActorDirectResponse,
   generateText
 } = require('../services/openaiService');
@@ -75,13 +74,6 @@ test('identity question detector understands natural Spanish variants', () => {
   assert.equal(detectVerifiedIdentityQuestion('quiero una cotización'), false);
 });
 
-test('activation detector only captures explicit ELAN activation commands', () => {
-  assert.equal(detectVerifiedActivationRequest('Elan actívate'), true);
-  assert.equal(detectVerifiedActivationRequest('activa ELAN'), true);
-  assert.equal(detectVerifiedActivationRequest('activar'), true);
-  assert.equal(detectVerifiedActivationRequest('activa la cotización'), false);
-});
-
 test('verified seller who-am-I answer is deterministic and personal', () => {
   const output = buildVerifiedActorDirectResponse({
     input: 'ELAN, ¿quién soy?',
@@ -94,14 +86,15 @@ test('verified seller who-am-I answer is deterministic and personal', () => {
   assert.doesNotMatch(output, /technical-id-must-not-be-rendered/);
 });
 
-test('verified seller activation is deterministic and personal', () => {
-  const output = buildVerifiedActorDirectResponse({
-    input: 'Elan activate',
-    context: valentinaContext
-  });
+test('ELAN short activation alias is not faked by identity response path', () => {
+  for (const input of ['ELAN actívate', 'Actívate ELAN', 'ELAN activa']) {
+    const output = buildVerifiedActorDirectResponse({
+      input,
+      context: valentinaContext
+    });
 
-  assert.match(output, /ELAN activada para VALENTINA YAHOSCA RAMOS MENA/i);
-  assert.match(output, /vendedor interno/i);
+    assert.equal(output, null, input);
+  }
 });
 
 test('unregistered actor never receives a verified identity response', () => {
@@ -120,7 +113,7 @@ test('unregistered actor never receives a verified identity response', () => {
   assert.equal(output, null);
 });
 
-test('generateText bypasses the model for verified identity questions', async () => {
+test('generateText bypasses the model only for verified identity questions', async () => {
   const result = await generateText({
     input: 'ELAN, ¿quién soy?',
     instructions: 'irrelevante',

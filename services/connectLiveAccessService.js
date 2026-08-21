@@ -4,11 +4,26 @@ const { resolveConnectToken, resolveConnectUrl } = require('./connectConversatio
 
 function clean(value) { return String(value || '').trim(); }
 
-function isLiveModeRequest(text) {
-  const normalized = clean(text)
+function normalizeLiveIntent(value) {
+  return clean(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isLiveModeRequest(text) {
+  const normalized = normalizeLiveIntent(text);
+  if (!normalized) return false;
+
+  // Alias corto oficial solicitado para activar el Copiloto real.
+  // Debe pasar por requestLiveSession(); nunca significa solo una respuesta textual.
+  if (/^(?:elan\s+(?:activate|activa|activame)|(?:activate|activa|activame)\s+elan)$/.test(normalized)) {
+    return true;
+  }
+
   return /(?:elan\s*)?(?:activa(?:te)?|abre|abrime|inicia|entrar|dame acceso).*(?:modo\s*)?(?:copiloto|piloto|live)/.test(normalized) ||
     /^(?:elan\s*)?(?:modo\s*)?(?:copiloto|piloto|elan live|live)$/.test(normalized);
 }
@@ -47,4 +62,4 @@ async function requestLiveSession({ phone, externalUserId, platform = 'ELANVISUA
   return payload.data;
 }
 
-module.exports = { isLiveModeRequest, requestLiveSession };
+module.exports = { normalizeLiveIntent, isLiveModeRequest, requestLiveSession };
