@@ -116,6 +116,69 @@ function verifiedActorValue(value, maxLength = 160) {
     .slice(0, maxLength);
 }
 
+function normalizeIntentText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s?¿!¡]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectVerifiedIdentityQuestion(input) {
+  const text = normalizeIntentText(input);
+  if (!text) return false;
+
+  return /(?:^|\s)(?:quien soy|sabes quien soy|sabes quien soy yo|decime quien soy|dime quien soy|como estoy registrado|como estoy registrada|que rol tengo|cual es mi rol|me reconoces)(?:\s|[?¿!¡]|$)/i.test(text);
+}
+
+function detectVerifiedActivationRequest(input) {
+  const text = normalizeIntentText(input);
+  if (!text) return false;
+
+  return /^(?:elan\s+)?(?:activate|activa|activame|activar)(?:\s+elan)?[?¿!¡]*$/i.test(text);
+}
+
+function verifiedRoleLabel(role) {
+  const normalizedRole = verifiedActorValue(role, 40).toLowerCase();
+  const labels = {
+    seller: 'vendedor interno',
+    provider: 'proveedor registrado',
+    customer: 'cliente registrado',
+    family: 'miembro autorizado de familia'
+  };
+
+  return labels[normalizedRole] || normalizedRole || 'usuario registrado';
+}
+
+function buildVerifiedActorDirectResponse({ input, context } = {}) {
+  const actor = context?.actor && typeof context.actor === 'object'
+    ? context.actor
+    : null;
+
+  if (!actor || actor.registered !== true) return null;
+
+  const actorName = verifiedActorValue(actor.displayName, 160);
+  const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
+
+  if (!actorName || !actorRole) return null;
+
+  const identityQuestion = detectVerifiedIdentityQuestion(input);
+  const activationRequest = detectVerifiedActivationRequest(input);
+
+  if (!identityQuestion && !activationRequest) return null;
+
+  const platform = verifiedActorValue(context?.platform || 'ELANVISUAL', 80).toUpperCase();
+  const roleLabel = verifiedRoleLabel(actorRole);
+
+  if (activationRequest) {
+    return `✅ ELAN activada para ${actorName}. Te reconozco como ${roleLabel} de ${platform}. Voy a trabajar con los permisos asociados a tu cuenta y con tus registros autorizados. ¿Qué querés hacer ahora?`;
+  }
+
+  return `Sos ${actorName}. Te tengo registrado en ${platform} con rol de ${roleLabel}. Tu identidad está verificada y voy a trabajar con los permisos asociados a tu cuenta.`;
+}
+
 function buildContextInstructions(context) {
   if (!context || typeof context !== 'object') return '';
 
@@ -156,7 +219,7 @@ function buildContextInstructions(context) {
 
     if (actorName && actorRole && actorRegistered) {
       lines.push(
-        `Si el remitente pregunta quién es, cómo está registrado, qué rol tiene, o activa ELAN, identificalo explícitamente como ${actorName} con rol ${actorRole} y hablale por su nombre de manera natural. No respondas únicamente con una etiqueta genérica como “vendedor interno” cuando existe un nombre verificado.`
+        `En conversaciones normales, tratá al remitente explícitamente como ${actorName} con rol ${actorRole} cuando sea relevante. No respondas únicamente con una etiqueta genérica como “vendedor interno” cuando existe un nombre verificado.`
       );
     }
   }
@@ -219,6 +282,18 @@ function buildContextInstructions(context) {
 }
 
 async function generateText({ input, instructions, context, history }) {
+  const verifiedActorResponse = buildVerifiedActorDirectResponse({ input, context });
+
+  if (verifiedActorResponse) {
+    return {
+      outputText: verifiedActorResponse,
+      model: 'elankav-verified-actor',
+      id: null,
+      status: 'completed',
+      usage: null
+    };
+  }
+
   const contextInstructions = buildContextInstructions(context);
   const resolvedInstructions = [instructions, contextInstructions]
     .filter(value => typeof value === 'string' && value.trim())
@@ -238,5 +313,10 @@ module.exports = {
   buildContextInstructions,
   resolveOfficialPlatformFacts,
   verifiedActorValue,
+  normalizeIntentText,
+  detectVerifiedIdentityQuestion,
+  detectVerifiedActivationRequest,
+  verifiedRoleLabel,
+  buildVerifiedActorDirectResponse,
   generateText
 };
