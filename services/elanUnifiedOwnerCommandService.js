@@ -48,8 +48,41 @@ function createData(type,message){
 function explicitNewName(message){const raw=String(message||'');const match=raw.match(/(?:cambia|cambiar|cambiale|actualiza|actualizar|edita|editar|modifica|modificar)?\s*(?:el\s+)?nombre\s+(?:a|por)\s+(.+?)(?=\s+(?:y\s+)?(?:el\s+)?(?:whatsapp|wasap|telefono|teléfono|celular|email|correo|direccion|dirección|ciudad|relacion|relación|parentesco|zona)\b|[,;]|$)/i);return match?.[1]?.trim()||''}
 function explicitPhone(message){return explicitNaturalPhone(message)||String(message||'').match(/(?:cambia|cambiar|cambiale|actualiza|actualizar|edita|editar|modifica|modificar)?\s*(?:el\s+)?(?:telefono|teléfono|celular)\s+(?:a|por|en)?\s*[:=]?\s*([+\d][\d\s-]{6,})/i)?.[1]?.trim()||''}
 function explicitWhatsApp(message){return explicitNaturalWhatsApp(message)||String(message||'').match(/(?:cambia|cambiar|cambiale|actualiza|actualizar|edita|editar|modifica|modificar)?\s*(?:el\s+)?(?:whatsapp|wasap)\s+(?:a|por|en)?\s*[:=]?\s*([+\d][\d\s-]{6,})/i)?.[1]?.trim()||''}
-function patchData(type,message){const data={};const whatsapp=explicitWhatsApp(message)||cleanMutationValue(field(message,['whatsapp','wasap','celular']));if(whatsapp)data.whatsapp=whatsapp;const phone=explicitPhone(message)||cleanMutationValue(field(message,['telefono','teléfono']));if(phone)data.phone=phone;const email=cleanMutationValue(field(message,['email','correo']));if(email)data.email=email;const name=explicitNewName(message)||cleanMutationValue(field(message,['nuevo nombre']));if(name){if(type==='customer')data.name=name;if(type==='provider')data.tradeName=name;if(type==='seller'||type==='family')data.displayName=name}const address=cleanMutationValue(field(message,['direccion','dirección']));if(address&&(type==='customer'||type==='provider'))data.address=address;const city=cleanMutationValue(field(message,['ciudad']));if(city&&(type==='customer'||type==='provider'))data.city=city;const relation=cleanMutationValue(field(message,['relacion','relación','parentesco']));if(relation&&type==='family')data.relation=relation;const zone=cleanMutationValue(field(message,['zona']));if(zone&&type==='seller')data.zone=zone;return data}
-function targetFromMutation(message,type){const raw=String(message||'');const match=raw.match(new RegExp(`\\b${entityPattern(type)}\\b\\s+(.+?)(?=\\s+(?:cambia|cambiar|cambiale|actualiza|actualizar|edita|editar|modifica|modificar)\\b|\\s+(?:whatsapp|wasap|telefono|teléfono|celular|email|correo|nuevo nombre|nombre|direccion|dirección|ciudad|relacion|relación|parentesco|zona)\\s*[:=]?|[,;]|$)`,'i'));return cleanHumanName(match?.[1]||'')}
+function structuredValues(value){return String(value||'').split(/[;,]/).map(item=>item.trim()).filter(Boolean)}
+function providerKinds(value){const text=normalize(value);const kinds=[];if(/\b(material|materiales|producto|productos)\b/.test(text))kinds.push('materials_products');if(/\b(servicio|servicios|subcontrata|subcontratacion|subcontratación)\b/.test(text))kinds.push('services_subcontracting');return kinds}
+function patchData(type,message){
+  const data={};
+  const combinedPhone=cleanMutationValue(field(message,['whatsapp / telefono','whatsapp / teléfono','whatsapp/telefono','whatsapp/teléfono']));
+  const whatsapp=combinedPhone||explicitWhatsApp(message)||cleanMutationValue(field(message,['whatsapp','wasap','celular']));if(whatsapp)data.whatsapp=whatsapp;
+  const phone=combinedPhone||explicitPhone(message)||cleanMutationValue(field(message,['telefono','teléfono']));if(phone)data.phone=phone;
+  const email=cleanMutationValue(field(message,['email','correo']));if(email)data.email=email;
+  const name=explicitNewName(message)||cleanMutationValue(field(message,['nuevo nombre']));if(name){if(type==='customer')data.name=name;if(type==='provider')data.tradeName=name;if(type==='seller'||type==='family')data.displayName=name}
+  const address=cleanMutationValue(field(message,['direccion','dirección']));if(address&&(type==='customer'||type==='provider'))data.address=address;
+  const city=cleanMutationValue(field(message,['ciudad']));if(city&&(type==='customer'||type==='provider'))data.city=city;
+  if(type==='provider'){
+    const contactName=cleanMutationValue(field(message,['contacto','persona de contacto']));if(contactName)data.contactName=contactName;
+    const country=cleanMutationValue(field(message,['pais','país']));if(country)data.country=country;
+    const platformsRaw=cleanMutationValue(field(message,['plataforma','plataformas']));if(platformsRaw){const platforms=structuredValues(platformsRaw).map(value=>value.toUpperCase());if(platforms.length)data.platforms=platforms;}
+    const kindsRaw=cleanMutationValue(field(message,['tipo','tipos']));if(kindsRaw){const kinds=providerKinds(kindsRaw);if(kinds.length)data.kinds=kinds;}
+    const categoryRaw=cleanMutationValue(field(message,['categoria','categoría','categorias','categorías']));if(categoryRaw)data.categories=String(categoryRaw).split(';').map(value=>value.trim()).filter(Boolean);
+    const specialtiesRaw=cleanMutationValue(field(message,['especialidad','especialidades']));if(specialtiesRaw){const specialties=structuredValues(specialtiesRaw);if(specialties.length)data.specialties=specialties;}
+  }
+  const relation=cleanMutationValue(field(message,['relacion','relación','parentesco']));if(relation&&type==='family')data.relation=relation;
+  const zone=cleanMutationValue(field(message,['zona']));if(zone&&type==='seller')data.zone=zone;
+  return data
+}
+function targetFromMutation(message,type){
+  const raw=String(message||'');
+  const firstLine=raw.split(/\r?\n/).map(line=>line.trim()).find(Boolean)||'';
+  const entity=entityPattern(type);
+  const direct=firstLine.match(new RegExp(`\\b(?:edita|editar|actualiza|actualizar|cambia|cambiar|modifica|modificar)\\s+(?:al\\s+|el\\s+|la\\s+)?${entity}\\b\\s+(.+)$`,'i'));
+  if(direct?.[1]){
+    const target=direct[1].split(/(?:\\s+(?=(?:contacto|persona\\s+de\\s+contacto|whatsapp|wasap|telefono|teléfono|celular|email|correo|nuevo\\s+nombre|nombre|direccion|dirección|ciudad|pais|país|plataforma|plataformas|tipo|tipos|categoria|categoría|categorias|categorías|especialidad|especialidades)\\s*[:=]?)|[,;])/i)[0].replace(/[.!?]+$/g,'').trim();
+    if(target)return cleanHumanName(target);
+  }
+  const match=firstLine.match(new RegExp(`\\b${entity}\\b\\s+(.+?)(?=\\s+(?:cambia|cambiar|cambiale|actualiza|actualizar|edita|editar|modifica|modificar)\\b|\\s+(?:whatsapp|wasap|telefono|teléfono|celular|email|correo|nuevo nombre|nombre|direccion|dirección|ciudad|relacion|relación|parentesco|zona|contacto|pais|país|plataforma|plataformas|tipo|tipos|categoria|categoría|categorias|categorías|especialidad|especialidades)\\s*[:=]?|[,;]|$)`,'i'));
+  return cleanHumanName((match?.[1]||'').replace(/[.!?]+$/g,'').trim())
+}
 
 function detectMessageCommand(message){const raw=String(message||'').trim();const match=raw.match(/^(?:elan[\s,:-]+)?(?:escribile|escribele|mandale\s+(?:un\s+)?mensaje|enviale\s+(?:un\s+)?mensaje|decile)\s+(?:a\s+)?(.+?)\s+(?:que|:)[\s]+(.+)$/i);if(!match)return null;const recipientRaw=match[1].trim();const text=match[2].trim();const type=entityType(recipientRaw);const query=recipientRaw.replace(/\b(cliente|proveedor|provedor|vendedor|vendedora|familiar|familia)\b/ig,'').trim();return{tool:'enviar_mensaje_whatsapp',arguments:{...(type?{recipientType:type}:{}),query:query||recipientRaw,text}}}
 function detectDesignStatusCommand(message){const raw=String(message||'').trim();const code=raw.match(/\b(DESIGN-[A-Z0-9-]+)\b/i)?.[1];if(!code)return null;const text=normalize(raw);if(!/\b(consulta|consultar|consultame|consulta|estado|verifica|verificar|verificame)\b/.test(text)&&!/(como\s+va|como\s+esta)/.test(text))return null;return{tool:'consultar_propuesta_diseno',arguments:{requestCode:code.toUpperCase()},ownerStatusLookup:true}}
