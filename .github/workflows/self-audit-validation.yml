@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/ELAN-SELF-AUDIT-VALIDATION-01
+  pull_request:
+    branches:
+      - fix/UNIFIED-ACTOR-CONTEXT-FASE-1-3-01
 
 jobs:
   validate:
