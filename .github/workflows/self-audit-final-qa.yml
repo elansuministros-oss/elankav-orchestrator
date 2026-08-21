@@ -10,6 +10,9 @@ on:
       - 'services/elanSelfAuditMonitorService.js'
       - 'tests/elanSelfAuditService.test.js'
       - 'tests/elanSelfAuditMonitorService.test.js'
+  pull_request:
+    branches:
+      - fix/UNIFIED-ACTOR-CONTEXT-FASE-1-3-01
 
 jobs:
   validate:
