@@ -56,8 +56,17 @@ create index if not exists idx_elankav_customer_payments_customer
 create index if not exists idx_elankav_customer_payments_status
   on public.elankav_customer_payments(status, paid_at desc);
 
+alter table public.elankav_customer_payments enable row level security;
+
+revoke all on table public.elankav_customer_payments
+  from anon, authenticated;
+
+grant select, insert, update, delete
+  on table public.elankav_customer_payments
+  to service_role;
+
 -- La reserva transaccional del número REC se agregará al activar esta migración,
 -- siguiendo el mismo patrón utilizado por el número de proyecto.
--- RLS y permisos se definirán en una migración separada con identidades confirmadas.
+-- No se crean políticas para anon/authenticated: toda operación debe pasar por el Orchestrator.
 
 commit;
