@@ -107,6 +107,9 @@ export function createQuoteProject(input = {}) {
       images: Array.isArray(input.project?.images) ? [...input.project.images] : []
     },
     relations: {
+      ...(input.relations && typeof input.relations === 'object' && !Array.isArray(input.relations)
+        ? input.relations
+        : {}),
       customerId: input.relations?.customerId || '',
       executiveId: input.relations?.executiveId || '',
       designRequestId: input.relations?.designRequestId || '',

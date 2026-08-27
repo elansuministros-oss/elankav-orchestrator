@@ -3,7 +3,6 @@
 const crypto = require('node:crypto');
 const { SupabaseStorageAdapter } = require('../../adapters/storage/supabaseStorageAdapter');
 
-const DEFAULT_BUCKET = 'quotation-assets';
 const DEFAULT_EXPIRES_IN = 3600;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MIME_EXTENSIONS = Object.freeze({
@@ -45,10 +44,21 @@ function buildAssetPath({ platformId, itemId, extension, now = new Date(), id = 
   return `${safeSegment(platformId, 'ELANVISUAL').toUpperCase()}/quotation-assets/${year}/${month}/${safeSegment(itemId, 'item')}/${safeSegment(id)}.${extension}`;
 }
 
+function resolveVqsAssetBucket({ bucket, env = process.env } = {}) {
+  const configured = String(bucket ?? env.VQS_ASSET_BUCKET ?? '').trim();
+  if (configured) return configured;
+
+  const error = new Error('VQS_ASSET_BUCKET es obligatorio para subir imagenes de cotizacion');
+  error.code = 'VQS_ASSET_BUCKET_REQUIRED';
+  error.statusCode = 503;
+  throw error;
+}
+
 class QuotationAssetPersistenceService {
-  constructor({ storageAdapter, bucket = process.env.VQS_ASSET_BUCKET || DEFAULT_BUCKET, expiresIn = DEFAULT_EXPIRES_IN } = {}) {
+  constructor({ storageAdapter, bucket, env = process.env, expiresIn = DEFAULT_EXPIRES_IN } = {}) {
     this.storageAdapter = storageAdapter || new SupabaseStorageAdapter();
-    this.bucket = String(bucket || DEFAULT_BUCKET).trim();
+    this.bucket = bucket === undefined ? null : String(bucket).trim();
+    this.env = env;
     this.expiresIn = Number(expiresIn || DEFAULT_EXPIRES_IN);
   }
 
@@ -56,14 +66,18 @@ class QuotationAssetPersistenceService {
     const parsed = parseImageDataUrl(dataUrl);
     if (!parsed) return null;
 
+    const assetId = context.assetId || crypto.randomUUID();
+    const itemId = context.itemId || '';
+    const bucket = resolveVqsAssetBucket({ bucket: this.bucket, env: this.env });
     const path = buildAssetPath({
       platformId: context.platformId,
-      itemId: context.itemId,
-      extension: parsed.extension
+      itemId,
+      extension: parsed.extension,
+      id: assetId
     });
 
     const upload = await this.storageAdapter.uploadObject({
-      bucket: this.bucket,
+      bucket,
       path,
       body: parsed.body,
       contentType: parsed.mimeType,
@@ -71,8 +85,10 @@ class QuotationAssetPersistenceService {
       upsert: false,
       metadata: {
         documentType: 'quotation_asset',
+        kind: 'quotation-image',
+        assetId,
         platformId: context.platformId || 'ELANVISUAL',
-        itemId: context.itemId || '',
+        itemId,
         source: 'local_upload'
       }
     });
@@ -84,7 +100,9 @@ class QuotationAssetPersistenceService {
     });
 
     return {
-      kind: 'existing-product-photo',
+      assetId,
+      kind: 'quotation-image',
+      itemId,
       bucket: upload.bucket,
       path: upload.path,
       objectPath: upload.path,
@@ -131,5 +149,6 @@ module.exports = {
   QuotationAssetPersistenceService,
   parseImageDataUrl,
   buildAssetPath,
+  resolveVqsAssetBucket,
   MAX_IMAGE_BYTES
 };

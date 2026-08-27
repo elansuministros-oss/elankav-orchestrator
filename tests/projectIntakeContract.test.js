@@ -63,3 +63,32 @@ test('VQS Project Intake transforma al contrato interno sin lógica de plataform
   assert.equal(internal.relations.designRequestId, 'design-1');
   assert.equal(internal.items[0].title, 'Rótulo de fachada');
 });
+test('VQS Project Intake conserva referencias estables de imagen', () => {
+  const input = validInput();
+  input.items[0].itemId = 'item-1';
+  input.items[0].images = [{
+    assetId: 'asset-1',
+    kind: 'quotation-image',
+    itemId: 'item-1',
+    bucket: 'elanvisual',
+    objectPath: 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.jpg',
+    mimeType: 'image/jpeg',
+    sizeBytes: 123,
+    signedUrl: 'https://storage.example/temp-signed-url',
+    dataUrl: 'data:image/jpeg;base64,AAAA'
+  }];
+  input.metadata = {
+    sourceAssets: [...input.items[0].images]
+  };
+
+  const contract = normalizeProjectIntake(input);
+  const internal = toQuoteProjectInput(contract);
+
+  assert.equal(contract.items[0].images[0].bucket, 'elanvisual');
+  assert.equal(contract.items[0].images[0].objectPath, 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.jpg');
+  assert.equal('dataUrl' in contract.items[0].images[0], false);
+  assert.equal('signedUrl' in contract.items[0].images[0], false);
+  assert.equal(internal.relations.sourceAssets[0].bucket, 'elanvisual');
+  assert.equal(internal.relations.sourceAssets[0].itemId, 'item-1');
+  assert.equal('signedUrl' in internal.relations.sourceAssets[0], false);
+});

@@ -20,7 +20,7 @@ function makeResponse() {
   };
 }
 
-function buildAdapter({ imageUrl = '' } = {}) {
+function buildAdapter({ imageUrl = '', images = [] } = {}) {
   const quotation = {
     id: '11111111-1111-4111-8111-111111111111',
     quotation_number: 'COT-20260717-00005',
@@ -41,7 +41,8 @@ function buildAdapter({ imageUrl = '' } = {}) {
       unit: 'unidad',
       unitPriceUsd: 290,
       subtotalUsd: 290,
-      ...(imageUrl ? { imageUrl } : {})
+      ...(imageUrl ? { imageUrl } : {}),
+      ...(images.length ? { images } : {})
     }],
     pricing: {
       subtotalUsd: 290,
@@ -144,6 +145,47 @@ test('renueva la signedUrl al construir la respuesta publica', async () => {
   assert.deepEqual(calls, [{
     bucket: 'quotation-assets',
     path: 'quotes/render.png',
+    expiresIn: PUBLIC_IMAGE_SIGN_TTL_SECONDS
+  }]);
+  assert.equal(response.state.payload.data.quotation_document.publicDocument.items[0].imageUrl, renewedUrl);
+  assert.deepEqual(response.state.payload.data.quotation_document.publicDocument.items[0].images, [renewedUrl]);
+});
+test('renueva imagen publica desde bucket y objectPath estable', async () => {
+  const response = makeResponse();
+  const calls = [];
+  const asset = {
+    kind: 'quotation-image',
+    itemId: 'item-1',
+    bucket: 'elanvisual',
+    objectPath: 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.webp',
+    mimeType: 'image/webp',
+    sizeBytes: 456
+  };
+  const renewedUrl = 'https://demo.supabase.co/storage/v1/object/sign/elanvisual/ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.webp?token=fresh';
+
+  const storageClient = {
+    from(bucket) {
+      return {
+        async createSignedUrl(path, expiresIn) {
+          calls.push({ bucket, path, expiresIn });
+          return { data: { signedUrl: renewedUrl }, error: null };
+        }
+      };
+    }
+  };
+
+  await handleVqsPublicQuotationApi({
+    req: makeReq(),
+    res: response.res,
+    sendJson: response.sendJson,
+    adapter: buildAdapter({ images: [asset] }),
+    storageClient
+  });
+
+  assert.equal(response.state.statusCode, 200);
+  assert.deepEqual(calls, [{
+    bucket: 'elanvisual',
+    path: 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.webp',
     expiresIn: PUBLIC_IMAGE_SIGN_TTL_SECONDS
   }]);
   assert.equal(response.state.payload.data.quotation_document.publicDocument.items[0].imageUrl, renewedUrl);

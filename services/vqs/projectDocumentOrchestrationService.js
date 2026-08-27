@@ -41,7 +41,7 @@ class ProjectDocumentOrchestrationService {
     this.documentBuilder = documentBuilder;
     this.documentDeliveryService = resolvedDeliveryService;
     this.assetPersistenceService = assetPersistenceService || new QuotationAssetPersistenceService({
-      bucket: env.VQS_DOCUMENT_BUCKET || 'official-documents',
+      env,
       expiresIn: Number(env.VQS_DOCUMENT_DELIVERY_TTL_SECONDS || 3600)
     });
   }

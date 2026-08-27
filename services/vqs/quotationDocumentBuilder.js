@@ -6,6 +6,8 @@ function asNumber(value, fallback = 0) {
 }
 
 const PUBLIC_IMAGE_URL_FIELDS = ['url', 'src', 'imageUrl', 'publicUrl', 'signedUrl', 'downloadUrl'];
+const STORAGE_PATH_FIELDS = ['objectPath', 'object_path', 'path', 'storagePath', 'storage_path'];
+const STORAGE_BUCKET_FIELDS = ['bucket', 'storageBucket', 'storage_bucket'];
 const PUBLIC_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const EXCLUDED_PUBLIC_IMAGE_KINDS = new Set(['place', 'reference']);
 
@@ -67,12 +69,34 @@ function getAssetUrl(asset) {
   return '';
 }
 
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function resolveStorageKey(asset) {
+  if (!asset || typeof asset !== 'object') return '';
+  const bucket = firstText(...STORAGE_BUCKET_FIELDS.map((field) => asset[field]));
+  const path = firstText(...STORAGE_PATH_FIELDS.map((field) => asset[field]));
+  return bucket && path ? `${bucket}/${path}` : '';
+}
+
+function isStableStorageAsset(asset) {
+  if (!asset || typeof asset !== 'object') return false;
+  if (!resolveStorageKey(asset)) return false;
+  const mimeType = typeof asset.mimeType === 'string' ? asset.mimeType.toLowerCase() : '';
+  return !mimeType || PUBLIC_IMAGE_MIME_TYPES.has(mimeType);
+}
+
 function isVisualAsset(asset) {
   if (typeof asset === 'string') return isPublicImageUrl(asset);
   if (!asset || typeof asset !== 'object') return false;
   if (EXCLUDED_PUBLIC_IMAGE_KINDS.has(asset.kind)) return false;
   const mimeType = typeof asset.mimeType === 'string' ? asset.mimeType.toLowerCase() : '';
-  return PUBLIC_IMAGE_MIME_TYPES.has(mimeType) && Boolean(getAssetUrl(asset));
+  return (PUBLIC_IMAGE_MIME_TYPES.has(mimeType) && Boolean(getAssetUrl(asset))) || isStableStorageAsset(asset);
 }
 
 function resolvePrimaryImage(item = {}) {
@@ -89,11 +113,28 @@ function resolvePrimaryImage(item = {}) {
   return urlAsset ? getAssetUrl(urlAsset) : '';
 }
 
+function publicImagesForItem(item = {}, imageUrl = '') {
+  const images = Array.isArray(item.images) ? item.images : [];
+  const candidates = images.filter(isStableStorageAsset);
+  if (imageUrl) candidates.unshift(imageUrl);
+  const seen = new Set();
+
+  return candidates.filter((asset) => {
+    const key = typeof asset === 'string'
+      ? asset
+      : resolveStorageKey(asset) || getAssetUrl(asset);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function sanitizeItem(item = {}) {
   const quantity = asNumber(item.quantity, 1);
   const unitPrice = asNumber(item.unitPriceUsd ?? item.unitPrice);
   const subtotal = asNumber(item.subtotalUsd ?? item.subtotal, quantity * unitPrice);
   const imageUrl = resolvePrimaryImage(item);
+  const images = publicImagesForItem(item, imageUrl);
 
   return {
     id: item.itemId || item.id || '',
@@ -106,7 +147,7 @@ function sanitizeItem(item = {}) {
     unitPrice,
     subtotal,
     imageUrl,
-    images: imageUrl ? [imageUrl] : [],
+    images,
     features: Array.isArray(item.features) ? [...item.features] : []
   };
 }

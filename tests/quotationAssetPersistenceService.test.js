@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const {
   QuotationAssetPersistenceService,
   parseImageDataUrl,
-  buildAssetPath
+  buildAssetPath,
+  resolveVqsAssetBucket
 } = require('../services/vqs/quotationAssetPersistenceService');
 
 const SMALL_PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -33,6 +34,22 @@ test('construye ruta estable dentro del bucket existente', () => {
   assert.equal(path, 'ELANVISUAL/quotation-assets/2026/07/item-1/asset-1.webp');
 });
 
+test('requiere VQS_ASSET_BUCKET al subir imagenes', async () => {
+  const service = new QuotationAssetPersistenceService({
+    env: {},
+    storageAdapter: {
+      async uploadObject() { throw new Error('uploadObject no debe ejecutarse'); },
+      async createDelivery() { throw new Error('createDelivery no debe ejecutarse'); }
+    }
+  });
+
+  await assert.rejects(
+    () => service.persistDataUrl(SMALL_PNG, { platformId: 'ELANVISUAL', itemId: 'item-1' }),
+    (error) => error.code === 'VQS_ASSET_BUCKET_REQUIRED'
+  );
+  assert.equal(resolveVqsAssetBucket({ env: { VQS_ASSET_BUCKET: 'elanvisual' } }), 'elanvisual');
+});
+
 test('sube y firma una imagen local sin persistir el data URL', async () => {
   const calls = [];
   const storageAdapter = {
@@ -45,10 +62,13 @@ test('sube y firma una imagen local sin persistir el data URL', async () => {
       return { ...input, signedUrl: 'https://storage.example/signed-image' };
     }
   };
-  const service = new QuotationAssetPersistenceService({ storageAdapter, bucket: 'official-documents' });
+  const service = new QuotationAssetPersistenceService({ storageAdapter, bucket: 'elanvisual' });
   const asset = await service.persistDataUrl(SMALL_PNG, { platformId: 'ELANVISUAL', itemId: 'item-1' });
 
-  assert.equal(asset.bucket, 'official-documents');
+  assert.equal(asset.bucket, 'elanvisual');
+  assert.equal(asset.kind, 'quotation-image');
+  assert.equal(asset.itemId, 'item-1');
+  assert.match(asset.assetId, /^[0-9a-f-]{36}$/i);
   assert.equal(asset.mimeType, 'image/png');
   assert.equal(asset.signedUrl, 'https://storage.example/signed-image');
   assert.ok(Buffer.isBuffer(calls[0][1].body));
@@ -57,6 +77,7 @@ test('sube y firma una imagen local sin persistir el data URL', async () => {
 
 test('reemplaza data URL por referencia persistente antes de crear la cotización', async () => {
   const service = new QuotationAssetPersistenceService({
+    bucket: 'elanvisual',
     storageAdapter: {
       async uploadObject(input) { return { bucket: input.bucket, path: input.path }; },
       async createDelivery(input) { return { ...input, signedUrl: 'https://storage.example/photo' }; }
@@ -69,6 +90,8 @@ test('reemplaza data URL por referencia persistente antes de crear la cotizació
   });
 
   assert.equal(result.items[0].imageUrl, 'https://storage.example/photo');
-  assert.equal(result.items[0].images[0].bucket, 'quotation-assets');
+  assert.equal(result.items[0].images[0].bucket, 'elanvisual');
+  assert.equal(result.items[0].images[0].kind, 'quotation-image');
+  assert.equal(result.items[0].images[0].itemId, 'item-1');
   assert.equal(result.items[0].images[0].path.includes('/quotation-assets/'), true);
 });

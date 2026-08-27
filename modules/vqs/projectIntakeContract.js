@@ -12,9 +12,76 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function safeAssetReference(value, itemId = '') {
+  if (typeof value === 'string') return text(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const asset = {};
+  [
+    'assetId',
+    'bucket',
+    'objectPath',
+    'object_path',
+    'path',
+    'mimeType',
+    'mime_type',
+    'kind',
+    'itemId',
+    'item_id'
+  ].forEach((field) => {
+    const valueText = text(value[field]);
+    if (valueText) asset[field] = valueText;
+  });
+
+  const sizeBytes = number(value.sizeBytes ?? value.size_bytes, 0);
+  if (sizeBytes > 0) asset.sizeBytes = sizeBytes;
+  if (!asset.itemId && itemId) asset.itemId = itemId;
+  if (!asset.objectPath && asset.path) asset.objectPath = asset.path;
+  if (!asset.path && asset.objectPath) asset.path = asset.objectPath;
+  if (!asset.kind && asset.bucket && asset.objectPath) asset.kind = 'quotation-image';
+  const hasStableReference = Boolean(asset.assetId || (asset.bucket && asset.objectPath));
+
+  if (!hasStableReference) {
+    [
+      'signedUrl',
+      'signed_url',
+      'url',
+      'publicUrl',
+      'public_url',
+      'imageUrl',
+      'image_url',
+      'src'
+    ].forEach((field) => {
+      const valueText = text(value[field]);
+      if (valueText) asset[field] = valueText;
+    });
+  }
+
+  return Object.keys(asset).length ? asset : null;
+}
+
+function normalizeAssetList(values = [], itemId = '') {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => safeAssetReference(value, itemId))
+    .filter((value) => typeof value === 'string' ? Boolean(value) : Boolean(value));
+}
+
+function normalizeMetadata(metadata = {}) {
+  const normalized = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? { ...metadata }
+    : {};
+
+  if (Array.isArray(normalized.sourceAssets)) {
+    normalized.sourceAssets = normalizeAssetList(normalized.sourceAssets);
+  }
+
+  return normalized;
+}
+
 function normalizeProjectIntake(body = {}) {
   const platform = text(body.platform).toUpperCase();
   const sourceType = ALLOWED_SOURCES.has(body.source?.type) ? body.source.type : 'manual';
+  const metadata = normalizeMetadata(body.metadata);
 
   return {
     contractVersion: VQS_PROJECT_INTAKE_VERSION,
@@ -48,7 +115,7 @@ function normalizeProjectIntake(body = {}) {
       priority: text(body.project?.priority) || 'normal',
       expectedDeliveryAt: text(body.project?.expectedDeliveryAt),
       images: Array.isArray(body.project?.images)
-        ? body.project.images.map(text).filter(Boolean)
+        ? normalizeAssetList(body.project.images)
         : []
     },
     items: Array.isArray(body.items)
@@ -63,7 +130,7 @@ function normalizeProjectIntake(body = {}) {
           unitPriceUsd: number(item.unitPriceUsd),
           subtotalUsd: number(item.subtotalUsd, number(item.quantity, 1) * number(item.unitPriceUsd)),
           imageUrl: text(item.imageUrl),
-          images: Array.isArray(item.images) ? item.images.map(text).filter(Boolean) : [],
+          images: Array.isArray(item.images) ? normalizeAssetList(item.images, text(item.itemId) || `item-${index + 1}`) : [],
           features: Array.isArray(item.features) ? item.features.map(text).filter(Boolean) : [],
           internalData: item.internalData || null
         }))
@@ -83,9 +150,7 @@ function normalizeProjectIntake(body = {}) {
       type: ALLOWED_PAYMENT_TYPES.has(body.payments?.type) ? body.payments.type : '60_40',
       installments: Array.isArray(body.payments?.installments) ? body.payments.installments : []
     },
-    metadata: body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
-      ? { ...body.metadata }
-      : {}
+    metadata
   };
 }
 
@@ -116,6 +181,7 @@ function validateProjectIntake(contract = {}) {
 }
 
 function toQuoteProjectInput(contract) {
+  const sourceAssets = normalizeAssetList(contract.metadata?.sourceAssets);
   return {
     quotation: {
       platformId: contract.platform,
@@ -134,13 +200,15 @@ function toQuoteProjectInput(contract) {
       customerId: contract.customer.customerId,
       executiveId: contract.executive.executiveId,
       designRequestId: contract.source.designRequestId,
-      storeCartId: contract.source.storeCartId
+      storeCartId: contract.source.storeCartId,
+      ...(sourceAssets.length ? { sourceAssets } : {})
     },
     customerSnapshot: { ...contract.customer },
     executiveSnapshot: { ...contract.executive },
     items: contract.items,
     pricing: contract.pricing,
     paymentTerms: contract.payments,
+    metadata: contract.metadata,
     followUp: { ownerExecutiveId: contract.executive.executiveId }
   };
 }
@@ -148,6 +216,7 @@ function toQuoteProjectInput(contract) {
 module.exports = {
   VQS_PROJECT_INTAKE_VERSION,
   normalizeProjectIntake,
+  normalizeAssetList,
   validateProjectIntake,
   toQuoteProjectInput
 };
