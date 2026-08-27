@@ -185,6 +185,47 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
   assert.equal(recorder.calls[0].payload.ownerMode, true);
 });
 
+test('POST /webhook/inbound makes text processing failures visible', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'event-text-runtime-failure',
+      session: 'default',
+      payload: {
+        from: '50588388940@c.us',
+        body: 'hola elan',
+        fromMe: false
+      }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const texts = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() {
+        const error = new Error('runtime unavailable');
+        error.code = 'RUNTIME_UNAVAILABLE';
+        throw error;
+      },
+      async sendWahaText(input) {
+        texts.push(input);
+      }
+    }
+  });
+
+  assert.equal(texts.length, 1);
+  assert.equal(texts[0].chatId, '50588388940@c.us');
+  assert.match(texts[0].text, /problema interno/i);
+  assert.equal(recorder.calls[0].payload.ok, false);
+  assert.equal(recorder.calls[0].payload.replySent, true);
+  assert.equal(recorder.calls[0].payload.code, 'RUNTIME_UNAVAILABLE');
+});
+
 test('procesa nota de voz, transcribe y responde con voz', async () => {
   const req = createRequest({
     body: {
