@@ -123,8 +123,53 @@ async function requestElanGoControl(path,options={},env=process.env){
 async function getElanGoControl(env){return requestElanGoControl('/api/v1/marketplace/control',{},env)}
 async function updateElanGoControl(input,env){return requestElanGoControl('/api/v1/marketplace/control',{method:'PATCH',body:input},env)}
 
+async function requestMarketplaceRuntime(path,options={},env=process.env){
+  const baseUrl=String(env.CONNECT_BASE_URL||'https://connect.elankav.com').trim().replace(/\/+$/,'');
+  const token=String(env.MARKETPLACE_RUNTIME_TOKEN||env.VQS_API_TOKEN||'').trim();
+  if(!token)throw new OwnerBusinessConnectError('MARKETPLACE_RUNTIME_TOKEN_REQUIRED','No está configurada la credencial Marketplace Runtime.',503);
+  const method=String(options.method||'GET').toUpperCase();
+  if(!['GET','POST','PATCH'].includes(method))throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED','Método no autorizado para Marketplace Runtime.',405);
+  const fixed=new Set(['/api/v1/marketplace/runtime/manifest','/api/v1/marketplace/runtime/execute']);
+  const mission=/^\/api\/v1\/marketplace\/search-missions\/[A-Za-z0-9-]+(?:\/(?:status|results))?$/.test(path);
+  if(!fixed.has(path)&&!mission)throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED','Ruta no autorizada para Marketplace Runtime.',403);
+  const response=await fetch(baseUrl+path,{
+    method,
+    headers:{
+      Accept:'application/json',
+      'Content-Type':'application/json',
+      'X-Elankav-Marketplace-Token':token,
+      'X-Elankav-Actor-Role':'owner',
+      'X-Elankav-Actor-Type':'system',
+      'X-Elankav-Actor-Id':'ELAN_AUTONOMOUS_RUNTIME',
+      'X-Elankav-Platform':'ELAN_GO',
+      'X-Elankav-Source':'ELAN_AUTONOMOUS_RUNTIME'
+    },
+    ...(options.body===undefined?{}:{body:JSON.stringify(options.body)})
+  });
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok){
+    const nested=payload&&typeof payload.error==='object'?payload.error:{};
+    throw new OwnerBusinessConnectError(
+      String(payload.code||nested.code||'MARKETPLACE_CONNECT_REQUEST_FAILED'),
+      String(nested.message||payload.message||payload.error||'CONNECT rechazó Marketplace Runtime.'),
+      response.status,
+      nested.details||payload.details||null
+    );
+  }
+  return payload;
+}
+async function executeMarketplaceTool(tool,args={},env){return requestMarketplaceRuntime('/api/v1/marketplace/runtime/execute',{method:'POST',body:{tool,arguments:args&&typeof args==='object'?args:{}}},env)}
+async function marketplaceCreateDemand(input,env){return executeMarketplaceTool('marketplace_demand_create',input,env)}
+async function marketplaceCreateInquiry(input,env){return executeMarketplaceTool('marketplace_inquiry_create',input,env)}
+async function marketplaceListDemands(env){return executeMarketplaceTool('marketplace_demand_list',{},env)}
+async function marketplaceRunMatching(demandIdOrCode,env){return executeMarketplaceTool('marketplace_match_run',{demandIdOrCode:String(demandIdOrCode||'').trim()},env)}
+async function marketplaceGetSearchMission(key,env){return requestMarketplaceRuntime('/api/v1/marketplace/search-missions/'+encodeURIComponent(String(key||'').trim()),{},env)}
+async function marketplaceRecordSearchMissionResults(key,candidates,searchSummary,env){return requestMarketplaceRuntime('/api/v1/marketplace/search-missions/'+encodeURIComponent(String(key||'').trim())+'/results',{method:'PATCH',body:{candidates:Array.isArray(candidates)?candidates:[],...(String(searchSummary||'').trim()?{searchSummary:String(searchSummary).trim()}:{})}},env)}
+async function marketplaceUpdateSearchMissionStatus(key,status,env){return requestMarketplaceRuntime('/api/v1/marketplace/search-missions/'+encodeURIComponent(String(key||'').trim())+'/status',{method:'PATCH',body:{status:String(status||'').trim()}},env)}
+async function recordElanGoHeartbeat(input,env){return requestElanGoControl('/api/v1/marketplace/control/heartbeat',{method:'PATCH',body:input&&typeof input==='object'?input:{}},env)}
+
 module.exports={
   OwnerBusinessConnectError,applyPayment,createAndProcessDesign,createCustomer,createDesignRequest,createLogisticsRule,createOwnerCustomer,createOwnerFamily,createOwnerProvider,createOwnerSeller,createPriceAuthorization,createQuotation,createWorkOrder,
   deactivateOwnerCustomer,deactivateOwnerFamily,deactivateOwnerProvider,deactivateOwnerSeller,deleteOwnerSeller,getDesignRequest,getPayment,getQuotation,listAuthorizedPrices,listCustomers,listLogisticsRules,listOwnerCustomers,listOwnerFamily,listOwnerProviders,listOwnerSellers,listPayments,listPriceAuthorizations,listProviders,listQuotations,listWorkOrders,
-  getElanGoControl,normalizeQuotationSource,removeQuotationImage,requestConnect,requestElanGoControl,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateElanGoControl,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
+  executeMarketplaceTool,getElanGoControl,marketplaceCreateDemand,marketplaceCreateInquiry,marketplaceGetSearchMission,marketplaceListDemands,marketplaceRecordSearchMissionResults,marketplaceRunMatching,marketplaceUpdateSearchMissionStatus,normalizeQuotationSource,recordElanGoHeartbeat,removeQuotationImage,requestConnect,requestElanGoControl,requestMarketplaceRuntime,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateElanGoControl,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
 };
