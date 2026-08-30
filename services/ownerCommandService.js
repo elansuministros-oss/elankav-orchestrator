@@ -44,6 +44,10 @@ const {
   executeOwnerBusinessCommand
 } = require('./ownerBusinessCommandService');
 const {
+  detectOwnerElanGoCommand,
+  executeOwnerElanGoCommand
+} = require('./ownerElanGoControlService');
+const {
   learnAlias
 } = require('./ownerLanguageProfileService');
 const {
@@ -71,7 +75,8 @@ const OWNER_COMMANDS = Object.freeze({
   MODE_PERMISSIONS: 'mode_permissions',
   LANGUAGE_LEARN: 'language_learn',
   SELF_AUDIT: 'self_audit',
-  BUSINESS_TRANSACTION: 'business_transaction'
+  BUSINESS_TRANSACTION: 'business_transaction',
+  ELAN_GO_CONTROL: 'elan_go_control'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -484,6 +489,8 @@ function detectOwnerCommand(message) {
 
   const modeCommand = detectOwnerModeCommand(message, normalized);
   if (modeCommand) return modeCommand;
+  const elanGoCommand = detectOwnerElanGoCommand(message);
+  if (elanGoCommand) return Object.freeze({ type: OWNER_COMMANDS.ELAN_GO_CONTROL, elanGoCommand });
   const businessCommand = detectOwnerBusinessCommand(message);
   if (businessCommand) return Object.freeze({ type: OWNER_COMMANDS.BUSINESS_TRANSACTION, businessCommand });
   const sensitiveCommand = detectOwnerOpsSensitiveCommand(message, normalized);
@@ -610,6 +617,18 @@ async function executeOwnerCommand({ command, platform, ownerPhone = null }) {
         `Interpretaré: ${learned.canonical}`
       ].join('\n'),
       languageLearning: learned
+    };
+  }
+  if (type === OWNER_COMMANDS.ELAN_GO_CONTROL) {
+    const result = await executeOwnerElanGoCommand(command.elanGoCommand);
+    if (!result.handled) {
+      throw Object.assign(new Error('OWNER_ELAN_GO_COMMAND_NOT_HANDLED'), { code: 'OWNER_ELAN_GO_COMMAND_NOT_HANDLED' });
+    }
+    return {
+      command: type,
+      job: null,
+      outputText: result.outputText,
+      elanGo: result.control
     };
   }
   if (type === OWNER_COMMANDS.BUSINESS_TRANSACTION) {
