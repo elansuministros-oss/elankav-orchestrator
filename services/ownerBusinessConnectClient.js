@@ -87,8 +87,44 @@ async function revokePriceAuthorization(authorizationId,env){return requestConne
 async function listLogisticsRules(filters={},env){return requestConnect(`/api/v1/business/vqs/logistics-rules${paramsFrom(filters)}`,{},env)}
 async function createLogisticsRule(input,env){return requestConnect('/api/v1/business/vqs/logistics-rules',{method:'POST',body:input},env)}
 
+async function requestElanGoControl(path,options={},env=process.env){
+  const baseUrl=String(env.CONNECT_BASE_URL||'https://connect.elankav.com').trim().replace(/\/+$/,'');
+  const token=String(env.MARKETPLACE_RUNTIME_TOKEN||env.VQS_API_TOKEN||'').trim();
+  if(!token)throw new OwnerBusinessConnectError('MARKETPLACE_RUNTIME_TOKEN_REQUIRED','No está configurada la credencial de ELAN GO.',503);
+  const method=String(options.method||'GET').toUpperCase();
+  if(!['GET','PATCH'].includes(method))throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED','Método no autorizado para ELAN GO.',405);
+  if(!['/api/v1/marketplace/control','/api/v1/marketplace/control/heartbeat'].includes(path))throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED','Ruta no autorizada para ELAN GO.',403);
+  const response=await fetch(baseUrl+path,{
+    method,
+    headers:{
+      Accept:'application/json',
+      'Content-Type':'application/json',
+      'X-Elankav-Marketplace-Token':token,
+      'X-Elankav-Actor-Role':'owner',
+      'X-Elankav-Actor-Type':'system',
+      'X-Elankav-Actor-Id':'owner-whatsapp',
+      'X-Elankav-Platform':'ELAN_GO',
+      'X-Elankav-Source':'OWNER_WHATSAPP'
+    },
+    ...(options.body===undefined?{}:{body:JSON.stringify(options.body)})
+  });
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok){
+    const nested=payload&&typeof payload.error==='object'?payload.error:{};
+    throw new OwnerBusinessConnectError(
+      String(payload.code||nested.code||'ELAN_GO_CONTROL_FAILED'),
+      String(nested.message||payload.message||payload.error||'CONNECT rechazó el control de ELAN GO.'),
+      response.status,
+      nested.details||payload.details||null
+    );
+  }
+  return payload;
+}
+async function getElanGoControl(env){return requestElanGoControl('/api/v1/marketplace/control',{},env)}
+async function updateElanGoControl(input,env){return requestElanGoControl('/api/v1/marketplace/control',{method:'PATCH',body:input},env)}
+
 module.exports={
   OwnerBusinessConnectError,applyPayment,createAndProcessDesign,createCustomer,createDesignRequest,createLogisticsRule,createOwnerCustomer,createOwnerFamily,createOwnerProvider,createOwnerSeller,createPriceAuthorization,createQuotation,createWorkOrder,
   deactivateOwnerCustomer,deactivateOwnerFamily,deactivateOwnerProvider,deactivateOwnerSeller,deleteOwnerSeller,getDesignRequest,getPayment,getQuotation,listAuthorizedPrices,listCustomers,listLogisticsRules,listOwnerCustomers,listOwnerFamily,listOwnerProviders,listOwnerSellers,listPayments,listPriceAuthorizations,listProviders,listQuotations,listWorkOrders,
-  normalizeQuotationSource,removeQuotationImage,requestConnect,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
+  getElanGoControl,normalizeQuotationSource,removeQuotationImage,requestConnect,requestElanGoControl,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateElanGoControl,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
 };
