@@ -2,6 +2,7 @@
 
 const connect = require('./ownerBusinessConnectClient');
 const seller = require('./sellerBusinessConnectClient');
+const marketplaceAutonomy = require('./elanMarketplaceAutonomyService');
 
 const searchParam = { type:'object', properties:{ query:{ type:'string' } }, additionalProperties:false };
 const qParam = { type:'object', properties:{ query:{ type:'string' } }, required:['query'], additionalProperties:false };
@@ -43,6 +44,8 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'revisar_propuesta_diseno', description:'Solicita revisión o render de una propuesta existente.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},accessToken:{type:'string'},action:{type:'string'},instructions:{type:'string'}},required:['requestCode','accessToken','action','instructions'],additionalProperties:false}},
   { name:'enviar_propuesta_diseno', description:'Envía por WhatsApp una propuesta de diseño ya generada usando su código interno de solicitud y el teléfono destino.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},phone:{type:'string'},caption:{type:'string'}},required:['requestCode','phone'],additionalProperties:false}},
   { name:'buscar_orden_trabajo', description:'Lista órdenes de trabajo de una cotización/proyecto.', scope:'work_order.read', parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
+  { name:'marketplace_gestionar_necesidad', description:'ELAN registra una necesidad en CONNECT, ejecuta matching y, si no existe candidato, busca ofertas externas de forma autónoma.', ownerOnly:true, parameters:{type:'object',properties:{requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},title:{type:'string'},description:{type:'string'},category:{type:'string'},subcategory:{type:'string'},intent:{type:'string'},budget:{type:'object'},preferredLocation:{type:'object'},requirements:{type:'object'},priority:{type:'string'},source:{type:'string'},expiresAt:{type:'string'}},required:['title','category','subcategory','intent'],additionalProperties:false}},
+  { name:'marketplace_crear_consulta', description:'Registra en CONNECT el interés real de una identidad existente sobre un activo público. ELAN no inventa identidades.', ownerOnly:true, parameters:{type:'object',properties:{assetCode:{type:'string'},requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},action:{type:'string',enum:['request_information','make_offer','want_to_buy','want_to_rent','schedule_visit','talk_to_elan']},offerAmount:{type:'object'},message:{type:'string'}},required:['assetCode','action'],additionalProperties:false}},
   { name:'consultar_pago', description:'Consulta pagos oficiales de una cotización/proyecto.', scope:'payment.read', parameters:{type:'object',properties:{projectId:{type:'string'},paymentId:{type:'string'}},required:['projectId'],additionalProperties:false}}
 ]);
 
@@ -102,6 +105,8 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
     case'revisar_propuesta_diseno':return connect.reviseDesignRequest(requiredText(args.requestCode,'requestCode'),requiredText(args.accessToken,'accessToken'),requiredText(args.action,'action'),requiredText(args.instructions,'instructions'),env);
     case'enviar_propuesta_diseno':return connect.sendDesignWhatsApp(requiredText(args.requestCode,'requestCode'),'',requiredText(args.phone,'phone'),optionalText(args.caption),env);
     case'buscar_orden_trabajo':return connect.listWorkOrders(requiredText(args.projectId,'projectId'),env);
+    case'marketplace_gestionar_necesidad':return marketplaceAutonomy.manageMarketplaceNeed(requiredObject(args,'arguments'),env);
+    case'marketplace_crear_consulta':return marketplaceAutonomy.createMarketplaceInquiry(requiredObject(args,'arguments'),env);
     case'consultar_pago':{const projectId=requiredText(args.projectId,'projectId');return args.paymentId?connect.getPayment(projectId,requiredText(args.paymentId,'paymentId'),env):connect.listPayments(projectId,env)}
     default:throw Object.assign(new Error('Herramienta no implementada.'),{code:'ELAN_TOOL_NOT_AVAILABLE',statusCode:404});
   }
