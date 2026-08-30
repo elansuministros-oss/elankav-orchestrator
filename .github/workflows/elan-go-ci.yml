@@ -1,0 +1,40 @@
+name: ELAN GO CI
+
+on:
+  push:
+    branches:
+      - feature/ELAN-GO-WHATSAPP-CONTROL-01
+  pull_request:
+    branches:
+      - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
+
+jobs:
+  elan-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies without deployment hooks
+        run: npm ci --ignore-scripts
+
+      - name: Syntax
+        run: |
+          node --check server.js
+          node --check services/ownerBusinessConnectClient.js
+          node --check services/ownerElanGoControlService.js
+          node --check services/ownerCommandService.js
+          node --check services/elanMarketplaceWebSearchService.js
+          node --check services/elanMarketplaceAutonomyService.js
+          node --check services/elanMarketplaceBrokerWorkerService.js
+          node --check services/elanUnifiedToolRegistry.js
+
+      - name: ELAN GO regressions
+        run: |
+          node --test             tests/elanGoOwnerControlRegression.test.js             tests/elanGoBrokerControlRegression.test.js
