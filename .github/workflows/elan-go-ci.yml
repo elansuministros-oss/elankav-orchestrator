@@ -32,6 +32,8 @@ jobs:
           node --check services/ownerBusinessConnectClient.js
           node --check services/ownerElanGoControlService.js
           node --check services/ownerCommandService.js
+          node --check services/elanUnifiedOwnerCommandService.js
+          node --check services/elanUnifiedRuntimeMessagePatch.js
           node --check services/elanMarketplaceWebSearchService.js
           node --check services/elanMarketplaceAutonomyService.js
           node --check services/elanMarketplaceBrokerWorkerService.js
