@@ -2,6 +2,10 @@
 
 const { executeThroughConnect } = require('./elanUnifiedRuntimeService');
 const connect = require('./ownerBusinessConnectClient');
+const {
+  detectOwnerElanGoCommand,
+  executeOwnerElanGoCommand
+} = require('./ownerElanGoControlService');
 
 function normalize(value) { return String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' '); }
 function labeledValue(message, labels) { const lines=String(message||'').split(/\r?\n/).map(line=>line.trim()).filter(Boolean); for(const line of lines){const normalized=normalize(line);for(const label of labels){const prefix=`${normalize(label)}:`;if(normalized.startsWith(prefix))return line.slice(line.indexOf(':')+1).trim()}}return''; }
@@ -98,11 +102,31 @@ function detectEntityCommand(message){const type=entityType(message);if(!type)re
   if(/\b(elimina|eliminar|borra|borrar)\b/.test(text)){const query=targetFromMutation(message,type)||afterEntity(message,type);if(!query)return{invalid:`Necesito saber qué ${singularWord(type)} querés eliminar.`};if(type!=='seller')return{invalid:`La eliminación física de ${singularWord(type)} todavía no está habilitada. Si querés conservar historial, usá “desactiva”.`};return{resolve:{type,query},tool:'eliminar_vendedor',idField:'sellerId',arguments:{}}}
   if(/\b(desactiva|desactivar)\b/.test(text)){const query=targetFromMutation(message,type)||afterEntity(message,type);if(!query)return{invalid:`Necesito saber qué ${singularWord(type)} querés desactivar.`};return{resolve:{type,query},tool:deactivateTool(type),idField:idField(type),arguments:{}}}
   return null}
-function detectOwnerUnifiedCommand(message){return detectMessageCommand(message)||detectDesignStatusCommand(message)||detectDesignCommand(message)||detectEntityCommand(message)}
+function detectOwnerUnifiedCommand(message){
+  const elanGoCommand=detectOwnerElanGoCommand(message);
+  if(elanGoCommand)return{elanGoCommand};
+  return detectMessageCommand(message)||detectDesignStatusCommand(message)||detectDesignCommand(message)||detectEntityCommand(message)
+}
 function unwrapList(execution){const result=execution?.result;const data=result?.data??result;if(Array.isArray(data))return data;if(Array.isArray(data?.results))return data.results;if(Array.isArray(data?.sellers))return data.sellers;return[]}
 function formatEntity(item){return item?.name||item?.displayName||item?.tradeName||item?.companyName||item?.label||item?.id||'registro'}
 function formatExecution(tool,execution,options={}){const result=execution?.result;const data=result?.data??result;if(tool.startsWith('buscar_')){let rows=unwrapList(execution);if(options.filterStatus)rows=rows.filter(row=>normalize(row?.status)===normalize(options.filterStatus));if(!rows.length)return options.filterStatus?`No encontré registros con estado ${options.filterStatus}.`:'No encontré registros que coincidan.';return rows.slice(0,10).map((row,index)=>`${index+1}. ${formatEntity(row)}${row.whatsapp?` — ${row.whatsapp}`:''}${row.status?` — ${row.status}`:''}`).join('\n')}if(tool==='enviar_mensaje_whatsapp')return`✅ Mensaje enviado a ${formatEntity(data?.recipient)} por WhatsApp.`;if(tool==='crear_propuesta_diseno'){const output=data?.result||data;return`✅ Propuesta de diseño creada${output?.requestCode?` (${output.requestCode})`:''}. Estado: ${output?.status||'ai_pending'}.`}if(tool==='consultar_propuesta_diseno'){const output=data?.result||data;const error=output?.lastErrorCode?` Error: ${output.lastErrorCode}.`:'';const ready=output?.ready?' Lista para revisión.':'';return`🎨 Propuesta ${output?.requestCode||''}. Estado: ${output?.status||'desconocido'}.${ready}${error}`.trim()}if(tool.startsWith('crear_'))return`✅ ${formatEntity(data)} creado correctamente en CONNECT.`;if(tool.startsWith('editar_'))return`✅ ${formatEntity(data)} actualizado correctamente.`;if(tool.startsWith('desactivar_'))return`✅ ${formatEntity(data)} desactivado. Se conservó su trazabilidad histórica.`;if(tool==='eliminar_vendedor')return`✅ ${formatEntity(data)} eliminado físicamente de CONNECT.`;return'✅ Operación completada en CONNECT.'}
 
-async function executeOwnerUnifiedCommand({command,actor,channel='whatsapp',env=process.env}){if(command?.invalid)return{handled:true,reply:command.invalid,execution:null,tool:null};if(!command?.tool)return{handled:false};const args={...(command.arguments||{})};if(command.ownerStatusLookup){const payload=await connect.requestConnect('/api/v1/business/vqs/owner-design/status',{method:'POST',body:{requestCode:args.requestCode}},env);const execution={result:payload};return{handled:true,reply:formatExecution(command.tool,execution),execution,tool:command.tool}}if(command.resolve){const search=await executeThroughConnect({actor,channel,tool:searchTool(command.resolve.type),arguments:{query:command.resolve.query},env});const matches=unwrapList(search);if(!matches.length)return{handled:true,reply:`No encontré ${singularWord(command.resolve.type)} “${command.resolve.query}”.`,execution:search,tool:searchTool(command.resolve.type)};if(matches.length>1)return{handled:true,reply:`Encontré varias coincidencias: ${matches.slice(0,10).map(formatEntity).join('; ')}. Decime cuál querés usar.`,execution:search,tool:searchTool(command.resolve.type)};args[command.idField]=matches[0].id||matches[0].sourceId||matches[0].customerId||matches[0].providerId||matches[0].sellerId||matches[0].familyId}const execution=await executeThroughConnect({actor,channel,tool:command.tool,arguments:args,env});return{handled:true,reply:formatExecution(command.tool,execution,{filterStatus:command.filterStatus}),execution,tool:command.tool}}
+async function executeOwnerUnifiedCommand({command,actor,channel='whatsapp',env=process.env}){
+  if(command?.elanGoCommand){
+    const outcome=await executeOwnerElanGoCommand(command.elanGoCommand,env);
+    if(!outcome?.handled)return{handled:false};
+    return{
+      handled:true,
+      reply:outcome.outputText,
+      execution:{
+        actor,
+        version:'1.0.0',
+        result:outcome.control
+      },
+      tool:'elan_go_control'
+    };
+  }
+  if(command?.invalid)return{handled:true,reply:command.invalid,execution:null,tool:null};
+  if(!command?.tool)return{handled:false};const args={...(command.arguments||{})};if(command.ownerStatusLookup){const payload=await connect.requestConnect('/api/v1/business/vqs/owner-design/status',{method:'POST',body:{requestCode:args.requestCode}},env);const execution={result:payload};return{handled:true,reply:formatExecution(command.tool,execution),execution,tool:command.tool}}if(command.resolve){const search=await executeThroughConnect({actor,channel,tool:searchTool(command.resolve.type),arguments:{query:command.resolve.query},env});const matches=unwrapList(search);if(!matches.length)return{handled:true,reply:`No encontré ${singularWord(command.resolve.type)} “${command.resolve.query}”.`,execution:search,tool:searchTool(command.resolve.type)};if(matches.length>1)return{handled:true,reply:`Encontré varias coincidencias: ${matches.slice(0,10).map(formatEntity).join('; ')}. Decime cuál querés usar.`,execution:search,tool:searchTool(command.resolve.type)};args[command.idField]=matches[0].id||matches[0].sourceId||matches[0].customerId||matches[0].providerId||matches[0].sellerId||matches[0].familyId}const execution=await executeThroughConnect({actor,channel,tool:command.tool,arguments:args,env});return{handled:true,reply:formatExecution(command.tool,execution,{filterStatus:command.filterStatus}),execution,tool:command.tool}}
 
 module.exports={detectOwnerUnifiedCommand,executeOwnerUnifiedCommand,formatExecution};
