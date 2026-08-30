@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   detectOwnerElanGoCommand,
-  executeOwnerElanGoCommand
+  formatStatus
 } = require('../services/ownerElanGoControlService');
 
 test('ELAN GO detecta encendido, apagado, estado y pago desde Owner WhatsApp', () => {
@@ -21,10 +21,8 @@ test('ELAN GO no reconoce mensajes que no mencionan ELAN GO', () => {
   assert.equal(detectOwnerElanGoCommand('paga la factura'), null);
 });
 
-test('ELAN GO formatea el estado de manera segura', async () => {
-  const service = require('../services/ownerElanGoControlService');
-  assert.equal(typeof service.formatStatus, 'function');
-  const text = service.formatStatus({
+test('ELAN GO formatea estado OFF sin exponer credenciales', () => {
+  const text = formatStatus({
     enabled: false,
     spendEnabled: false,
     outreachEnabled: false,
@@ -32,16 +30,14 @@ test('ELAN GO formatea el estado de manera segura', async () => {
     lastCycleAt: null,
     lastError: null
   });
+
   assert.match(text, /ELAN GO APAGADO/);
   assert.match(text, /BLOQUEADO/);
+  assert.doesNotMatch(text, /TOKEN|SERVICE_ROLE|API_KEY/i);
 });
 
-test('executeOwnerElanGoCommand rechaza comandos desconocidos sin efecto', async () => {
-  const result = await executeOwnerElanGoCommand({ type: 'unknown' }, {
-    VQS_API_TOKEN: 'test'
-  }).catch((error) => ({ error }));
-
-  // El comando desconocido intenta solo lectura al caer en el bloque de estado;
-  // en entorno sin CONNECT puede fallar, pero nunca debe mutar estado.
-  assert.ok(result);
+test('ELAN GO exige mención explícita del producto para mutaciones', () => {
+  assert.equal(detectOwnerElanGoCommand('activa todo'), null);
+  assert.equal(detectOwnerElanGoCommand('apaga el servidor'), null);
+  assert.equal(detectOwnerElanGoCommand('recarga la tarjeta'), null);
 });
