@@ -21,6 +21,13 @@ const {
   startDesignPortalWorker
 } = require('./services/designPortalWorkerService');
 const { startElanSelfAuditMonitor } = require('./services/elanSelfAuditMonitorService');
+const {
+  getElanMarketplaceBrokerWorkerState,
+  startElanMarketplaceBrokerWorker
+} = require('./services/elanMarketplaceBrokerWorkerService');
+const {
+  getElanGoControl
+} = require('./services/ownerBusinessConnectClient');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -387,6 +394,23 @@ function renderDashboard() {
       background: rgba(201, 162, 39, 0.1);
     }
 
+    .elan-go-panel {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) minmax(300px,420px);
+      gap: 22px;
+      margin-bottom: 28px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(21,34,56,.98), rgba(12,23,40,.98));
+    }
+
+    .elan-go-panel h2 { margin: 7px 0 8px; font-size: 28px; }
+    .elan-go-panel p { margin: 0; color: var(--muted); line-height: 1.5; }
+    .elan-go-state { display: grid; gap: 7px; align-content: center; }
+    .elan-go-state strong { font-size: 21px; }
+    .elan-go-state span, .elan-go-state small { color: var(--muted); font-size: 12px; }
+
     footer {
       padding-top: 34px;
       color: var(--muted);
@@ -417,7 +441,8 @@ function renderDashboard() {
       }
 
       .metrics,
-      .grid {
+      .grid,
+      .elan-go-panel {
         grid-template-columns: 1fr;
       }
 
@@ -467,6 +492,20 @@ function renderDashboard() {
       </div>
     </section>
 
+    <section class="elan-go-panel" id="elan-go-panel">
+      <div>
+        <span class="type">AUTONOMOUS BROKER</span>
+        <h2>ELAN GO</h2>
+        <p>ELAN busca ofertas y compradores, negocia y trabaja bajo autoridad única de CONNECT.</p>
+      </div>
+      <div class="elan-go-state">
+        <strong id="elan-go-state">Verificando…</strong>
+        <span>Último ciclo: <b id="elan-go-cycle">—</b></span>
+        <span>Pago: <b id="elan-go-payment">—</b></span>
+        <small>Control por WhatsApp Owner: “ELAN, enciende ELAN GO” · “ELAN, apaga ELAN GO”</small>
+      </div>
+    </section>
+
     <div class="section-title">
       <h2>Ecosistema</h2>
       <span>Información inicial registrada</span>
@@ -480,6 +519,44 @@ function renderDashboard() {
       ELANKAV Orchestrator ${VERSION} · VPS ELANKAV · Memoria Maestra Viva
     </footer>
   </main>
+  <script>
+    (() => {
+      const state = document.getElementById('elan-go-state');
+      const cycle = document.getElementById('elan-go-cycle');
+      const payment = document.getElementById('elan-go-payment');
+      if (!state) return;
+
+      const fmt = value => {
+        if (!value) return 'Sin ejecución';
+        try {
+          return new Intl.DateTimeFormat('es-NI', {
+            dateStyle: 'short',
+            timeStyle: 'short'
+          }).format(new Date(value));
+        } catch {
+          return 'No disponible';
+        }
+      };
+
+      async function loadElanGo() {
+        try {
+          const response = await fetch('/api/elan-go/status', { cache: 'no-store' });
+          if (!response.ok) throw new Error('STATUS_UNAVAILABLE');
+          const data = await response.json();
+          state.textContent = data.enabled ? '🟢 ENCENDIDO' : '🔴 APAGADO';
+          cycle.textContent = fmt(data.lastCycleAt);
+          payment.textContent = data.paymentConfigured ? 'Configurado' : 'No configurado';
+        } catch {
+          state.textContent = '⚠️ NO DISPONIBLE';
+          cycle.textContent = 'No disponible';
+          payment.textContent = 'No disponible';
+        }
+      }
+
+      loadElanGo();
+      setInterval(loadElanGo, 30000);
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -534,6 +611,37 @@ const server = http.createServer(async (req, res) => {
   });
 
   if (jobApiHandled) {
+    return;
+  }
+
+  if (req.url === '/api/elan-go/status') {
+    try {
+      const control = await getElanGoControl();
+      sendJson(res, 200, {
+        id: 'elan_go',
+        enabled: control?.enabled === true,
+        spendEnabled: control?.spendEnabled === true,
+        outreachEnabled: control?.outreachEnabled === true,
+        paymentConfigured: Boolean(control?.paymentUrl),
+        heartbeatAt: control?.heartbeatAt || null,
+        lastCycleAt: control?.lastCycleAt || null,
+        lastSuccessAt: control?.lastSuccessAt || null,
+        hasError: Boolean(control?.lastError)
+      });
+    } catch {
+      sendJson(res, 503, {
+        id: 'elan_go',
+        enabled: false,
+        spendEnabled: false,
+        outreachEnabled: false,
+        paymentConfigured: false,
+        heartbeatAt: null,
+        lastCycleAt: null,
+        lastSuccessAt: null,
+        hasError: true,
+        error: { code: 'ELAN_GO_STATUS_UNAVAILABLE' }
+      });
+    }
     return;
   }
 
@@ -621,6 +729,7 @@ if (req.url === '/api/github') {
       node: process.version,
       job_persistence: jobPersistence,
       design_pipeline: getDesignPortalWorkerState(),
+      marketplace_broker: getElanMarketplaceBrokerWorkerState(),
       timestamp: new Date().toISOString()
     });
     return;
@@ -668,6 +777,7 @@ async function startServer() {
 
   startDesignPortalWorker();
   startElanSelfAuditMonitor();
+  startElanMarketplaceBrokerWorker();
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
