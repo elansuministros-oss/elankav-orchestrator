@@ -37,6 +37,7 @@ jobs:
           node --check services/elanUnifiedRuntimeMessagePatch.js
           node --check services/elanMarketplaceWebSearchService.js
           node --check services/elanMarketplaceDiscoveryService.js
+          node --check services/elanMarketplaceSourceVerificationService.js
           node --check services/elanMarketplaceAutonomyService.js
           node --check services/elanMarketplaceBrokerWorkerService.js
           node --check services/elanUnifiedToolRegistry.js
