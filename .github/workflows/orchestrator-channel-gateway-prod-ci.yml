@@ -53,7 +53,7 @@ jobs:
         run: node --test test/ownerOpsSupervisor.test.js tests/ownerWhatsAppRepositoryDeploy.test.js
 
       - name: Owner channel bridge audit
-        run: node --test tests/ownerOpsReadService.test.js
+        run: node --test --test-name-pattern='channel bridge audit|channels.audit' tests/ownerOpsReadService.test.js
 
       - name: ELANVISUAL WAHA regressions
         run: node --test test/wahaWebhookApi.test.js tests/vqsQuotationWaha01.test.js tests/ownerWahaSend01.test.js
