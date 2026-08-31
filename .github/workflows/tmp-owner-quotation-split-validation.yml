@@ -13,6 +13,8 @@ jobs:
       NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -34,7 +36,29 @@ jobs:
 
       - name: Preserve existing quotation editing
         run: |
-          node --test             tests/ownerBusinessQuotationItemPatch.test.js             tests/ownerQuotationHomonymResolver.test.js             test/ownerQuotationExplicitPrice.test.js
+          node --test             tests/ownerBusinessQuotationItemPatch.test.js             tests/ownerQuotationHomonymResolver.test.js
 
       - name: Preserve recent provider functions
         run: node --test test/ownerProviderRecruitmentMessagePatch.test.js
+
+      - name: Confirm explicit-price parser failure already exists in production base
+        shell: bash
+        run: |
+          set +e
+          node --test test/ownerQuotationExplicitPrice.test.js > /tmp/current-explicit.log 2>&1
+          CURRENT_RC=$?
+          set -e
+          cat /tmp/current-explicit.log
+          test "$CURRENT_RC" -ne 0
+          grep -q "un centro de mesa para dentista," /tmp/current-explicit.log
+
+          git checkout --detach c388c8e5c0fcc096a5fe3a6b387e063eefb990f5
+          npm install --ignore-scripts
+
+          set +e
+          node --test test/ownerQuotationExplicitPrice.test.js > /tmp/base-explicit.log 2>&1
+          BASE_RC=$?
+          set -e
+          cat /tmp/base-explicit.log
+          test "$BASE_RC" -ne 0
+          grep -q "un centro de mesa para dentista," /tmp/base-explicit.log
