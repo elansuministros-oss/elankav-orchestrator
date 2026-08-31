@@ -395,7 +395,7 @@ test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async (
   });
 
   assert.equal(discoveryCalls, 1);
-  assert.equal(demandListCalls, 1);
+  assert.equal(demandListCalls, 0);
   assert.equal(result.activeDemands, 0);
   assert.equal(result.discoverySearches, 2);
   assert.equal(result.publishedDiscoveries, 3);
