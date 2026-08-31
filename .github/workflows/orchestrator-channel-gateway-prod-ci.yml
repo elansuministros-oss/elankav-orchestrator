@@ -7,6 +7,7 @@ on:
       - release/CHANNEL-BRIDGE-AUTH-PROD-01
       - release/CHANNEL-BRIDGE-AUDIT-PROD-01
       - release/CHANNEL-AUDIT-MODE-FIX-PROD-01
+      - release/CHANNEL-BRIDGE-DUAL-AUTH-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
