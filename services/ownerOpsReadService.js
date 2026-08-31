@@ -362,23 +362,37 @@ async function readChannelBridgeAudit({
       }
     );
   } catch (cause) {
-    const error = new Error(cause?.message || 'CONNECT no respondió.');
-    error.code = 'CHANNEL_BRIDGE_CONNECT_UNAVAILABLE';
-    throw error;
+    return {
+      capability: 'channels.audit',
+      scope: 'ELANKAV_GLOBAL',
+      bridgeState: 'FAILED',
+      channels: [],
+      messagesSent: 0,
+      secretsExposed: false,
+      errorCode: 'CHANNEL_BRIDGE_CONNECT_UNAVAILABLE',
+      errorMessage: sanitizeOutput(cause?.message || 'CONNECT no respondió.')
+    };
   }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload || payload.scope !== 'ELANKAV_GLOBAL' || !Array.isArray(payload.capabilities)) {
-    const error = new Error(
-      payload?.error?.message ||
-      payload?.message ||
-      `CONNECT HTTP ${response.status}`
-    );
-    error.code =
-      payload?.error?.code ||
-      payload?.code ||
-      'CHANNEL_BRIDGE_CONNECT_FAILED';
-    throw error;
+    return {
+      capability: 'channels.audit',
+      scope: 'ELANKAV_GLOBAL',
+      bridgeState: 'FAILED',
+      channels: [],
+      messagesSent: 0,
+      secretsExposed: false,
+      errorCode:
+        payload?.error?.code ||
+        payload?.code ||
+        'CHANNEL_BRIDGE_CONNECT_FAILED',
+      errorMessage: sanitizeOutput(
+        payload?.error?.message ||
+        payload?.message ||
+        `CONNECT HTTP ${response.status}`
+      )
+    };
   }
 
   const wanted = new Set([
@@ -456,6 +470,8 @@ function formatResult(result) {
       'Auditoría READ-ONLY del puente multicanal completada.',
       '',
       `CONNECT ↔ ORCHESTRATOR: ${result.bridgeState}`,
+      result.errorCode ? `Error: ${result.errorCode}` : null,
+      result.errorMessage ? `Detalle: ${result.errorMessage}` : null,
       line('whatsapp', 'WhatsApp'),
       line('email', 'Email'),
       line('messenger', 'Messenger'),
@@ -464,7 +480,7 @@ function formatResult(result) {
       `Mensajes enviados: ${result.messagesSent || 0}`,
       'Valores de secretos expuestos: NO',
       'No se realizaron envíos, búsquedas, reinicios ni cambios.'
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   if (result.capability === 'production.audit') {
