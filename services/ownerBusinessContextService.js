@@ -14,6 +14,19 @@ const ALLOWED_KEYS = new Set([
   'lastQuotationTotalUsd',
   'lastEntityType',
   'lastEntityId',
+  'activeCustomerReference',
+  'lastIntent',
+  'lastQuotationCustomerReference',
+  'lastQuotationIds',
+  'lastQuotationNumbers',
+  'lastQuotationProjectIds',
+  'lastQuotationListAt',
+  'lastSplitGroupId',
+  'lastSplitCustomerReference',
+  'lastSplitQuotationIds',
+  'lastSplitQuotationNumbers',
+  'lastSplitProjectIds',
+  'lastSplitAt',
   'pendingEntityCreate'
 ]);
 
