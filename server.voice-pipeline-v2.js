@@ -70,11 +70,10 @@ require('./services/ownerSellerUpdateOutreachMessagePatch').installOwnerSellerUp
 // sees the message, while preserving the original text in the result/history.
 require('./services/humanLanguageMessagePatch').installHumanLanguageMessagePatch();
 
-// Owner-only direct outreach to an unregistered possible provider is additive and
-// intentionally outermost. It can send to a supplied number, but never creates an
-// official provider; the relationship remains provider_candidate until Owner
-// explicitly formalizes it.
-require('./services/ownerProviderCandidateOutreachMessagePatch').installOwnerProviderCandidateOutreachMessagePatch();
+// Legacy direct candidate outreach is intentionally NOT installed here.
+// Its relationship helpers remain available, but every new Owner supplier contact
+// must enter through CONNECT recruitment so evidence/dedupe/block/preflight cannot
+// be bypassed by alternate wording.
 
 // Canonical supplier recruitment sits outermost: every Owner provider command
 // must pass CONNECT dedupe/evidence/contact preflight before any external send.
