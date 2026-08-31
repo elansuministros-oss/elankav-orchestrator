@@ -94,6 +94,7 @@ function loadService({ current = productionLikeQuotation() } = {}) {
   const savedService = require.cache[servicePath];
 
   const calls = [];
+  const contextUpdates = [];
   const idempotent = new Map();
 
   require.cache[connectPath] = {
@@ -135,7 +136,7 @@ function loadService({ current = productionLikeQuotation() } = {}) {
         activeQuotationId: current.quotationId,
         activeQuotationNumber: current.quotationNumber
       }),
-      updateContext: async value => value
+      updateContext: async value => { contextUpdates.push(value); return value; }
     }
   };
 
@@ -151,7 +152,7 @@ function loadService({ current = productionLikeQuotation() } = {}) {
     else delete require.cache[contextPath];
   }
 
-  return { service, calls, cleanup };
+  return { service, calls, contextUpdates, cleanup };
 }
 
 test('Owner Business routes split wording into the existing quotation transaction path', () => {
@@ -184,7 +185,7 @@ test('detects natural split request for the active quotation', () => {
 });
 
 test('splits POLARIZADO into two independent quotations without changing the source', async () => {
-  const { service, calls, cleanup } = loadService();
+  const { service, calls, contextUpdates, cleanup } = loadService();
   try {
     const result = await service.prepareAndCreateQuotation({
       splitActive: true,
@@ -239,6 +240,15 @@ test('splits POLARIZADO into two independent quotations without changing the sou
     assert.match(result.summary, /Origen conservado: COT-2026-31F90973/);
     assert.match(result.summary, /USD 1650\.00/);
     assert.match(result.summary, /USD 2350\.00/);
+    assert.equal(contextUpdates.length, 1);
+    assert.equal(contextUpdates[0].activeQuotationId, null);
+    assert.equal(contextUpdates[0].activeProjectId, null);
+    assert.equal(contextUpdates[0].lastEntityType, 'quotation_split');
+    assert.equal(
+      contextUpdates[0].lastEntityId,
+      '31f90973-56c6-42e6-943c-b70cad4ea343'
+    );
+    assert.match(result.summary, /no dejé activa la cotización consolidada/i);
   } finally {
     cleanup();
   }
