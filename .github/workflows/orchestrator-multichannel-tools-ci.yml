@@ -1,6 +1,15 @@
 name: Orchestrator Multichannel Tools CI
 
 on:
+  push:
+    branches:
+      - orchestrator-next
+      - feature/ELAN-OPENAI-MULTICHANNEL-TOOLS-01
+    paths:
+      - 'services/ownerOpsDeployBridge.js'
+      - 'test/ownerOpsDeployBridge.test.js'
+      - 'docs/deploy-markers/**'
+      - '.github/workflows/orchestrator-multichannel-tools-ci.yml'
   pull_request:
     paths:
       - 'adapters/connectMarketplaceToolAdapter.js'
