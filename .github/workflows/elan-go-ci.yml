@@ -41,6 +41,7 @@ jobs:
           node --check services/elanMarketplaceAutonomyService.js
           node --check services/elanMarketplaceBrokerWorkerService.js
           node --check services/elanMarketplaceInterestOutreachService.js
+          node --check services/elanMarketplaceBuyerHunterService.js
           node --check services/elanUnifiedToolRegistry.js
 
       - name: ELAN GO regressions
