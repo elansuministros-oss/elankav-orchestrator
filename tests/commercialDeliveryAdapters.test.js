@@ -14,6 +14,7 @@ const {
 const {
   authorized,
   configuredToken,
+  configuredTokens,
   deriveChannelInternalToken
 } = require('../api/channelDeliveryApi');
 
@@ -304,6 +305,28 @@ test('channel delivery API derives a dedicated bridge token from VQS root secret
     headers: { 'x-elankav-internal-token': env.VQS_API_TOKEN }
   }, env), false);
 });
+
+test('channel delivery API accepts both dedicated and derived bridge tokens during transition', () => {
+  const env = {
+    ORCHESTRATOR_INTERNAL_TOKEN: 'DEDICATED-INTERNAL-TOKEN-123456',
+    VQS_API_TOKEN: 'V'.repeat(40)
+  };
+  const derived = deriveChannelInternalToken(env.VQS_API_TOKEN);
+  const tokens = configuredTokens(env);
+
+  assert.equal(tokens.includes(env.ORCHESTRATOR_INTERNAL_TOKEN), true);
+  assert.equal(tokens.includes(derived), true);
+  assert.equal(authorized({
+    headers: { 'x-elankav-internal-token': env.ORCHESTRATOR_INTERNAL_TOKEN }
+  }, env), true);
+  assert.equal(authorized({
+    headers: { 'x-elankav-internal-token': derived }
+  }, env), true);
+  assert.equal(authorized({
+    headers: { 'x-elankav-internal-token': 'WRONG' }
+  }, env), false);
+});
+
 
 test('channel runtime refuses Meta delivery without verified target evidence', async () => {
   let externalCalls = 0;
