@@ -5,6 +5,7 @@ const {
   createLogisticsRule,
   listCustomers,
   listProviders,
+  listQuotations,
   searchCustomers,
   searchProviders
 } = require('./ownerBusinessConnectClient');
@@ -23,7 +24,11 @@ const BUSINESS_COMMANDS = Object.freeze({
   PROVIDER_QUOTE_REQUEST: 'business_provider_quote_request',
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
   LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
-  QUOTATION_CREATE: 'business_quotation_create'
+  QUOTATION_CREATE: 'business_quotation_create',
+  QUOTATION_LOOKUP: 'business_quotation_lookup',
+  QUOTATION_LOOKUP_SEND: 'business_quotation_lookup_send',
+  QUOTATION_LATEST: 'business_quotation_latest',
+  QUOTATION_RECENT: 'business_quotation_recent'
 });
 
 function normalize(value) {
@@ -96,6 +101,214 @@ function parseCustomerSearch(message) {
   const match = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?cliente\s+(.+)$/);
   if (!match) return null;
   return { type: BUSINESS_COMMANDS.CUSTOMER_SEARCH, query: match[1].trim() };
+}
+
+function parseQuotationReadRequest(message) {
+  const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
+  if (!/\bcotizacion(?:es)?\b/.test(normalized)) return null;
+
+  const asksLatest =
+    /\b(ultima|ultimo|mas reciente|reciente)\b/.test(normalized) &&
+    /\b(cotizacion|cotizaciones)\b/.test(normalized);
+
+  const asksRecentList =
+    /\b(ultimas|ultimos|recientes)\b/.test(normalized) &&
+    /\bcotizaciones\b/.test(normalized);
+
+  if (asksRecentList) {
+    return {
+      type: BUSINESS_COMMANDS.QUOTATION_RECENT,
+      limit: 5
+    };
+  }
+
+  if (asksLatest) {
+    return {
+      type: BUSINESS_COMMANDS.QUOTATION_LATEST,
+      limit: 1
+    };
+  }
+
+  return null;
+}
+
+function parseQuotationLookupSend(message) {
+  const raw = String(message || '').trim();
+  const normalized = normalize(raw).replace(/^elan[\s,;:]+/, '').trim();
+  if (!/\bcotizacion\b/.test(normalized)) return null;
+  if (!/\b(busca|buscar|encuentra|encontra|localiza)\b/.test(normalized)) return null;
+  if (!/\b(envia|enviale|manda|mandale|comparte|compartile)\b/.test(normalized)) return null;
+
+  const match = normalized.match(
+    /\bcotizacion\s+(?:del|de\s+la|de|para\s+el|para\s+la|para)?\s*cliente\s+(.+?)(?=\s+(?:y\s+)?(?:envia|enviale|manda|mandale|comparte|compartile)\b|[,.;]|$)/
+  );
+  if (!match?.[1]) return null;
+  const customerReference = match[1].trim();
+  if (!customerReference) return null;
+
+  return {
+    type: BUSINESS_COMMANDS.QUOTATION_LOOKUP_SEND,
+    customerReference
+  };
+}
+
+function parseQuotationLookup(message) {
+  const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
+  if (!/\bcotizacion\b/.test(normalized)) return null;
+  if (!/\b(busca|buscar|encuentra|encontra|localiza)\b/.test(normalized)) return null;
+  if (/\b(envia|enviale|manda|mandale|comparte|compartile)\b/.test(normalized)) return null;
+
+  const match = normalized.match(
+    /\bcotizacion\s+(?:del|de\s+la|de|para\s+el|para\s+la|para)?\s*cliente\s+(.+?)(?=[,.;!?]|$)/
+  );
+  if (!match?.[1]) return null;
+  const customerReference = match[1].trim();
+  if (!customerReference) return null;
+
+  return {
+    type: BUSINESS_COMMANDS.QUOTATION_LOOKUP,
+    customerReference
+  };
+}
+
+function quotationRows(payload) {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.quotations)) return payload.data.quotations;
+  if (Array.isArray(payload?.quotations)) return payload.quotations;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function quotationPublicDocument(row) {
+  return row?.quotation_document?.publicDocument || row?.quotationDocument?.publicDocument || {};
+}
+
+function quotationCustomerReferences(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return [
+    row?.customer_name,
+    row?.customerName,
+    row?.customer_company_name,
+    row?.customerCompanyName,
+    row?.customer_snapshot?.name,
+    row?.customer_snapshot?.companyName,
+    publicDocument?.customer?.name,
+    publicDocument?.customer?.companyName
+  ].map(value => String(value || '').trim()).filter(Boolean);
+}
+
+function quotationCustomerName(row) {
+  return quotationCustomerReferences(row)[0] || '';
+}
+
+function quotationStatus(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return normalize(row?.status || row?.quotation_status || publicDocument?.quotation?.status || '');
+}
+
+function quotationProjectId(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return String(row?.project_id || row?.projectId || publicDocument?.project?.projectId || '').trim();
+}
+
+function quotationId(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return String(row?.quotation_id || row?.quotationId || row?.id || publicDocument?.quotation?.quotationId || '').trim();
+}
+
+function quotationNumber(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return String(row?.quotation_number || row?.quotationNumber || publicDocument?.quotation?.quotationNumber || '').trim();
+}
+
+function quotationPublicUrl(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return String(row?.public_url || row?.publicUrl || publicDocument?.quotation?.publicUrl || '').trim();
+}
+
+function quotationCreatedAt(row) {
+  return String(row?.created_at || row?.createdAt || '').trim();
+}
+function quotationTotalUsd(row) {
+  const publicDocument = quotationPublicDocument(row);
+  const raw =
+    row?.total_usd ??
+    row?.totalUsd ??
+    publicDocument?.pricing?.totalUsd ??
+    publicDocument?.totals?.totalUsd ??
+    null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function quotationPrimaryItem(row) {
+  const publicDocument = quotationPublicDocument(row);
+  const items = Array.isArray(row?.items)
+    ? row.items
+    : Array.isArray(publicDocument?.items)
+      ? publicDocument.items
+      : [];
+  const first = items.find(Boolean);
+  return String(first?.title || first?.description || first?.name || '').trim();
+}
+
+function formatQuotationReadRow(row) {
+  const number = quotationNumber(row) || quotationId(row) || 'sin número';
+  const customer = quotationCustomerName(row) || 'cliente sin nombre';
+  const status = quotationStatus(row) || 'sin estado';
+  const createdAt = quotationCreatedAt(row) || 'sin fecha';
+  const total = quotationTotalUsd(row);
+  const item = quotationPrimaryItem(row);
+  const url = quotationPublicUrl(row);
+
+  return [
+    `Cotización: ${number}`,
+    `Cliente: ${customer}`,
+    item ? `Trabajo: ${item}` : '',
+    total === null ? '' : `Total: USD ${total.toFixed(2)}`,
+    `Estado: ${status}`,
+    `Creada: ${createdAt}`,
+    url ? `Enlace: ${url}` : ''
+  ].filter(Boolean).join('\n');
+}
+
+
+function selectQuotationByCustomerReference(payload, reference) {
+  const wanted = normalize(reference);
+  if (!wanted) return { status: 'not_found', candidates: [] };
+
+  const matches = quotationRows(payload).filter(row =>
+    quotationCustomerReferences(row).some(value => {
+      const candidate = normalize(value);
+      return candidate && (candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate));
+    })
+  );
+
+  if (!matches.length) return { status: 'not_found', candidates: [] };
+
+  const exact = matches.filter(row =>
+    quotationCustomerReferences(row).some(value => normalize(value) === wanted)
+  );
+  const scoped = exact.length ? exact : matches;
+  const drafts = scoped.filter(row => quotationStatus(row) === 'draft');
+
+  if (drafts.length === 1) return { status: 'selected', row: drafts[0], candidates: scoped };
+  if (drafts.length > 1) return { status: 'ambiguous', candidates: drafts };
+  if (scoped.length === 1) return { status: 'selected', row: scoped[0], candidates: scoped };
+
+  return {
+    status: 'ambiguous',
+    candidates: [...scoped].sort((a, b) => quotationCreatedAt(b).localeCompare(quotationCreatedAt(a)))
+  };
+}
+
+function formatQuotationCandidates(rows) {
+  return rows.slice(0, 5).map(row => {
+    const number = quotationNumber(row) || quotationId(row) || 'sin número';
+    const status = quotationStatus(row) || 'sin estado';
+    const name = quotationCustomerName(row) || 'cliente sin nombre';
+    return `${number} — ${name} — ${status}`;
+  }).join('; ');
 }
 
 function parseProviderList(message) {
@@ -291,6 +504,12 @@ function parseLogisticsRule(message) {
 }
 
 function detectOwnerBusinessCommand(message) {
+  const quotationRead = parseQuotationReadRequest(message);
+  if (quotationRead) return quotationRead;
+  const quotationLookupSend = parseQuotationLookupSend(message);
+  if (quotationLookupSend) return quotationLookupSend;
+  const quotationLookup = parseQuotationLookup(message);
+  if (quotationLookup) return quotationLookup;
   const quotation = parseQuotationRequest(message);
   if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
   return parseCustomerCreate(message)
@@ -425,6 +644,155 @@ function formatLogisticsRule(rule) {
 }
 
 async function executeOwnerBusinessCommand(command) {
+  if (
+    command.type === BUSINESS_COMMANDS.QUOTATION_LATEST ||
+    command.type === BUSINESS_COMMANDS.QUOTATION_RECENT
+  ) {
+    const payload = await listQuotations();
+    const rows = quotationRows(payload)
+      .slice()
+      .sort((a, b) => quotationCreatedAt(b).localeCompare(quotationCreatedAt(a)));
+
+    if (!rows.length) {
+      return {
+        handled: true,
+        outputText: 'No encontré cotizaciones oficiales registradas en CONNECT/VQS.',
+        result: { rows: [] }
+      };
+    }
+
+    const limit = command.type === BUSINESS_COMMANDS.QUOTATION_LATEST
+      ? 1
+      : Math.max(1, Math.min(Number(command.limit) || 5, 10));
+    const selected = rows.slice(0, limit);
+
+    return {
+      handled: true,
+      outputText: command.type === BUSINESS_COMMANDS.QUOTATION_LATEST
+        ? ['Última cotización oficial registrada:', '', formatQuotationReadRow(selected[0])].join('\n')
+        : [
+            `Últimas ${selected.length} cotizaciones oficiales registradas:`,
+            '',
+            ...selected.flatMap((row, index) => [`${index + 1}. ${formatQuotationReadRow(row).replace(/\n/g, '\n   ')}`, ''])
+          ].join('\n').trim(),
+      result: { rows: selected }
+    };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.QUOTATION_LOOKUP) {
+    const quotations = await listQuotations();
+    const resolved = selectQuotationByCustomerReference(quotations, command.customerReference);
+
+    if (resolved.status === 'not_found') {
+      return {
+        handled: true,
+        outputText: `No encontré una cotización oficial asociada al cliente “${command.customerReference}”.`,
+        result: resolved
+      };
+    }
+
+    if (resolved.status === 'ambiguous') {
+      return {
+        handled: true,
+        outputText: `Encontré varias cotizaciones para “${command.customerReference}”: ${formatQuotationCandidates(resolved.candidates)}.`,
+        result: resolved
+      };
+    }
+
+    const row = resolved.row || {};
+    const projectId = quotationProjectId(row);
+    const qId = quotationId(row);
+    const qNumber = quotationNumber(row);
+    const publicUrl = quotationPublicUrl(row);
+
+    if (projectId && qId) {
+      await updateContext({
+        activeProjectId: projectId,
+        activeQuotationId: qId,
+        activeQuotationNumber: qNumber || null,
+        activeQuotationPublicUrl: publicUrl || null,
+        lastEntityType: 'quotation',
+        lastEntityId: qId
+      });
+    }
+
+    return {
+      handled: true,
+      outputText: ['Cotización encontrada:', '', formatQuotationReadRow(row)].join('\n'),
+      result: resolved
+    };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.QUOTATION_LOOKUP_SEND) {
+    const quotations = await listQuotations();
+    const resolved = selectQuotationByCustomerReference(quotations, command.customerReference);
+
+    if (resolved.status === 'not_found') {
+      return {
+        handled: true,
+        outputText: `No encontré una cotización oficial asociada al cliente “${command.customerReference}”. No envié nada.`,
+        result: resolved
+      };
+    }
+
+    if (resolved.status === 'ambiguous') {
+      return {
+        handled: true,
+        outputText: `Encontré varias cotizaciones para “${command.customerReference}”: ${formatQuotationCandidates(resolved.candidates)}. Decime cuál querés enviar y no enviaré nada hasta identificarla.`,
+        result: resolved
+      };
+    }
+
+    const row = resolved.row || {};
+    const projectId = quotationProjectId(row);
+    const qId = quotationId(row);
+    const qNumber = quotationNumber(row);
+    const publicUrl = quotationPublicUrl(row);
+    if (!projectId || !qId) {
+      return {
+        handled: true,
+        outputText: 'Encontré la cotización, pero no pude resolver de forma segura su proyecto o identificador interno. No envié nada.',
+        result: resolved
+      };
+    }
+
+    await updateContext({
+      activeProjectId: projectId,
+      activeQuotationId: qId,
+      activeQuotationNumber: qNumber || null,
+      activeQuotationPublicUrl: publicUrl || null,
+      lastEntityType: 'quotation',
+      lastEntityId: qId
+    });
+
+    const operation = await createPendingOperation({
+      capability: 'business.quotation.send-whatsapp',
+      target: 'connect',
+      requestedBy: 'owner-whatsapp',
+      summary: `Enviar ${qNumber || qId} al cliente por WhatsApp`,
+      impact: 'Envía externamente la cotización oficial encontrada. Requiere confirmación explícita del Owner.',
+      parameters: {
+        projectId,
+        quotationId: qId
+      }
+    });
+
+    return {
+      handled: true,
+      outputText: formatPendingOperation(operation),
+      result: {
+        operation,
+        quotation: {
+          projectId,
+          quotationId: qId,
+          quotationNumber: qNumber || null,
+          publicUrl: publicUrl || null,
+          customerName: quotationCustomerName(row) || command.customerReference
+        }
+      }
+    };
+  }
+
   if (command.type === BUSINESS_COMMANDS.QUOTATION_CREATE) {
     const result = await prepareAndCreateQuotation(command.input);
     if (!result.ready) return { handled: true, outputText: result.question || 'Falta información para completar la cotización.', result };
@@ -594,5 +962,9 @@ module.exports = {
   parseProviderList,
   parseProviderQuoteRequest,
   parseProviderSearch,
-  parseSellerName
+  parseQuotationLookup,
+  parseQuotationLookupSend,
+  parseQuotationReadRequest,
+  parseSellerName,
+  selectQuotationByCustomerReference
 };
