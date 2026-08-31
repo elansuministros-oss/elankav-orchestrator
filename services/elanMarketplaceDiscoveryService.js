@@ -2,6 +2,7 @@
 
 const marketplace = require('./ownerBusinessConnectClient');
 const webSearch = require('./elanMarketplaceWebSearchService');
+const sourceVerification = require('./elanMarketplaceSourceVerificationService');
 
 const DISCOVERY_CATEGORIES = Object.freeze([
   {
@@ -182,6 +183,7 @@ async function runDiscoverySearch({
   target,
   env = process.env,
   searchWeb = webSearch.searchOpenMarketOpportunities,
+  verifySource = sourceVerification.verifyDiscoverySource,
   persist = marketplace.marketplaceUpsertDiscovery
 }) {
   const external = await searchWeb(target, env);
@@ -194,9 +196,63 @@ async function runDiscoverySearch({
     .filter(Boolean);
 
   const persisted = [];
+  const rejected = [];
 
   for (const discovery of normalized) {
-    const payload = await persist(discovery, env);
+    const verification = await verifySource(discovery, env);
+
+    if (!verification?.verified) {
+      rejected.push({
+        title: discovery.title,
+        sourceUrl: discovery.sourceUrl,
+        code: clean(verification?.code) || 'SOURCE_NOT_CONFIRMED'
+      });
+      continue;
+    }
+
+    const confirmed = {
+      ...discovery,
+      sourceUrl: clean(verification.finalUrl) || discovery.sourceUrl,
+      verificationStatus: 'validated',
+      ...(clean(verification.imageUrl)
+        ? { imageUrl: clean(verification.imageUrl) }
+        : {}),
+      ...(clean(verification.pageTitle)
+        ? { title: clean(verification.pageTitle).slice(0, 220) }
+        : {}),
+      ...(clean(verification.sourceDescription)
+        ? { description: clean(verification.sourceDescription).slice(0, 10000) }
+        : {}),
+      ...(discovery.priceAmount !== undefined && verification.priceConfirmed !== true
+        ? {
+            priceAmount: undefined,
+            priceCurrency: undefined
+          }
+        : {}),
+      ...(discovery.location && verification.locationConfirmed !== true
+        ? { location: undefined }
+        : {}),
+      ...(discovery.contactHint && verification.contactConfirmed !== true
+        ? { contactHint: undefined }
+        : {}),
+      metadata: {
+        ...(discovery.metadata || {}),
+        sourceVerified: true,
+        sourceVerificationCode: clean(verification.code) || 'SOURCE_CONFIRMED',
+        sourceHttpStatus: Number(verification.statusCode) || 200,
+        priceConfirmed: verification.priceConfirmed === true,
+        locationConfirmed: verification.locationConfirmed === true,
+        contactConfirmed: verification.contactConfirmed === true,
+        verifiedAt: clean(verification.verifiedAt) || new Date().toISOString()
+      }
+    };
+
+    if (confirmed.priceAmount === undefined) delete confirmed.priceAmount;
+    if (confirmed.priceCurrency === undefined) delete confirmed.priceCurrency;
+    if (confirmed.location === undefined) delete confirmed.location;
+    if (confirmed.contactHint === undefined) delete confirmed.contactHint;
+
+    const payload = await persist(confirmed, env);
     const result =
       payload &&
       typeof payload === 'object' &&
@@ -206,10 +262,10 @@ async function runDiscoverySearch({
 
     persisted.push({
       discoveryCode: clean(result?.discoveryCode) || null,
-      kind: discovery.kind,
-      category: discovery.category,
-      title: discovery.title,
-      sourceUrl: discovery.sourceUrl
+      kind: confirmed.kind,
+      category: confirmed.category,
+      title: confirmed.title,
+      sourceUrl: confirmed.sourceUrl
     });
   }
 
@@ -217,8 +273,11 @@ async function runDiscoverySearch({
     target,
     found: raw.length,
     accepted: normalized.length,
+    verified: persisted.length,
+    rejected: rejected.length,
     published: persisted.length,
     searchSummary: clean(external?.searchSummary),
+    rejectedSources: rejected,
     persisted
   };
 }
@@ -227,6 +286,7 @@ async function runAutonomousDiscoveryCycle({
   env = process.env,
   now = Date.now(),
   searchWeb = webSearch.searchOpenMarketOpportunities,
+  verifySource = sourceVerification.verifyDiscoverySource,
   persist = marketplace.marketplaceUpsertDiscovery
 } = {}) {
   const category = selectDiscoveryCategory(now, env);
@@ -265,6 +325,7 @@ async function runAutonomousDiscoveryCycle({
       target,
       env,
       searchWeb,
+      verifySource,
       persist
     });
     results.push(result);
