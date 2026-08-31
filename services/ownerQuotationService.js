@@ -176,7 +176,7 @@ function parseQuotationSplitRequest(message) {
     .replace(/[.!?]+$/g, '')
     .trim();
 
-  if (!/\bcotizaciones?\b/.test(normalized)) return null;
+  if (!/\bcotizacion(?:es)?\b/.test(normalized)) return null;
   if (!/\b(divide|dividir|dividila|dividela|separa|separar|separala|separame)\b/.test(normalized)) return null;
 
   const perItem = /\b(cada\s+(?:item|items)|una\s+por\s+(?:cada\s+)?(?:item|items)|por\s+(?:item|items))\b/.test(normalized);
