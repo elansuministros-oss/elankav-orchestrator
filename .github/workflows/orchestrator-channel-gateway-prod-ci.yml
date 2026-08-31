@@ -6,6 +6,7 @@ on:
       - release/ELANKAV-MULTICHANNEL-ORCH-PROD-01
       - release/CHANNEL-BRIDGE-AUTH-PROD-01
       - release/CHANNEL-BRIDGE-AUDIT-PROD-01
+      - release/CHANNEL-AUDIT-MODE-FIX-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
@@ -16,6 +17,7 @@ on:
       - 'services/ownerCommandService.js'
       - 'services/ownerOpsCapabilityRegistry.js'
       - 'services/ownerOpsReadService.js'
+      - 'services/operatorModeService.js'
       - 'tests/ownerOpsReadService.test.js'
       - 'tests/commercialDeliveryAdapters.test.js'
       - '.github/workflows/orchestrator-channel-gateway-prod-ci.yml'
