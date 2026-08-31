@@ -98,6 +98,7 @@ function promptForOpenDiscovery(target = {}) {
     '- confidence solo high, medium o low',
     '- contactHint solo si el contacto aparece públicamente en la fuente',
     '- sourceUrl debe ser la URL DIRECTA del anuncio, solicitud o ficha concreta; no uses homepages ni páginas generales de categoría',
+    '- title y description deben describir únicamente el producto, servicio u oportunidad; NO incluyas el nombre de la plataforma, vendedor, teléfono ni URL en esos campos',
     '- priorizá páginas con precio, ubicación, título y datos suficientes para verificación posterior',
     '- máximo 10 resultados',
     '',
