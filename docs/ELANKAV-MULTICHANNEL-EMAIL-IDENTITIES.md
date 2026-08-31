@@ -68,9 +68,9 @@ An unknown `fromIdentity` is rejected before Gmail OAuth/API is called.
 4. Configure SPF.
 5. Enable DKIM and publish the generated DNS record.
 6. Configure DMARC after SPF/DKIM alignment is verified.
-7. Create Google Cloud OAuth client and authorize only required Gmail scopes.
+7. Create Google Cloud OAuth client. The current send/read/reply + send-as verification design can use `https://www.googleapis.com/auth/gmail.modify`; do not request `https://mail.google.com/` unless a future function truly needs permanent-delete authority.
 8. Store credentials in server secret storage, never source control.
-9. Verify every sender identity in Workspace/Gmail.
+9. Verify every sender identity in Workspace/Gmail. The adapter checks Gmail `users.settings.sendAs.list` and requires configured identities to report `verificationStatus=accepted` before the email capability becomes VERIFIED.
 10. Run Gmail adapter probe.
 11. Test one controlled outbound message and one inbound reply.
 12. Only then mark email capability VERIFIED.
