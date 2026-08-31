@@ -52,7 +52,55 @@ function detectDesignSendFollowUp(message){
 function ownerActor(context,args){return{role:'owner',actorId:'owner',authority:'owner_identity',phone:context?.phone||args?.phone||null,scopes:['*'],platforms:['*']}}
 function platformOf(context,args){return String(context?.platform||args?.platform||'ELANVISUAL').toUpperCase()}
 function channelOf(context,args){return String(context?.channel||args?.channel||'whatsapp').toLowerCase()}
-async function persistOwnerTurn({context,args,direction,text,externalMessageId}){return persistUnifiedContext({actor:ownerActor(context,args),platform:platformOf(context,args),channel:channelOf(context,args),direction,text,messageType:args?.metadata?.messageType==='audio'?'audio':'text',externalMessageId:externalMessageId||null,safe:true})}
+async function resolveRuntimeActor(context,args){
+  if(context?.owner?.isOwner)return ownerActor(context,args);
+  try{
+    const actor=await resolveCommercialActorSafely({
+      phone:context?.phone||args?.phone||null,
+      identity:context?.identity?.receivedId||args?.externalUserId||null,
+      externalUserId:context?.externalUserId||args?.externalUserId||null,
+      chatId:context?.metadata?.chatId||args?.metadata?.chatId||null,
+      metadata:context?.metadata||args?.metadata||{},
+      platform:platformOf(context,args)
+    });
+    if(actor&&typeof actor==='object')return{
+      role:actor.role||'prospect',
+      actorId:actor.actorId||actor.sellerId||actor.customerId||actor.providerId||actor.prospectId||context?.externalUserId||args?.externalUserId||null,
+      sellerId:actor.sellerId||null,
+      sellerName:actor.displayName||null,
+      registered:actor.registered===true,
+      platformAllowed:actor.platformAllowed!==false,
+      scopes:Array.isArray(actor.scopes)?actor.scopes:[],
+      authority:actor.authority||null,
+      phone:actor.canonicalPhone||context?.phone||args?.phone||null
+    };
+  }catch(error){
+    console.error('[ELAN_UNIFIED_ACTOR_RESOLVE_FAILED]',{code:error?.code||null,message:error?.message||String(error)});
+  }
+  return{
+    role:'prospect',
+    actorId:context?.externalUserId||args?.externalUserId||context?.phone||args?.phone||null,
+    registered:false,
+    platformAllowed:true,
+    scopes:[],
+    phone:context?.phone||args?.phone||null
+  };
+}
+async function persistRuntimeTurn({actor,context,args,direction,text,externalMessageId}){
+  const rawId=String(externalMessageId||'').trim();
+  const namespacedId=rawId?'unified:'+rawId:null;
+  return persistUnifiedContext({
+    actor,
+    platform:platformOf(context,args),
+    channel:channelOf(context,args),
+    direction,
+    text,
+    messageType:args?.metadata?.messageType==='audio'?'audio':'text',
+    externalMessageId:namespacedId,
+    safe:true
+  });
+}
+async function persistOwnerTurn({context,args,direction,text,externalMessageId}){return persistRuntimeTurn({actor:ownerActor(context,args),context,args,direction,text,externalMessageId})}
 
 function runtimeResult({args,context,execution,reply,command='elan_unified_runtime'}){
   return{message:String(args?.message||'').trim(),reply,provider:'elankav',model:'elan-unified-runtime',responseId:null,status:'completed',usage:null,suppressDelivery:false,command,jobId:null,ownerCommercialQuery:true,ownerCrmCommand:false,ownerBusinessCommand:true,actorRole:execution?.actor?.role||'owner',actorId:execution?.actor?.actorId||'owner',accessScopes:execution?.actor?.scopes||['*'],runtimeVersion:execution?.version||'1.0.0',knowledgeAvailable:true,historyMessages:null,context:{version:context?.version||null,platform:context?.platform||args?.platform||'ELANVISUAL',channel:context?.channel||args?.channel||'whatsapp',externalUserId:context?.externalUserId||args?.externalUserId||null,ownerMode:true,runtime:'ELAN_UNIFIED_RUNTIME',authority:'CONNECT'}}
