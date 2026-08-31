@@ -203,7 +203,30 @@ function quotationPublicDocument(row) {
 }
 
 function quotationRelations(row) {
-  return quotationPublicDocument(row)?.relations || {};
+  const publicDocument = quotationPublicDocument(row);
+  return row?.relations || publicDocument?.relations || publicDocument?.project?.relations || {};
+}
+
+function quotationProjectTitle(row) {
+  const publicDocument = quotationPublicDocument(row);
+  return String(
+    row?.project_title ||
+    row?.projectTitle ||
+    publicDocument?.project?.title ||
+    ''
+  ).trim();
+}
+
+function quotationSplitTitleMetadata(row) {
+  const title = quotationProjectTitle(row);
+  if (!title) return null;
+  const match = title.match(/^(.*?)\s+[—-]\s+Alternativa\s+(\d+)\s*:\s*(.+)$/i);
+  if (!match) return null;
+  const baseTitle = String(match[1] || '').trim();
+  const partIndex = Number(match[2]);
+  const partTitle = String(match[3] || '').trim();
+  if (!baseTitle || !Number.isInteger(partIndex) || partIndex < 1) return null;
+  return { baseTitle, partIndex, partTitle };
 }
 
 function quotationCustomerReferences(row) {
@@ -722,6 +745,41 @@ async function executeOwnerBusinessCommand(command) {
           };
         }
       }
+
+      if (!candidates.length) {
+        const titleGroups = new Map();
+        for (const row of rows.filter(matchesCustomer)) {
+          if (quotationStatus(row) !== 'draft') continue;
+          const metadata = quotationSplitTitleMetadata(row);
+          if (!metadata) continue;
+          const key = normalize(metadata.baseTitle);
+          if (!key) continue;
+          if (!titleGroups.has(key)) titleGroups.set(key, []);
+          titleGroups.get(key).push({ row, metadata });
+        }
+
+        const expectedCount = Number(command.expectedCount || 2);
+        const validTitleGroups = [...titleGroups.entries()].filter(([, entries]) => {
+          if (entries.length !== expectedCount) return false;
+          const indexes = entries.map(entry => entry.metadata.partIndex).sort((a, b) => a - b);
+          return indexes.every((value, index) => value === index + 1);
+        });
+
+        if (validTitleGroups.length === 1) {
+          const [baseKey, entries] = validTitleGroups[0];
+          splitGroupId = `title:${baseKey}`;
+          candidates = entries.map(entry => entry.row);
+        } else if (validTitleGroups.length > 1) {
+          return {
+            handled: true,
+            outputText: `Encontré más de un par de alternativas en borrador para “${command.customerReference}”. No preparé ningún envío para evitar mezclar proyectos.`,
+            result: {
+              status: 'ambiguous_split_title_groups',
+              groups: validTitleGroups.map(([key]) => key)
+            }
+          };
+        }
+      }
     }
 
     if (!candidates.length) {
@@ -734,8 +792,16 @@ async function executeOwnerBusinessCommand(command) {
 
     const expectedCount = Number(command.expectedCount || 2);
     const sorted = [...candidates].sort((a, b) => {
-      const aIndex = Number(quotationRelations(a)?.splitPartIndex || 0);
-      const bIndex = Number(quotationRelations(b)?.splitPartIndex || 0);
+      const aIndex = Number(
+        quotationRelations(a)?.splitPartIndex ||
+        quotationSplitTitleMetadata(a)?.partIndex ||
+        0
+      );
+      const bIndex = Number(
+        quotationRelations(b)?.splitPartIndex ||
+        quotationSplitTitleMetadata(b)?.partIndex ||
+        0
+      );
       return aIndex - bIndex || quotationCreatedAt(a).localeCompare(quotationCreatedAt(b));
     });
 
@@ -1133,6 +1199,7 @@ module.exports = {
   parseQuotationLookupSend,
   parseQuotationReadRequest,
   parseQuotationSplitSend,
+  quotationSplitTitleMetadata,
   parseSellerName,
   selectQuotationByCustomerReference
 };
