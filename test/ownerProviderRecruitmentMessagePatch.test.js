@@ -12,6 +12,8 @@ const {
   runCommand
 } = require('../services/ownerProviderRecruitmentMessagePatch');
 
+process.env.CONNECT_PROVIDER_INTELLIGENCE_TOKEN = process.env.CONNECT_PROVIDER_INTELLIGENCE_TOKEN || 'test-provider-token';
+
 test('detecta comandos Owner de reclutamiento sin confundir consultas generales', () => {
   assert.equal(commandKind('ELAN recluta este proveedor', { media: { url: 'https://waha.test/file' } }), 'recruit');
   assert.equal(commandKind('ELAN registra este proveedor', { media: { url: 'https://waha.test/file' } }), 'register');
