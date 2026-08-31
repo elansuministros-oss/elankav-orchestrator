@@ -5,7 +5,10 @@ const assert = require('node:assert/strict');
 const {
   commandKind,
   extractProviderQuery,
-  initialMessage
+  initialMessage,
+  rememberPendingMedia,
+  consumePendingMedia,
+  clearPendingOwnerMedia
 } = require('../services/ownerProviderRecruitmentMessagePatch');
 
 test('detecta comandos Owner de reclutamiento sin confundir consultas generales', () => {
@@ -31,4 +34,23 @@ test('mensaje externo identifica inequívocamente a ELAN como IA', () => {
 test('extrae referencia humana del proveedor sin conservar ruido del comando', () => {
   assert.equal(extractProviderQuery('ELAN estado proveedor Vargas Centro'), 'Vargas Centro');
   assert.equal(extractProviderQuery('ELAN solicita tarifario a proveedor LED Solutions'), 'LED Solutions');
+});
+
+
+test('asocia el siguiente archivo del Owner con el comando previo de proveedor', () => {
+  clearPendingOwnerMedia();
+  const base = { phone: '50588388940', externalUserId: '50588388940@c.us', metadata: {} };
+  rememberPendingMedia({ ...base, message: 'ELAN registra este proveedor' }, 'register');
+  assert.equal(consumePendingMedia({ ...base, metadata: {} }), null);
+  const pending = consumePendingMedia({
+    ...base,
+    message: '[Archivo recibido: proveedor.jpg]',
+    metadata: { media: { url: 'https://waha.test/proveedor.jpg' }, messageType: 'image' }
+  });
+  assert.equal(pending.kind, 'register');
+  assert.equal(pending.originalMessage, 'ELAN registra este proveedor');
+  assert.equal(consumePendingMedia({
+    ...base,
+    metadata: { media: { url: 'https://waha.test/otro.jpg' } }
+  }), null);
 });
