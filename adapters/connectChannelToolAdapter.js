@@ -78,7 +78,45 @@ function createConnectChannelToolAdapter({
     return request('/api/v1/channels/capabilities', { method: 'GET' });
   }
 
-  return Object.freeze({ getChannelCapabilities });
+  async function getCommercialBriefing({
+    from,
+    to,
+    businessUnit,
+    platform,
+    channel,
+    source,
+    campaign
+  } = {}) {
+    const params = new URLSearchParams();
+    if (clean(from)) params.set('from', clean(from));
+    if (clean(to)) params.set('to', clean(to));
+    if (clean(businessUnit)) params.set('businessUnit', clean(businessUnit));
+    if (clean(platform)) params.set('platform', clean(platform));
+    if (clean(channel)) params.set('channel', clean(channel));
+    if (clean(source)) params.set('source', clean(source));
+    if (clean(campaign)) params.set('campaign', clean(campaign));
+    const query = params.toString();
+    return request(`/api/v1/commercial-intelligence/briefing${query ? `?${query}` : ''}`, {
+      method: 'GET'
+    });
+  }
+
+  async function getCommercialReport(filters = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters || {})) {
+      if (clean(value)) params.set(key, clean(value));
+    }
+    const query = params.toString();
+    return request(`/api/v1/commercial-intelligence/report${query ? `?${query}` : ''}`, {
+      method: 'GET'
+    });
+  }
+
+  return Object.freeze({
+    getChannelCapabilities,
+    getCommercialBriefing,
+    getCommercialReport
+  });
 }
 
 module.exports = {
