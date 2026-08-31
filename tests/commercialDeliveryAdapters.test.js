@@ -9,11 +9,11 @@ const {
   createMetaDeliveryAdapter
 } = require('../adapters/metaDeliveryAdapter');
 const {
-  createCommercialDeliveryService
-} = require('../services/commercialDeliveryService');
+  createChannelDeliveryService
+} = require('../services/channelDeliveryService');
 const {
   authorized
-} = require('../api/commercialDeliveryApi');
+} = require('../api/channelDeliveryApi');
 
 test('Gmail remains AUTH_REQUIRED without OAuth infrastructure', async () => {
   const adapter = createGmailDeliveryAdapter({ env: {} });
@@ -141,7 +141,7 @@ test('Instagram requires IGSID and uses graph.instagram.com messages endpoint', 
 });
 
 
-test('commercial delivery API requires the server internal token', () => {
+test('channel delivery API requires the server internal token', () => {
   const env = { ORCHESTRATOR_INTERNAL_TOKEN: 'INTERNAL-ONLY' };
   assert.equal(authorized({
     headers: { authorization: 'Bearer INTERNAL-ONLY' }
@@ -154,9 +154,9 @@ test('commercial delivery API requires the server internal token', () => {
   }, env), false);
 });
 
-test('commercial runtime refuses Meta delivery without verified target evidence', async () => {
+test('channel runtime refuses Meta delivery without verified target evidence', async () => {
   let externalCalls = 0;
-  const service = createCommercialDeliveryService({
+  const service = createChannelDeliveryService({
     env: {
       META_GRAPH_API_VERSION: 'v99.0',
       META_PAGE_ID: 'PAGE-1',
@@ -183,8 +183,8 @@ test('commercial runtime refuses Meta delivery without verified target evidence'
   assert.equal(externalCalls, 0);
 });
 
-test('commercial capability snapshot does not mark Gmail or Meta VERIFIED from env alone', () => {
-  const service = createCommercialDeliveryService({
+test('global channel capability snapshot does not mark Gmail or Meta VERIFIED from env alone', () => {
+  const service = createChannelDeliveryService({
     env: {
       WAHA_BASE_URL: 'https://waha.example',
       WAHA_API_KEY: 'WAHA-KEY',
