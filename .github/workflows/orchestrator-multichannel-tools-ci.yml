@@ -1,0 +1,37 @@
+name: Orchestrator Multichannel Tools CI
+
+on:
+  pull_request:
+    paths:
+      - 'adapters/connectMarketplaceToolAdapter.js'
+      - 'adapters/openaiAdapter.js'
+      - 'services/openaiCommercialToolService.js'
+      - 'tests/openaiCommercialTools.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/orchestrator-multichannel-tools-ci.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax
+        run: |
+          node --check adapters/connectMarketplaceToolAdapter.js
+          node --check adapters/openaiAdapter.js
+          node --check services/openaiCommercialToolService.js
+          node --check tests/openaiCommercialTools.test.js
+
+      - name: Test
+        run: npm test
