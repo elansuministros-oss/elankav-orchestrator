@@ -81,7 +81,7 @@ function createChannelDeliveryApi({
 } = {}) {
   const service = createChannelDeliveryService({ env, fetchImpl });
 
-  return async function handleCommercialDeliveryApi({
+  return async function handleChannelDeliveryApi({
     req,
     res,
     sendJson
@@ -173,7 +173,7 @@ function createChannelDeliveryApi({
         ok: false,
         error: {
           code: 'CHANNEL_INTERNAL_ROUTE_NOT_FOUND',
-          message: 'Ruta comercial interna no encontrada.'
+          message: 'Ruta interna de canales no encontrada.'
         }
       });
       return true;
@@ -187,7 +187,7 @@ function createChannelDeliveryApi({
         ok: false,
         error: {
           code: clean(error?.code) || 'CHANNEL_INTERNAL_ERROR',
-          message: clean(error?.message) || 'Falló el canal comercial.'
+          message: clean(error?.message) || 'Falló el transporte de canal.'
         }
       });
       return true;
