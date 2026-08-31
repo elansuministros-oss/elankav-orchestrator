@@ -56,6 +56,68 @@ function extractMeta(html, keys = []) {
   return '';
 }
 
+function extractImageUrls(html, baseUrl) {
+  const candidates = [];
+
+  const push = (value) => {
+    const raw = clean(value);
+    if (!raw) return;
+    const absolute = absoluteHttps(raw, baseUrl);
+    if (!absolute) return;
+
+    const lowered = absolute.toLowerCase();
+    if (
+      lowered.includes('logo') ||
+      lowered.includes('icon') ||
+      lowered.includes('avatar') ||
+      lowered.includes('sprite') ||
+      lowered.endsWith('.svg')
+    ) {
+      return;
+    }
+
+    if (!candidates.includes(absolute)) candidates.push(absolute);
+  };
+
+  for (const tag of clean(html).match(/<meta\b[^>]*>/gi) || []) {
+    const propertyMatch = tag.match(/\b(?:property|name)\s*=\s*["']([^"']+)["']/i);
+    const contentMatch = tag.match(/\bcontent\s*=\s*["']([^"']*)["']/i);
+    const key = normalizeText(propertyMatch?.[1] || '');
+
+    if (
+      contentMatch &&
+      ['og:image','og:image:url','twitter:image','twitter:image:src']
+        .includes(key)
+    ) {
+      push(decodeHtml(contentMatch[1]));
+    }
+  }
+
+  const jsonImagePattern = /["']image["']\s*:\s*(\[[\s\S]*?\]|["'][^"']+["'])/gi;
+  for (const match of clean(html).matchAll(jsonImagePattern)) {
+    const raw = clean(match[1]);
+    for (const urlMatch of raw.matchAll(/https?:\\?\/\\?\/[^"'\s\\\]]+/gi)) {
+      push(urlMatch[0].replace(/\\\//g, '/'));
+    }
+  }
+
+  for (const tag of clean(html).match(/<img\b[^>]*>/gi) || []) {
+    const srcsetMatch = tag.match(/\bsrcset\s*=\s*["']([^"']+)["']/i);
+    if (srcsetMatch) {
+      for (const part of srcsetMatch[1].split(',')) {
+        push(part.trim().split(/\s+/)[0]);
+      }
+    }
+
+    const srcMatch = tag.match(/\b(?:src|data-src|data-lazy-src)\s*=\s*["']([^"']+)["']/i);
+    if (srcMatch) push(srcMatch[1]);
+
+    if (candidates.length >= 20) break;
+  }
+
+  return candidates.slice(0, 20);
+}
+
 function titleTokens(value) {
   const stop = new Set([
     'para','desde','hasta','venta','vende','vendo','alquiler','renta',
@@ -346,10 +408,8 @@ async function verifyDiscoverySource(discovery = {}, env = process.env) {
       ? contactConfirmed(discovery.contactHint, pageText)
       : false;
 
-    const imageUrl = absoluteHttps(
-      extractMeta(fetched.html, ['og:image', 'twitter:image', 'twitter:image:src']),
-      fetched.finalUrl
-    );
+    const imageUrls = extractImageUrls(fetched.html, fetched.finalUrl);
+    const imageUrl = imageUrls[0] || null;
 
     const sourceDescription = extractMeta(
       fetched.html,
@@ -364,6 +424,7 @@ async function verifyDiscoverySource(discovery = {}, env = process.env) {
       pageTitle: clean(pageTitle).slice(0, 220),
       sourceDescription: clean(sourceDescription).slice(0, 10000),
       imageUrl,
+      imageUrls,
       priceConfirmed: priceOk,
       locationConfirmed: locationOk,
       contactConfirmed: contactOk,
@@ -382,6 +443,7 @@ module.exports = {
   absoluteHttps,
   assertPublicHostname,
   contactConfirmed,
+  extractImageUrls,
   extractMeta,
   fetchPublicHtml,
   isPrivateIp,
