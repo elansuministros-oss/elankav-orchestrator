@@ -24,12 +24,58 @@ function headerValue(value, fieldName) {
   return text;
 }
 
-function emailValue(value) {
-  const email = headerValue(value, 'to').toLowerCase();
+function emailAddressValue(value, fieldName, code) {
+  const email = headerValue(value, fieldName).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new GmailDeliveryError('GMAIL_RECIPIENT_INVALID', 'Correo destinatario inválido.', 400);
+    throw new GmailDeliveryError(code, `${fieldName} inválido.`, 400);
   }
   return email;
+}
+
+function emailValue(value) {
+  return emailAddressValue(value, 'to', 'GMAIL_RECIPIENT_INVALID');
+}
+
+function parseSenderIdentities(rawValue) {
+  const raw = clean(rawValue);
+  if (!raw) return Object.freeze({});
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new GmailDeliveryError(
+      'GMAIL_SENDER_IDENTITIES_INVALID',
+      'GMAIL_SENDER_IDENTITIES_JSON debe ser un objeto JSON válido.',
+      503
+    );
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new GmailDeliveryError(
+      'GMAIL_SENDER_IDENTITIES_INVALID',
+      'GMAIL_SENDER_IDENTITIES_JSON debe ser un objeto identidad→correo.',
+      503
+    );
+  }
+
+  const identities = {};
+  for (const [identity, address] of Object.entries(parsed)) {
+    const key = clean(identity).toLowerCase();
+    if (!/^[a-z0-9._-]{1,64}$/.test(key)) {
+      throw new GmailDeliveryError(
+        'GMAIL_SENDER_IDENTITIES_INVALID',
+        'Existe una identidad Gmail con nombre inválido.',
+        503
+      );
+    }
+    identities[key] = emailAddressValue(
+      address,
+      'sender identity',
+      'GMAIL_SENDER_IDENTITIES_INVALID'
+    );
+  }
+  return Object.freeze(identities);
 }
 
 function base64Url(value) {
@@ -48,6 +94,25 @@ function createGmailDeliveryAdapter({
   const clientSecret = clean(env.GMAIL_OAUTH_CLIENT_SECRET);
   const refreshToken = clean(env.GMAIL_OAUTH_REFRESH_TOKEN);
   const sender = clean(env.GMAIL_USER);
+  const configuredSenderIdentities = clean(env.GMAIL_SENDER_IDENTITIES_JSON);
+
+  function resolveSender(fromIdentity) {
+    const identity = clean(fromIdentity).toLowerCase();
+    if (!identity || identity === 'default') {
+      return emailAddressValue(sender, 'sender', 'GMAIL_SENDER_INVALID');
+    }
+
+    const identities = parseSenderIdentities(configuredSenderIdentities);
+    const selected = identities[identity];
+    if (!selected) {
+      throw new GmailDeliveryError(
+        'GMAIL_SENDER_IDENTITY_NOT_ALLOWED',
+        `La identidad de correo ${identity} no está autorizada en infraestructura.`,
+        403
+      );
+    }
+    return selected;
+  }
 
   function configuration() {
     const configured = Boolean(clientId && clientSecret && refreshToken && sender);
@@ -154,14 +219,16 @@ function createGmailDeliveryAdapter({
     text,
     threadId,
     inReplyTo,
-    references
+    references,
+    fromIdentity
   } = {}) {
     const recipient = emailValue(to);
     const safeSubject = headerValue(subject, 'subject');
     const bodyText = headerValue(text, 'text');
+    const resolvedSender = resolveSender(fromIdentity);
 
     const headers = [
-      `From: ${headerValue(sender, 'sender')}`,
+      `From: ${resolvedSender}`,
       `To: ${recipient}`,
       `Subject: ${safeSubject}`,
       'MIME-Version: 1.0',
@@ -227,5 +294,6 @@ function createGmailDeliveryAdapter({
 module.exports = {
   GmailDeliveryError,
   base64Url,
-  createGmailDeliveryAdapter
+  createGmailDeliveryAdapter,
+  parseSenderIdentities
 };
