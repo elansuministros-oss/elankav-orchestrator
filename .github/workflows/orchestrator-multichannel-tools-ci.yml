@@ -5,8 +5,11 @@ on:
     paths:
       - 'adapters/connectMarketplaceToolAdapter.js'
       - 'adapters/openaiAdapter.js'
+      - 'adapters/gmailDeliveryAdapter.js'
+      - 'adapters/metaDeliveryAdapter.js'
       - 'services/openaiCommercialToolService.js'
       - 'tests/openaiCommercialTools.test.js'
+      - 'tests/commercialDeliveryAdapters.test.js'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/orchestrator-multichannel-tools-ci.yml'
@@ -30,8 +33,10 @@ jobs:
         run: |
           node --check adapters/connectMarketplaceToolAdapter.js
           node --check adapters/openaiAdapter.js
+          node --check adapters/gmailDeliveryAdapter.js
+          node --check adapters/metaDeliveryAdapter.js
           node --check services/openaiCommercialToolService.js
           node --check tests/openaiCommercialTools.test.js
 
       - name: Multichannel tool tests
-        run: node --test tests/openaiCommercialTools.test.js
+        run: node --test tests/openaiCommercialTools.test.js tests/commercialDeliveryAdapters.test.js
