@@ -6,7 +6,8 @@ const {
   executeThroughConnect,
   formatAuthorizedPriceResult,
   loadConversationMemory,
-  persistUnifiedContext
+  persistUnifiedContext,
+  persistUnifiedWorkingState
 } = require('./elanUnifiedRuntimeService');
 const {
   installOwnerBusinessProcessMessageGateway,
@@ -203,6 +204,26 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
               reply:execution.outputText,
               command:semanticCommand.type
             });
+            const previousState=memory?.workingState&&typeof memory.workingState==='object'?memory.workingState:{};
+            const rows=Array.isArray(execution?.result?.rows)?execution.result.rows:[];
+            const prepared=Array.isArray(execution?.result?.prepared)?execution.result.prepared:[];
+            const nextState={
+              ...previousState,
+              lastIntent:semantic.intent,
+              activeCustomerReference:semantic.customerReference||previousState.activeCustomerReference||null,
+              lastUserMessage:String(args.message||'').trim(),
+              lastActionAt:new Date().toISOString(),
+              ...(rows.length?{
+                lastQuotationNumbers:rows.map(row=>row?.quotationNumber||row?.quotation_number).filter(Boolean),
+                lastQuotationIds:rows.map(row=>row?.quotationId||row?.quotation_id||row?.id).filter(Boolean),
+                lastQuotationProjectIds:rows.map(row=>row?.projectId||row?.project_id).filter(Boolean)
+              }:{}),
+              ...(prepared.length?{
+                pendingQuotationSendNumbers:prepared.map(entry=>entry?.quotation?.quotationNumber).filter(Boolean),
+                pendingQuotationSendIds:prepared.map(entry=>entry?.quotation?.quotationId).filter(Boolean)
+              }:{})
+            };
+            await persistUnifiedWorkingState({actor:ownerActor(context,args),platform:platformOf(context,args),workingState:nextState,safe:true});
             await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});
             return result;
           }
