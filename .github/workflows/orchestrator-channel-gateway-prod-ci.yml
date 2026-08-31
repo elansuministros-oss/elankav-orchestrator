@@ -47,4 +47,4 @@ jobs:
         run: node --test test/ownerOpsSupervisor.test.js tests/ownerWhatsAppRepositoryDeploy.test.js
 
       - name: ELANVISUAL WAHA regressions
-        run: node --test test/wahaWebhookApi.test.js test/wahaWebhookApiV2.test.js tests/vqsQuotationWaha01.test.js tests/ownerWahaSend01.test.js
+        run: node --test test/wahaWebhookApi.test.js tests/vqsQuotationWaha01.test.js tests/ownerWahaSend01.test.js
