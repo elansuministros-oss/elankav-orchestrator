@@ -25,6 +25,7 @@ const BUSINESS_COMMANDS = Object.freeze({
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
   LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
   QUOTATION_CREATE: 'business_quotation_create',
+  QUOTATION_LOOKUP: 'business_quotation_lookup',
   QUOTATION_LOOKUP_SEND: 'business_quotation_lookup_send',
   QUOTATION_LATEST: 'business_quotation_latest',
   QUOTATION_RECENT: 'business_quotation_recent'
@@ -151,6 +152,25 @@ function parseQuotationLookupSend(message) {
   };
 }
 
+function parseQuotationLookup(message) {
+  const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
+  if (!/\bcotizacion\b/.test(normalized)) return null;
+  if (!/\b(busca|buscar|encuentra|encontra|localiza)\b/.test(normalized)) return null;
+  if (/\b(envia|enviale|manda|mandale|comparte|compartile)\b/.test(normalized)) return null;
+
+  const match = normalized.match(
+    /\bcotizacion\s+(?:del|de\s+la|de|para\s+el|para\s+la|para)?\s*cliente\s+(.+?)(?=[,.;!?]|$)/
+  );
+  if (!match?.[1]) return null;
+  const customerReference = match[1].trim();
+  if (!customerReference) return null;
+
+  return {
+    type: BUSINESS_COMMANDS.QUOTATION_LOOKUP,
+    customerReference
+  };
+}
+
 function quotationRows(payload) {
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.data?.quotations)) return payload.data.quotations;
@@ -163,17 +183,22 @@ function quotationPublicDocument(row) {
   return row?.quotation_document?.publicDocument || row?.quotationDocument?.publicDocument || {};
 }
 
-function quotationCustomerName(row) {
+function quotationCustomerReferences(row) {
   const publicDocument = quotationPublicDocument(row);
-  return String(
-    row?.customer_name ||
-    row?.customerName ||
-    row?.customer_snapshot?.name ||
-    row?.customer_snapshot?.companyName ||
-    publicDocument?.customer?.name ||
-    publicDocument?.customer?.companyName ||
-    ''
-  ).trim();
+  return [
+    row?.customer_name,
+    row?.customerName,
+    row?.customer_company_name,
+    row?.customerCompanyName,
+    row?.customer_snapshot?.name,
+    row?.customer_snapshot?.companyName,
+    publicDocument?.customer?.name,
+    publicDocument?.customer?.companyName
+  ].map(value => String(value || '').trim()).filter(Boolean);
+}
+
+function quotationCustomerName(row) {
+  return quotationCustomerReferences(row)[0] || '';
 }
 
 function quotationStatus(row) {
@@ -252,14 +277,18 @@ function selectQuotationByCustomerReference(payload, reference) {
   const wanted = normalize(reference);
   if (!wanted) return { status: 'not_found', candidates: [] };
 
-  const matches = quotationRows(payload).filter(row => {
-    const name = normalize(quotationCustomerName(row));
-    return name && (name === wanted || name.includes(wanted) || wanted.includes(name));
-  });
+  const matches = quotationRows(payload).filter(row =>
+    quotationCustomerReferences(row).some(value => {
+      const candidate = normalize(value);
+      return candidate && (candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate));
+    })
+  );
 
   if (!matches.length) return { status: 'not_found', candidates: [] };
 
-  const exact = matches.filter(row => normalize(quotationCustomerName(row)) === wanted);
+  const exact = matches.filter(row =>
+    quotationCustomerReferences(row).some(value => normalize(value) === wanted)
+  );
   const scoped = exact.length ? exact : matches;
   const drafts = scoped.filter(row => quotationStatus(row) === 'draft');
 
@@ -479,6 +508,8 @@ function detectOwnerBusinessCommand(message) {
   if (quotationRead) return quotationRead;
   const quotationLookupSend = parseQuotationLookupSend(message);
   if (quotationLookupSend) return quotationLookupSend;
+  const quotationLookup = parseQuotationLookup(message);
+  if (quotationLookup) return quotationLookup;
   const quotation = parseQuotationRequest(message);
   if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
   return parseCustomerCreate(message)
@@ -645,6 +676,50 @@ async function executeOwnerBusinessCommand(command) {
             ...selected.flatMap((row, index) => [`${index + 1}. ${formatQuotationReadRow(row).replace(/\n/g, '\n   ')}`, ''])
           ].join('\n').trim(),
       result: { rows: selected }
+    };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.QUOTATION_LOOKUP) {
+    const quotations = await listQuotations();
+    const resolved = selectQuotationByCustomerReference(quotations, command.customerReference);
+
+    if (resolved.status === 'not_found') {
+      return {
+        handled: true,
+        outputText: `No encontré una cotización oficial asociada al cliente “${command.customerReference}”.`,
+        result: resolved
+      };
+    }
+
+    if (resolved.status === 'ambiguous') {
+      return {
+        handled: true,
+        outputText: `Encontré varias cotizaciones para “${command.customerReference}”: ${formatQuotationCandidates(resolved.candidates)}.`,
+        result: resolved
+      };
+    }
+
+    const row = resolved.row || {};
+    const projectId = quotationProjectId(row);
+    const qId = quotationId(row);
+    const qNumber = quotationNumber(row);
+    const publicUrl = quotationPublicUrl(row);
+
+    if (projectId && qId) {
+      await updateContext({
+        activeProjectId: projectId,
+        activeQuotationId: qId,
+        activeQuotationNumber: qNumber || null,
+        activeQuotationPublicUrl: publicUrl || null,
+        lastEntityType: 'quotation',
+        lastEntityId: qId
+      });
+    }
+
+    return {
+      handled: true,
+      outputText: ['Cotización encontrada:', '', formatQuotationReadRow(row)].join('\n'),
+      result: resolved
     };
   }
 
@@ -887,6 +962,7 @@ module.exports = {
   parseProviderList,
   parseProviderQuoteRequest,
   parseProviderSearch,
+  parseQuotationLookup,
   parseQuotationLookupSend,
   parseQuotationReadRequest,
   parseSellerName,
