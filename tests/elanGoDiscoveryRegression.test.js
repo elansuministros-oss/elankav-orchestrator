@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const discovery = require('../services/elanMarketplaceDiscoveryService');
 const worker = require('../services/elanMarketplaceBrokerWorkerService');
 const sourceVerification = require('../services/elanMarketplaceSourceVerificationService');
+const interestOutreach = require('../services/elanMarketplaceInterestOutreachService');
 
 test('radar normaliza ofertas y demandas reales', () => {
   const offer = discovery.normalizeDiscovery({
@@ -174,6 +175,54 @@ test('verificación rechaza coincidencias de título insuficientes', () => {
     ),
     false
   );
+});
+
+test('mensaje al propietario identifica a ELAN como IA intermediaria y negocia comisión', () => {
+  const message = interestOutreach.sellerNegotiationMessage({
+    title: 'Toyota Hilux 2026'
+  });
+
+  assert.match(message, /IA intermediaria/i);
+  assert.match(message, /precio neto o comisión/i);
+  assert.match(message, /cliente interesado/i);
+});
+
+test('worker procesa intereses de clientes cuando outreach está habilitado', async () => {
+  let interestCalls = 0;
+
+  const result = await worker.runElanMarketplaceBrokerWorkerOnce({
+    env: {
+      ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS: '900000'
+    },
+    now: 11_000_000,
+    getControl: async () => ({
+      enabled: true,
+      spendEnabled: true,
+      outreachEnabled: true
+    }),
+    recordHeartbeat: async () => ({ ok: true }),
+    processInterests: async () => {
+      interestCalls += 1;
+      return {
+        ok: true,
+        processed: 1,
+        contacted: 1,
+        results: [{ state: 'SELLER_CONTACTED' }]
+      };
+    },
+    runDiscovery: async () => ({
+      ok: true,
+      category: 'vehicle',
+      searches: 0,
+      published: 0,
+      results: []
+    }),
+    listDemands: async () => ({ result: [] })
+  });
+
+  assert.equal(interestCalls, 1);
+  assert.equal(result.interests.processed, 1);
+  assert.equal(result.interests.contacted, 1);
 });
 
 test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async () => {
