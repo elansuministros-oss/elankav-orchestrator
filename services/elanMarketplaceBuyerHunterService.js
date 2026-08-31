@@ -242,20 +242,30 @@ async function runBuyerHunterCycle({
   searchWeb = webSearch.searchPotentialBuyersForOffer,
   verifyWebBuyer = validateWebBuyer,
   persist = marketplace.marketplaceUpsertDiscoveryBuyer,
-  limit = 2
+  limit = 2,
+  now = Date.now()
 } = {}) {
+  const take = Math.max(1, Math.min(5, Number(limit) || 2));
   const payload = unwrap(await listDiscoveries({
     kind: 'offer',
-    limit: Math.max(1, Math.min(20, Number(limit) || 2))
+    limit: 100
   }, env));
 
-  const offers = (Array.isArray(payload) ? payload : [])
+  const catalog = (Array.isArray(payload) ? payload : [])
     .filter((item) =>
       clean(item.kind) === 'offer' &&
       clean(item.status) === 'active' &&
       clean(item.verificationStatus) === 'validated'
-    )
-    .slice(0, Math.max(1, Math.min(5, Number(limit) || 2)));
+    );
+
+  const slot = catalog.length
+    ? Math.floor(Number(now) / (15 * 60 * 1000)) % catalog.length
+    : 0;
+
+  const offers = [];
+  for (let offset = 0; offset < Math.min(take, catalog.length); offset += 1) {
+    offers.push(catalog[(slot + offset) % catalog.length]);
+  }
 
   const results = [];
   for (const offer of offers) {
