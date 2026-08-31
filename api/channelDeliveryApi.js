@@ -26,11 +26,16 @@ function deriveChannelInternalToken(rootSecret) {
     .digest('hex');
 }
 
+function configuredTokens(env = process.env) {
+  return Array.from(new Set([
+    clean(env.ORCHESTRATOR_INTERNAL_TOKEN),
+    clean(env.CONNECT_INTERNAL_TOKEN),
+    deriveChannelInternalToken(env.VQS_API_TOKEN)
+  ].filter(Boolean)));
+}
+
 function configuredToken(env = process.env) {
-  return clean(
-    env.ORCHESTRATOR_INTERNAL_TOKEN ||
-    env.CONNECT_INTERNAL_TOKEN
-  ) || deriveChannelInternalToken(env.VQS_API_TOKEN);
+  return configuredTokens(env)[0] || '';
 }
 
 function providedToken(req) {
@@ -42,8 +47,10 @@ function providedToken(req) {
 }
 
 function authorized(req, env = process.env) {
-  const expected = configuredToken(env);
-  return Boolean(expected && safeEqual(providedToken(req), expected));
+  const provided = providedToken(req);
+  return configuredTokens(env).some(expected =>
+    expected && safeEqual(provided, expected)
+  );
 }
 
 function readJsonBody(req) {
@@ -206,6 +213,7 @@ function createChannelDeliveryApi({
 module.exports = {
   authorized,
   configuredToken,
+  configuredTokens,
   createChannelDeliveryApi,
   deriveChannelInternalToken,
   readJsonBody
