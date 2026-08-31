@@ -57,6 +57,14 @@ function sendFile(res, filename, contentType) {
 
 const projects = [
   {
+    name: 'ELAN GO',
+    service: 'elan-go-web',
+    url: 'https://go.elankav.com',
+    branch: 'CONNECT main',
+    status: 'Operativo',
+    type: 'Broker Comercial'
+  },
+  {
     name: 'ELANVISUAL',
     service: 'elanvisual-platform',
     url: 'https://visual.elankav.com',
@@ -394,22 +402,6 @@ function renderDashboard() {
       background: rgba(201, 162, 39, 0.1);
     }
 
-    .elan-go-panel {
-      display: grid;
-      grid-template-columns: minmax(0,1fr) minmax(300px,420px);
-      gap: 22px;
-      margin-bottom: 28px;
-      padding: 22px;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: linear-gradient(145deg, rgba(21,34,56,.98), rgba(12,23,40,.98));
-    }
-
-    .elan-go-panel h2 { margin: 7px 0 8px; font-size: 28px; }
-    .elan-go-panel p { margin: 0; color: var(--muted); line-height: 1.5; }
-    .elan-go-state { display: grid; gap: 7px; align-content: center; }
-    .elan-go-state strong { font-size: 21px; }
-    .elan-go-state span, .elan-go-state small { color: var(--muted); font-size: 12px; }
 
     footer {
       padding-top: 34px;
@@ -441,8 +433,7 @@ function renderDashboard() {
       }
 
       .metrics,
-      .grid,
-      .elan-go-panel {
+      .grid {
         grid-template-columns: 1fr;
       }
 
@@ -492,20 +483,6 @@ function renderDashboard() {
       </div>
     </section>
 
-    <section class="elan-go-panel" id="elan-go-panel">
-      <div>
-        <span class="type">AUTONOMOUS BROKER</span>
-        <h2>ELAN GO</h2>
-        <p>ELAN busca ofertas y compradores, negocia y trabaja bajo autoridad única de CONNECT.</p>
-      </div>
-      <div class="elan-go-state">
-        <strong id="elan-go-state">Verificando…</strong>
-        <span>Último ciclo: <b id="elan-go-cycle">—</b></span>
-        <span>Pago: <b id="elan-go-payment">—</b></span>
-        <small>Control por WhatsApp Owner: “ELAN, enciende ELAN GO” · “ELAN, apaga ELAN GO”</small>
-      </div>
-    </section>
-
     <div class="section-title">
       <h2>Ecosistema</h2>
       <span>Información inicial registrada</span>
@@ -519,44 +496,7 @@ function renderDashboard() {
       ELANKAV Orchestrator ${VERSION} · VPS ELANKAV · Memoria Maestra Viva
     </footer>
   </main>
-  <script>
-    (() => {
-      const state = document.getElementById('elan-go-state');
-      const cycle = document.getElementById('elan-go-cycle');
-      const payment = document.getElementById('elan-go-payment');
-      if (!state) return;
 
-      const fmt = value => {
-        if (!value) return 'Sin ejecución';
-        try {
-          return new Intl.DateTimeFormat('es-NI', {
-            dateStyle: 'short',
-            timeStyle: 'short'
-          }).format(new Date(value));
-        } catch {
-          return 'No disponible';
-        }
-      };
-
-      async function loadElanGo() {
-        try {
-          const response = await fetch('/api/elan-go/status', { cache: 'no-store' });
-          if (!response.ok) throw new Error('STATUS_UNAVAILABLE');
-          const data = await response.json();
-          state.textContent = data.enabled ? '🟢 ENCENDIDO' : '🔴 APAGADO';
-          cycle.textContent = fmt(data.lastCycleAt);
-          payment.textContent = data.paymentConfigured ? 'Configurado' : 'No configurado';
-        } catch {
-          state.textContent = '⚠️ NO DISPONIBLE';
-          cycle.textContent = 'No disponible';
-          payment.textContent = 'No disponible';
-        }
-      }
-
-      loadElanGo();
-      setInterval(loadElanGo, 30000);
-    })();
-  </script>
 </body>
 </html>`;
 }
