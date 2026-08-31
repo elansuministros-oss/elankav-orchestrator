@@ -5,6 +5,7 @@ on:
     branches:
       - release/ELANKAV-MULTICHANNEL-ORCH-PROD-01
       - release/CHANNEL-BRIDGE-AUTH-PROD-01
+      - release/CHANNEL-BRIDGE-AUDIT-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
@@ -12,6 +13,10 @@ on:
       - 'adapters/gmailDeliveryAdapter.js'
       - 'adapters/metaDeliveryAdapter.js'
       - 'server.js'
+      - 'services/ownerCommandService.js'
+      - 'services/ownerOpsCapabilityRegistry.js'
+      - 'services/ownerOpsReadService.js'
+      - 'tests/ownerOpsReadService.test.js'
       - 'tests/commercialDeliveryAdapters.test.js'
       - '.github/workflows/orchestrator-channel-gateway-prod-ci.yml'
 
@@ -46,6 +51,9 @@ jobs:
 
       - name: Owner OPS supervisor regression
         run: node --test test/ownerOpsSupervisor.test.js tests/ownerWhatsAppRepositoryDeploy.test.js
+
+      - name: Owner channel bridge audit
+        run: node --test tests/ownerOpsReadService.test.js
 
       - name: ELANVISUAL WAHA regressions
         run: node --test test/wahaWebhookApi.test.js tests/vqsQuotationWaha01.test.js tests/ownerWahaSend01.test.js
