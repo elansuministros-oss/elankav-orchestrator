@@ -589,7 +589,23 @@ async function splitActiveQuotation(input) {
     activeProjectId: null,
     lastQuotationTotalUsd: null,
     lastEntityType: 'quotation_split',
-    lastEntityId: splitGroupId
+    lastEntityId: splitGroupId,
+    activeCustomerReference: String(
+      publicDocument.customer?.companyName ||
+      publicDocument.customer?.name ||
+      ''
+    ).trim() || null,
+    lastIntent: 'quotation_split',
+    lastSplitGroupId: splitGroupId,
+    lastSplitCustomerReference: String(
+      publicDocument.customer?.companyName ||
+      publicDocument.customer?.name ||
+      ''
+    ).trim() || null,
+    lastSplitQuotationIds: created.map(child => child.quotationId).filter(Boolean),
+    lastSplitQuotationNumbers: created.map(child => child.quotationNumber).filter(Boolean),
+    lastSplitProjectIds: created.map(child => child.projectId).filter(Boolean),
+    lastSplitAt: new Date().toISOString()
   });
 
   return {
