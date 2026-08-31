@@ -87,6 +87,20 @@ test('quotation lookup does not intercept existing customer search', () => {
   assert.equal(command?.query, 'abigail brenes');
 });
 
+test('new quotation intents do not intercept existing owner business routes', () => {
+  const cases = [
+    ['Busca los clientes que tenemos registrados', BUSINESS_COMMANDS.CUSTOMER_LIST],
+    ['Busca proveedor Vargas Centro', BUSINESS_COMMANDS.PROVIDER_SEARCH],
+    ['Lista de proveedores', BUSINESS_COMMANDS.PROVIDER_LIST],
+    ['Pedi el precio a Vargas Centro de PVC 10 mm', BUSINESS_COMMANDS.PROVIDER_QUOTE_REQUEST]
+  ];
+
+  for (const [message, expectedType] of cases) {
+    const command = detectOwnerBusinessCommand(message);
+    assert.equal(command?.type, expectedType, message);
+  }
+});
+
 test('selects the only draft quotation for the referenced customer', () => {
   const payload = {
     data: {
