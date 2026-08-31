@@ -12,7 +12,9 @@ const {
   createChannelDeliveryService
 } = require('../services/channelDeliveryService');
 const {
-  authorized
+  authorized,
+  configuredToken,
+  deriveChannelInternalToken
 } = require('../api/channelDeliveryApi');
 
 test('Gmail remains AUTH_REQUIRED without OAuth infrastructure', async () => {
@@ -284,6 +286,22 @@ test('channel delivery API requires the server internal token', () => {
   }, env), false);
   assert.equal(authorized({
     headers: {}
+  }, env), false);
+});
+
+
+test('channel delivery API derives a dedicated bridge token from VQS root secret when no dedicated token exists', () => {
+  const env = { VQS_API_TOKEN: 'V'.repeat(40) };
+  const derived = deriveChannelInternalToken(env.VQS_API_TOKEN);
+
+  assert.equal(derived.length, 64);
+  assert.notEqual(derived, env.VQS_API_TOKEN);
+  assert.equal(configuredToken(env), derived);
+  assert.equal(authorized({
+    headers: { 'x-elankav-internal-token': derived }
+  }, env), true);
+  assert.equal(authorized({
+    headers: { 'x-elankav-internal-token': env.VQS_API_TOKEN }
   }, env), false);
 });
 
