@@ -366,6 +366,7 @@ function detectOwnerOpsReadCommand(normalizedMessage) {
     });
   }
 
+  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(canales|multicanal|multicanales|channel bridge|puente de canales)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'channels.audit' });
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) && /\b(produccion)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'production.audit' });
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(servidor|vps|sistema)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'server.summary' });
   if (target && /\b(log|logs|errores|error|journal|registro|registros)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'service.logs', target, lines: 100 });
