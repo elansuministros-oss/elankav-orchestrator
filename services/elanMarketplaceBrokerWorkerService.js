@@ -3,6 +3,7 @@
 const marketplace = require('./ownerBusinessConnectClient');
 const autonomy = require('./elanMarketplaceAutonomyService');
 const discovery = require('./elanMarketplaceDiscoveryService');
+const interestOutreach = require('./elanMarketplaceInterestOutreachService');
 
 const state = {
   running: false,
@@ -13,6 +14,8 @@ const state = {
   outreachEnabled: false,
   spendEnabled: false,
   discoveriesPublished: 0,
+  interestsProcessed: 0,
+  interestsContacted: 0,
   lastDiscoveryAt: null,
   lastDiscoveryCategory: null,
   lastControlAt: null,
@@ -102,7 +105,8 @@ async function runElanMarketplaceBrokerWorkerOnce({
   recordHeartbeat = marketplace.recordElanGoHeartbeat,
   listDemands = marketplace.marketplaceListDemands,
   continueDemand = autonomy.continueMarketplaceDemand,
-  runDiscovery = discovery.runAutonomousDiscoveryCycle
+  runDiscovery = discovery.runAutonomousDiscoveryCycle,
+  processInterests = interestOutreach.processPendingDiscoveryInterests
 } = {}) {
   const nowIso = new Date(now).toISOString();
   state.lastRunAt = nowIso;
@@ -153,9 +157,40 @@ async function runElanMarketplaceBrokerWorkerOnce({
       discoverySearches: 0,
       publishedDiscoveries: 0,
       failedDiscovery: 0,
+      failedInterestOutreach: 0,
       failedDemands: 0,
+      interests: null,
       results: []
     };
+  }
+
+  let interestResult = null;
+  let failedInterestOutreach = 0;
+
+  if (control.outreachEnabled) {
+    try {
+      interestResult = await processInterests({
+        env,
+        limit: positiveInteger(
+          env.ELAN_MARKETPLACE_INTERESTS_PER_RUN,
+          3
+        )
+      });
+      state.interestsProcessed += Number(interestResult?.processed || 0);
+      state.interestsContacted += Number(interestResult?.contacted || 0);
+      if (Number(interestResult?.contacted || 0) > 0) {
+        state.lastState = 'SELLER_OUTREACH_STARTED';
+      }
+    } catch (error) {
+      failedInterestOutreach = 1;
+      state.failed += 1;
+      state.lastErrorCode = errorCode(error);
+      state.lastState = 'INTEREST_OUTREACH_FAILED';
+      console.error('[ELAN_MARKETPLACE_INTEREST_OUTREACH_FAILED]', {
+        code: state.lastErrorCode,
+        message: error?.message || String(error)
+      });
+    }
   }
 
   if (!control.spendEnabled) {
@@ -326,13 +361,18 @@ async function runElanMarketplaceBrokerWorkerOnce({
     }
   }
 
-  if (failedDemands === 0 && failedDiscovery === 0) {
+  if (
+    failedDemands === 0 &&
+    failedDiscovery === 0 &&
+    failedInterestOutreach === 0
+  ) {
     state.lastErrorCode = null;
   }
 
   const cycleFailed =
     failedDemands > 0 ||
-    failedDiscovery > 0;
+    failedDiscovery > 0 ||
+    failedInterestOutreach > 0;
 
   const successAt = cycleFailed ? null : nowIso;
   const cycleError = cycleFailed ? state.lastErrorCode : null;
@@ -346,7 +386,10 @@ async function runElanMarketplaceBrokerWorkerOnce({
   });
 
   return {
-    ok: failedDemands === 0 && failedDiscovery === 0,
+    ok:
+      failedDemands === 0 &&
+      failedDiscovery === 0 &&
+      failedInterestOutreach === 0,
     autonomous: true,
     authority: 'CONNECT',
     operator: 'ELAN',
@@ -359,8 +402,10 @@ async function runElanMarketplaceBrokerWorkerOnce({
     discoverySearches,
     publishedDiscoveries,
     failedDiscovery,
+    failedInterestOutreach,
     failedDemands,
     discovery: discoveryResult,
+    interests: interestResult,
     results
   };
 }
@@ -400,6 +445,9 @@ function startElanMarketplaceBrokerWorker({
         outreachEnabled: result.outreachEnabled,
         activeDemands: result.activeDemands,
         searches: result.searches,
+        interestsProcessed: result.interests?.processed || 0,
+        interestsContacted: result.interests?.contacted || 0,
+        failedInterestOutreach: result.failedInterestOutreach || 0,
         failedDemands: result.failedDemands,
         processed: state.processed,
         skipped: state.skipped
