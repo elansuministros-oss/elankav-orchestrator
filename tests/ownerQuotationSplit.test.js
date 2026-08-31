@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { BUSINESS_COMMANDS, detectOwnerBusinessCommand } = require('../services/ownerBusinessCommandService');
 
 function productionLikeQuotation(overrides = {}) {
   const base = {
@@ -152,6 +153,13 @@ function loadService({ current = productionLikeQuotation() } = {}) {
 
   return { service, calls, cleanup };
 }
+
+test('Owner Business routes split wording into the existing quotation transaction path', () => {
+  const command = detectOwnerBusinessCommand('ELAN divide esta cotización en dos, una por cada ítem');
+  assert.equal(command?.type, BUSINESS_COMMANDS.QUOTATION_CREATE);
+  assert.equal(command?.input?.splitActive, true);
+  assert.equal(command?.input?.requestedParts, 2);
+});
 
 test('detects natural split request for the active quotation', () => {
   const { service, cleanup } = loadService();
