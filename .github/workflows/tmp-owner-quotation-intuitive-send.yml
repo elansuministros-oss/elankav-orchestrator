@@ -1,0 +1,30 @@
+name: TEMP Owner Quotation Intuitive Send
+
+on:
+  push:
+    branches:
+      - fix/OWNER-QUOTATION-SPLIT-SEND-FALLBACK-01
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check services/ownerBusinessCommandService.js
+          node --check tests/ownerQuotationSplitSend.test.js
+      - name: Intuitive quotation send regressions
+        run: |
+          node --test             tests/ownerQuotationSplitSend.test.js             tests/ownerQuotationLookupSend.test.js             tests/ownerQuotationSplit.test.js             tests/ownerQuotationUnifiedPriority.test.js
+      - name: Preserve surrounding Owner functions
+        run: |
+          node --test             tests/ownerCustomerList.test.js             tests/ownerBusinessModesPricingLogistics.test.js             tests/ownerBusinessQuotationItemPatch.test.js             test/ownerProviderRecruitmentMessagePatch.test.js
