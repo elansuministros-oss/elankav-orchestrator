@@ -349,7 +349,11 @@ async function readMetaAuthAudit({
     state: 'AUTH_REQUIRED',
     pageId: null,
     pageName: null,
-    errorCode: null
+    errorCode: null,
+    errorMessage: null,
+    metaCode: null,
+    metaSubcode: null,
+    metaType: null
   };
 
   const instagram = {
@@ -358,7 +362,11 @@ async function readMetaAuthAudit({
     state: 'AUTH_REQUIRED',
     accountId: null,
     username: null,
-    errorCode: null
+    errorCode: null,
+    errorMessage: null,
+    metaCode: null,
+    metaSubcode: null,
+    metaType: null
   };
 
   if (messengerConfig.configured) {
@@ -371,6 +379,19 @@ async function readMetaAuthAudit({
     } catch (error) {
       messenger.errorCode =
         String(error?.code || 'MESSENGER_PROBE_FAILED');
+      messenger.errorMessage = sanitizeOutput(
+        error?.message || 'Meta rechazó la autenticación de Messenger.'
+      );
+      messenger.metaCode =
+        Number.isFinite(Number(error?.metaCode))
+          ? Number(error.metaCode)
+          : null;
+      messenger.metaSubcode =
+        Number.isFinite(Number(error?.metaSubcode))
+          ? Number(error.metaSubcode)
+          : null;
+      messenger.metaType =
+        sanitizeOutput(error?.metaType || '') || null;
     }
   }
 
@@ -384,6 +405,19 @@ async function readMetaAuthAudit({
     } catch (error) {
       instagram.errorCode =
         String(error?.code || 'INSTAGRAM_PROBE_FAILED');
+      instagram.errorMessage = sanitizeOutput(
+        error?.message || 'Meta rechazó la autenticación de Instagram.'
+      );
+      instagram.metaCode =
+        Number.isFinite(Number(error?.metaCode))
+          ? Number(error.metaCode)
+          : null;
+      instagram.metaSubcode =
+        Number.isFinite(Number(error?.metaSubcode))
+          ? Number(error.metaSubcode)
+          : null;
+      instagram.metaType =
+        sanitizeOutput(error?.metaType || '') || null;
     }
   }
 
@@ -536,8 +570,20 @@ function formatResult(result) {
       : [
           result.messenger.errorCode
             ? `Error: ${result.messenger.errorCode}`
-            : 'Faltan credenciales Meta Page.'
-        ];
+            : 'Faltan credenciales Meta Page.',
+          result.messenger.metaCode !== null
+            ? `Meta code: ${result.messenger.metaCode}`
+            : null,
+          result.messenger.metaSubcode !== null
+            ? `Meta subcode: ${result.messenger.metaSubcode}`
+            : null,
+          result.messenger.metaType
+            ? `Meta type: ${result.messenger.metaType}`
+            : null,
+          result.messenger.errorMessage
+            ? `Detalle: ${result.messenger.errorMessage}`
+            : null
+        ].filter(Boolean);
 
     const instagramDetail = result.instagram.authenticated
       ? [
@@ -552,8 +598,20 @@ function formatResult(result) {
       : [
           result.instagram.errorCode
             ? `Error: ${result.instagram.errorCode}`
-            : 'Faltan credenciales de Instagram Messaging.'
-        ];
+            : 'Faltan credenciales de Instagram Messaging.',
+          result.instagram.metaCode !== null
+            ? `Meta code: ${result.instagram.metaCode}`
+            : null,
+          result.instagram.metaSubcode !== null
+            ? `Meta subcode: ${result.instagram.metaSubcode}`
+            : null,
+          result.instagram.metaType
+            ? `Meta type: ${result.instagram.metaType}`
+            : null,
+          result.instagram.errorMessage
+            ? `Detalle: ${result.instagram.errorMessage}`
+            : null
+        ].filter(Boolean);
 
     return [
       'Auditoría READ-ONLY de autenticación Meta completada.',
