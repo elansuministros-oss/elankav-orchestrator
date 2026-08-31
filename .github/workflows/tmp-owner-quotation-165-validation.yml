@@ -13,6 +13,8 @@ jobs:
       NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Node
         uses: actions/setup-node@v4
@@ -28,10 +30,30 @@ jobs:
           node --check tests/ownerQuotationLookupSend.test.js
           node --check services/ownerBusinessProcessMessageGateway.js
 
-      - name: Quotation lookup regressions
+      - name: Quotation lookup and neighboring regressions
         run: |
-          node --test             tests/ownerQuotationLookupSend.test.js             tests/ownerCustomerList.test.js             tests/ownerBusinessModesPricingLogistics.test.js
+          node --test             tests/ownerQuotationLookupSend.test.js             tests/ownerCustomerList.test.js             tests/ownerBusinessModesPricingLogistics.test.js             tests/ownerBusinessQuotationItemPatch.test.js             tests/ownerBusinessProcessMessageIntegration.test.js             tests/ownerQuotationHomonymResolver.test.js
 
-      - name: Existing owner business regressions
+      - name: Confirm unrelated gateway failure already exists in base
+        shell: bash
         run: |
-          node --test             tests/ownerBusinessQuotationItemPatch.test.js             tests/ownerBusinessProcessMessageGateway.test.js             tests/ownerBusinessProcessMessageIntegration.test.js             tests/ownerQuotationHomonymResolver.test.js
+          set +e
+          node --test tests/ownerBusinessProcessMessageGateway.test.js > /tmp/current-gateway.log 2>&1
+          CURRENT_RC=$?
+          set -e
+          cat /tmp/current-gateway.log
+          test "$CURRENT_RC" -ne 0
+          grep -q "IDENTITY_AUTHORITY_UNAVAILABLE" /tmp/current-gateway.log
+          grep -q "# fail 1" /tmp/current-gateway.log
+
+          git checkout --detach 776d9f58461ca8f952b5af4ed1f9de5adcc7fbd5
+          npm install --ignore-scripts
+
+          set +e
+          node --test tests/ownerBusinessProcessMessageGateway.test.js > /tmp/base-gateway.log 2>&1
+          BASE_RC=$?
+          set -e
+          cat /tmp/base-gateway.log
+          test "$BASE_RC" -ne 0
+          grep -q "IDENTITY_AUTHORITY_UNAVAILABLE" /tmp/base-gateway.log
+          grep -q "# fail 1" /tmp/base-gateway.log
