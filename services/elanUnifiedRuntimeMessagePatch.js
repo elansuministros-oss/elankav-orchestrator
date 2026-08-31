@@ -188,10 +188,34 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
       if(continuity?.handled){const result=await executeEntityCreateContinuity({continuity,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
     }catch(error){console.error('[OWNER_ENTITY_CREATE_CONTINUITY_STATE_FAILED]',{code:error?.code||null,message:error?.message||null})}
 
+    try{
+      const memory=await loadConversationMemory({actor:ownerActor(context,args),platform:platformOf(context,args),limit:30});
+      if(shouldResolveOwnerSemanticIntent(args.message,memory?.history||[])){
+        const semantic=await resolveOwnerSemanticIntent({message:args.message,history:memory?.history||[]});
+        const semanticCommand=semanticIntentToBusinessCommand(semantic);
+        if(semanticCommand){
+          const execution=await executeOwnerBusinessGatewayCommand(semanticCommand);
+          if(execution?.handled){
+            const result=runtimeResult({
+              args,
+              context,
+              execution:{actor:ownerActor(context,args),version:'1.0.0'},
+              reply:execution.outputText,
+              command:semanticCommand.type
+            });
+            await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});
+            return result;
+          }
+        }
+      }
+    }catch(error){
+      console.error('[OWNER_SEMANTIC_ROUTE_FAILED]',{code:error?.code||null,message:error?.message||String(error)});
+    }
+
     const unifiedCommand=detectOwnerUnifiedCommand(args.message);if(unifiedCommand){const result=await executeGenericOwnerCommand({command:unifiedCommand,context,args});if(result){await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}}
-    const result=await originalProcessMessage(args);if(result?.reply&&result?.suppressDelivery!==true)await persistOwnerTurn({context,args,direction:'outbound',text:result.reply,externalMessageId:result.responseId?`elan:${result.responseId}`:null});return result;
+    const result=await originalProcessMessage(args);if(result?.reply&&result?.suppressDelivery!==true)await persistOwnerTurn({context,args,direction:'outbound',text:result.reply,externalMessageId:result.responseId?'elan:'+result.responseId:null});return result;
   };
   Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete',entityCreateContinuity:true});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch};
+module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch,resolveRuntimeActor,persistRuntimeTurn};
