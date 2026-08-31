@@ -746,7 +746,14 @@ async function executeOwnerBusinessCommand(command) {
       activeQuotationPublicUrl: null,
       activeProjectId: null,
       lastEntityType: 'quotation_customer_list',
-      lastEntityId: String(command.customerReference || '').trim()
+      lastEntityId: String(command.customerReference || '').trim(),
+      activeCustomerReference: quotationCustomerName(rows[0]) || String(command.customerReference || '').trim(),
+      lastIntent: 'quotation_list_by_customer',
+      lastQuotationCustomerReference: quotationCustomerName(rows[0]) || String(command.customerReference || '').trim(),
+      lastQuotationIds: rows.map(quotationId).filter(Boolean),
+      lastQuotationNumbers: rows.map(quotationNumber).filter(Boolean),
+      lastQuotationProjectIds: rows.map(quotationProjectId).filter(Boolean),
+      lastQuotationListAt: new Date().toISOString()
     });
 
     return {
@@ -768,9 +775,11 @@ async function executeOwnerBusinessCommand(command) {
     const payload = await listQuotations();
     const rows = quotationRows(payload);
 
-    let splitGroupId = context.lastEntityType === 'quotation_split'
-      ? String(context.lastEntityId || '').trim()
-      : '';
+    let splitGroupId = String(context.lastSplitGroupId || '').trim() || (
+      context.lastEntityType === 'quotation_split'
+        ? String(context.lastEntityId || '').trim()
+        : ''
+    );
 
     let candidates = splitGroupId
       ? rows.filter(row => String(quotationRelations(row)?.splitGroupId || '').trim() === splitGroupId)
@@ -854,7 +863,7 @@ async function executeOwnerBusinessCommand(command) {
       }
     }
 
-    if (!candidates.length && context.lastEntityType === 'quotation_split') {
+    if (!candidates.length && (context.lastSplitGroupId || context.lastEntityType === 'quotation_split')) {
       const titleGroups = new Map();
       for (const row of rows) {
         if (quotationStatus(row) !== 'draft') continue;
@@ -1043,7 +1052,14 @@ async function executeOwnerBusinessCommand(command) {
         activeQuotationNumber: qNumber || null,
         activeQuotationPublicUrl: publicUrl || null,
         lastEntityType: 'quotation',
-        lastEntityId: qId
+        lastEntityId: qId,
+        activeCustomerReference: quotationCustomerName(row) || command.customerReference || null,
+        lastIntent: 'quotation_lookup',
+        lastQuotationCustomerReference: quotationCustomerName(row) || command.customerReference || null,
+        lastQuotationIds: [qId],
+        lastQuotationNumbers: qNumber ? [qNumber] : [],
+        lastQuotationProjectIds: [projectId],
+        lastQuotationListAt: new Date().toISOString()
       });
     }
 
