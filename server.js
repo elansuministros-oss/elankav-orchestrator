@@ -11,6 +11,7 @@ const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
 const { handleMessageApi } = require('./api/messageApi');
 const { handleWahaWebhookApi } = require('./api/wahaWebhookApi');
+const { createCommercialDeliveryApi } = require('./api/commercialDeliveryApi');
 const {
   getJobPersistenceState,
   initializeJobQueue
@@ -25,6 +26,7 @@ const PORT = 4100;
 const VERSION = '0.4.0';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const handleCommercialDeliveryApi = createCommercialDeliveryApi();
 
 function sendFile(res, filename, contentType) {
   const filePath = path.join(PUBLIC_DIR, filename);
@@ -483,6 +485,16 @@ function renderDashboard() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const commercialDeliveryHandled = await handleCommercialDeliveryApi({
+    req,
+    res,
+    sendJson
+  });
+
+  if (commercialDeliveryHandled) {
+    return;
+  }
+
   const wahaWebhookHandled = await handleWahaWebhookApi({
     req,
     res,
