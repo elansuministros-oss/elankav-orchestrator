@@ -120,7 +120,25 @@ async function ingestProviderText({ providerId, text, externalMessageId, receive
     }),
     signal: AbortSignal.timeout(120_000)
   });
-  return readJsonResponse(response);
+  const commercial = await readJsonResponse(response);
+  let recruitment = null;
+  try {
+    const recruitmentResponse = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/recruitment/responses`, {
+      method: 'POST',
+      headers: providerHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ text: normalizedText }),
+      signal: AbortSignal.timeout(120_000)
+    });
+    recruitment = await readJsonResponse(recruitmentResponse);
+  } catch (error) {
+    console.error('[PROVIDER_RECRUITMENT_RESPONSE_SYNC_FAILED]', {
+      providerId,
+      code: error?.code || null,
+      status: error?.status || null,
+      message: error?.message || String(error)
+    });
+  }
+  return { ...commercial, recruitment };
 }
 
 function resolveMediaUrl(mediaUrl, baseUrl) {
@@ -205,7 +223,30 @@ async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName
     body: media.buffer,
     signal: AbortSignal.timeout(150_000)
   });
-  return readJsonResponse(response);
+  const commercial = await readJsonResponse(response);
+  let recruitment = null;
+  try {
+    const recruitmentResponse = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/recruitment/documents`, {
+      method: 'POST',
+      headers: providerHeaders({
+        'Content-Type': finalMime || 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(fileName || 'provider-attachment'),
+        ...(externalMessageId ? { 'X-External-Message-Id': encodeURIComponent(externalMessageId) } : {}),
+        ...(commercial?.documentType ? { 'X-Document-Type': encodeURIComponent(commercial.documentType) } : {})
+      }),
+      body: media.buffer,
+      signal: AbortSignal.timeout(150_000)
+    });
+    recruitment = await readJsonResponse(recruitmentResponse);
+  } catch (error) {
+    console.error('[PROVIDER_RECRUITMENT_DOCUMENT_SYNC_FAILED]', {
+      providerId,
+      code: error?.code || null,
+      status: error?.status || null,
+      message: error?.message || String(error)
+    });
+  }
+  return { ...commercial, recruitment };
 }
 
 module.exports = {
