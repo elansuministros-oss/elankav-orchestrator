@@ -173,6 +173,113 @@ test('detects one natural command to send both split quotations', () => {
   }
 });
 
+test('understands natural contextual variants without a rigid command phrase', () => {
+  const { service, cleanup } = loadService();
+  try {
+    const cases = [
+      ['ELAN mandale las dos últimas cotizaciones al cliente POLARIZADO', 'polarizado', 2],
+      ['ELAN envía ambas', undefined, 2],
+      ['ELAN mandáselas al cliente', undefined, undefined],
+      ['ELAN envíale las alternativas', undefined, undefined],
+      ['ELAN manda esas dos', undefined, 2],
+      ['ELAN comparte las cotizaciones con POLARIZADO', undefined, undefined]
+    ];
+
+    for (const [message, customerReference, expectedCount] of cases) {
+      const command = service.detectOwnerBusinessCommand(message);
+      assert.equal(command?.type, service.BUSINESS_COMMANDS.QUOTATION_SPLIT_SEND, message);
+      if (customerReference !== undefined) {
+        assert.equal(command.customerReference, customerReference, message);
+      }
+      if (expectedCount !== undefined) {
+        assert.equal(command.expectedCount, expectedCount, message);
+      }
+    }
+
+    assert.notEqual(
+      service.detectOwnerBusinessCommand('ELAN envía la cotización')?.type,
+      service.BUSINESS_COMMANDS.QUOTATION_SPLIT_SEND
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('recovers already-created split quotations from CONNECT project titles when relations are not exposed', async () => {
+  const rowsWithoutRelations = splitRows().map((row, index) => ({
+    ...row,
+    quotation_document: {
+      ...row.quotation_document,
+      publicDocument: {
+        ...row.quotation_document.publicDocument,
+        relations: undefined,
+        project: {
+          title: index === 0
+            ? 'Rotulación de fachada POLARIZADO – Jinotega — Alternativa 1: PVC expandido 10 mm'
+            : 'Rotulación de fachada POLARIZADO – Jinotega — Alternativa 2: Cajuela PVC 6 mm'
+        }
+      }
+    }
+  }));
+
+  const { service, pendingCalls, cleanup } = loadService({
+    rows: rowsWithoutRelations,
+    context: {}
+  });
+
+  try {
+    const command = service.detectOwnerBusinessCommand(
+      'ELAN mandale las dos últimas cotizaciones al cliente POLARIZADO'
+    );
+    const result = await service.executeOwnerBusinessCommand(command);
+
+    assert.equal(result.result.status, 'prepared');
+    assert.equal(pendingCalls.length, 2);
+    assert.deepEqual(
+      pendingCalls.map(call => call.parameters.projectId),
+      ['child-project-1', 'child-project-2']
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('uses conversational split context when the owner simply says mandaselas', async () => {
+  const rowsWithoutRelations = splitRows().map((row, index) => ({
+    ...row,
+    quotation_document: {
+      ...row.quotation_document,
+      publicDocument: {
+        ...row.quotation_document.publicDocument,
+        relations: undefined,
+        project: {
+          title: index === 0
+            ? 'Rotulación de fachada POLARIZADO – Jinotega — Alternativa 1: PVC expandido 10 mm'
+            : 'Rotulación de fachada POLARIZADO – Jinotega — Alternativa 2: Cajuela PVC 6 mm'
+        }
+      }
+    }
+  }));
+
+  const { service, pendingCalls, cleanup } = loadService({
+    rows: rowsWithoutRelations,
+    context: {
+      lastEntityType: 'quotation_split',
+      lastEntityId: '31f90973-56c6-42e6-943c-b70cad4ea343'
+    }
+  });
+
+  try {
+    const command = service.detectOwnerBusinessCommand('ELAN mandáselas al cliente');
+    const result = await service.executeOwnerBusinessCommand(command);
+
+    assert.equal(result.result.status, 'prepared');
+    assert.equal(pendingCalls.length, 2);
+  } finally {
+    cleanup();
+  }
+});
+
 test('prepares exactly two official confirmation operations for the active split group', async () => {
   const group = '31f90973-56c6-42e6-943c-b70cad4ea343';
   const { service, pendingCalls, cleanup } = loadService({
