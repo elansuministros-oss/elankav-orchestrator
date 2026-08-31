@@ -23,6 +23,7 @@ const {
   startDesignPortalWorker
 } = require('./services/designPortalWorkerService');
 const { startElanSelfAuditMonitor } = require('./services/elanSelfAuditMonitorService');
+const { startProviderRecruitmentFollowupWorker } = require('./services/providerRecruitmentFollowupWorkerService');
 const {
   getElanMarketplaceBrokerWorkerState,
   startElanMarketplaceBrokerWorker
@@ -742,6 +743,7 @@ async function startServer() {
   startDesignPortalWorker();
   startElanSelfAuditMonitor();
   startElanMarketplaceBrokerWorker();
+  startProviderRecruitmentFollowupWorker();
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
