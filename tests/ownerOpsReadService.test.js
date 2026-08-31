@@ -8,6 +8,12 @@ const {
 } = require('../services/ownerOpsCapabilityRegistry');
 
 const {
+  MODES,
+  TECHNICAL_OWNER_OPS_CAPABILITIES,
+  canUseModeCapability
+} = require('../services/operatorModeService');
+
+const {
   deriveChannelInternalToken,
   readChannelBridgeAudit,
   readFileInspect,
@@ -84,6 +90,22 @@ test('Owner router detects controlled Owner Language test request', () => {
   assert.equal(
     command?.suite,
     'orchestrator-owner-language'
+  );
+});
+
+
+test('channels.audit is explicitly allowed in PROGRAMADOR mode', () => {
+  assert.equal(
+    TECHNICAL_OWNER_OPS_CAPABILITIES.includes('channels.audit'),
+    true
+  );
+  assert.equal(
+    canUseModeCapability(MODES.PROGRAMADOR, 'channels.audit'),
+    true
+  );
+  assert.equal(
+    canUseModeCapability(MODES.OWNER_GENERAL, 'channels.audit'),
+    false
   );
 });
 
