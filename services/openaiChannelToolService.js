@@ -23,6 +23,28 @@ const GLOBAL_CHANNEL_TOOL = Object.freeze({
   strict: true
 });
 
+
+const COMMERCIAL_BRIEFING_TOOL = Object.freeze({
+  type: 'function',
+  name: 'get_commercial_briefing',
+  description: 'Obtiene el resumen comercial auditable de CONNECT para responder preguntas como qué está pendiente, quién no respondió, qué requiere atención personal o cómo va el negocio. Puede filtrar por fechas, unidad, plataforma, canal, fuente o campaña.',
+  parameters: {
+    type: 'object',
+    properties: {
+      from: { type: 'string', description: 'Fecha/hora ISO inicial, opcional.' },
+      to: { type: 'string', description: 'Fecha/hora ISO final, opcional.' },
+      business_unit: { type: 'string', description: 'ELANVISUAL, ELANPET, ELAN GO u otra unidad.' },
+      platform: { type: 'string', description: 'Plataforma comercial, opcional.' },
+      channel: { type: 'string', description: 'whatsapp, email, messenger, instagram_dm, etc.' },
+      source: { type: 'string', description: 'Origen comercial, opcional.' },
+      campaign: { type: 'string', description: 'Campaña específica, opcional.' }
+    },
+    required: [],
+    additionalProperties: false
+  },
+  strict: true
+});
+
 const MARKETPLACE_CONTACT_TOOL = Object.freeze({
   type: 'function',
   name: 'execute_marketplace_contact_next',
@@ -44,8 +66,8 @@ const MARKETPLACE_CONTACT_TOOL = Object.freeze({
 
 function toolsForScope(scope) {
   return scope === 'marketplace'
-    ? [GLOBAL_CHANNEL_TOOL, MARKETPLACE_CONTACT_TOOL]
-    : [GLOBAL_CHANNEL_TOOL];
+    ? [GLOBAL_CHANNEL_TOOL, COMMERCIAL_BRIEFING_TOOL, MARKETPLACE_CONTACT_TOOL]
+    : [GLOBAL_CHANNEL_TOOL, COMMERCIAL_BRIEFING_TOOL];
 }
 
 function safeJsonParse(value) {
@@ -82,6 +104,21 @@ async function executeChannelTool(
       return {
         ok: true,
         result: await channelAdapter.getChannelCapabilities()
+      };
+    }
+
+    if (name === 'get_commercial_briefing') {
+      return {
+        ok: true,
+        result: await channelAdapter.getCommercialBriefing({
+          from: args.from,
+          to: args.to,
+          businessUnit: args.business_unit,
+          platform: args.platform,
+          channel: args.channel,
+          source: args.source,
+          campaign: args.campaign
+        })
       };
     }
 
@@ -125,6 +162,7 @@ async function runChannelToolDecision({
   const resolvedInstructions = [
     'Sos el cerebro de decisión de ELAN para herramientas autorizadas del ecosistema ELANKAV.',
     'Las capacidades de canal son globales y no pertenecen a ELAN GO ni a ninguna plataforma particular.',
+    'Cuando el usuario pregunte por pendientes, correos o mensajes sin respuesta, seguimiento, clientes que debe atender personalmente, rendimiento diario/semanal o resumen del negocio, usá get_commercial_briefing antes de responder.',
     'Nunca afirmes que una acción externa ocurrió si la herramienta no devolvió ok=true.',
     'No inventes credenciales, permisos, envíos, comentarios ni estados de plataforma.',
     'No intentes eludir AUTH_REQUIRED, PLATFORM_UNSUPPORTED, BLOCKED, CAPTCHA, autenticación ni restricciones de plataforma.',
@@ -176,6 +214,7 @@ async function runChannelToolDecision({
 
 module.exports = {
   GLOBAL_CHANNEL_TOOL,
+  COMMERCIAL_BRIEFING_TOOL,
   MARKETPLACE_CONTACT_TOOL,
   MAX_TOOL_ROUNDS,
   executeChannelTool,
