@@ -90,6 +90,31 @@ function selectDiscoveryCategory(now = Date.now(), env = process.env) {
   return DISCOVERY_CATEGORIES[index];
 }
 
+function selectCatalogCategories({
+  now = Date.now(),
+  env = process.env,
+  count
+} = {}) {
+  const interval = discoveryIntervalMs(env);
+  const slot = Math.floor(Number(now) / interval);
+  const requested = positiveInteger(
+    count,
+    positiveInteger(env.ELAN_MARKETPLACE_CATALOG_SEARCHES_PER_RUN, 4)
+  );
+  const take = Math.max(1, Math.min(DISCOVERY_CATEGORIES.length, requested));
+  const start =
+    ((slot * take) % DISCOVERY_CATEGORIES.length + DISCOVERY_CATEGORIES.length) %
+    DISCOVERY_CATEGORIES.length;
+
+  const selected = [];
+  for (let offset = 0; offset < take; offset += 1) {
+    selected.push(
+      DISCOVERY_CATEGORIES[(start + offset) % DISCOVERY_CATEGORIES.length]
+    );
+  }
+  return selected;
+}
+
 function cleanLocation(input) {
   if (!input || typeof input !== 'object') return undefined;
 
@@ -281,6 +306,68 @@ async function runDiscoverySearch({
   };
 }
 
+async function runCatalogDiscoveryCycle({
+  env = process.env,
+  now = Date.now(),
+  mode = 'bootstrap',
+  searchWeb = webSearch.searchOpenMarketOpportunities,
+  verifySource = sourceVerification.verifyDiscoverySource,
+  persist = marketplace.marketplaceUpsertDiscovery
+} = {}) {
+  const region = defaultRegion(env);
+  const bootstrap = clean(mode).toLowerCase() === 'bootstrap';
+  const requested = bootstrap
+    ? positiveInteger(
+        env.ELAN_MARKETPLACE_CATALOG_BOOTSTRAP_SEARCHES_PER_RUN,
+        4
+      )
+    : positiveInteger(
+        env.ELAN_MARKETPLACE_CATALOG_REPLENISH_SEARCHES_PER_RUN,
+        2
+      );
+
+  const categories = selectCatalogCategories({
+    now,
+    env,
+    count: requested
+  });
+
+  const results = [];
+  let published = 0;
+
+  for (const category of categories) {
+    const target = {
+      kind: 'offer',
+      category: category.category,
+      focus: category.focus,
+      region
+    };
+
+    const result = await runDiscoverySearch({
+      target,
+      env,
+      searchWeb,
+      verifySource,
+      persist
+    });
+
+    results.push(result);
+    published += Number(result.published || 0);
+  }
+
+  return {
+    ok: true,
+    autonomous: true,
+    authority: 'CONNECT',
+    operator: 'ELAN',
+    mode: bootstrap ? 'CATALOG_BOOTSTRAP' : 'CATALOG_REPLENISH',
+    categories: categories.map((item) => item.category),
+    searches: results.length,
+    published,
+    results
+  };
+}
+
 async function runAutonomousDiscoveryCycle({
   env = process.env,
   now = Date.now(),
@@ -351,6 +438,8 @@ module.exports = {
   discoveryIntervalMs,
   normalizeDiscovery,
   runAutonomousDiscoveryCycle,
+  runCatalogDiscoveryCycle,
   runDiscoverySearch,
+  selectCatalogCategories,
   selectDiscoveryCategory
 };
