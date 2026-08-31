@@ -6,6 +6,9 @@ const {
   createGmailDeliveryAdapter
 } = require('../adapters/gmailDeliveryAdapter');
 const {
+  createResendDeliveryAdapter
+} = require('../adapters/resendDeliveryAdapter');
+const {
   createMetaDeliveryAdapter
 } = require('../adapters/metaDeliveryAdapter');
 const {
@@ -205,6 +208,103 @@ test('Gmail probe requires configured Workspace send-as identities to be accepte
     }
   ]);
 });
+
+test('Resend only allows ELANVISUAL and ELAN GO sender identities by default', async () => {
+  const calls = [];
+  const adapter = createResendDeliveryAdapter({
+    env: {
+      RESEND_API_KEY: 're_test_key',
+      RESEND_DOMAIN_VERIFIED: 'true'
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: 'resend-msg-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  });
+
+  const visual = await adapter.sendText({
+    to: 'cliente@example.com',
+    subject: 'Cotización',
+    text: 'Mensaje',
+    fromIdentity: 'elanvisual'
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://api.resend.com/emails');
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer re_test_key');
+
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.from, 'ELANVISUAL <visual@elankav.com>');
+  assert.deepEqual(body.to, ['cliente@example.com']);
+  assert.equal(visual.id, 'resend-msg-1');
+  assert.equal(visual.sender, 'visual@elankav.com');
+
+  const beforeRejected = calls.length;
+  await assert.rejects(
+    adapter.sendText({
+      to: 'cliente@example.com',
+      subject: 'No autorizado',
+      text: 'Mensaje',
+      fromIdentity: 'inventado'
+    }),
+    error => error.code === 'RESEND_SENDER_IDENTITY_NOT_ALLOWED'
+  );
+  assert.equal(calls.length, beforeRejected);
+});
+
+
+test('Resend supports ELAN GO identity and reply headers', async () => {
+  let payload;
+  const adapter = createResendDeliveryAdapter({
+    env: {
+      RESEND_API_KEY: 're_test_key',
+      RESEND_DOMAIN_VERIFIED: 'true'
+    },
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return new Response(JSON.stringify({ id: 'resend-msg-go' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  });
+
+  await adapter.sendText({
+    to: 'buyer@example.com',
+    subject: 'Seguimiento',
+    text: 'Mensaje GO',
+    fromIdentity: 'elan-go',
+    inReplyTo: '<message-1@example.com>',
+    references: '<message-1@example.com>'
+  });
+
+  assert.equal(payload.from, 'ELAN GO <go@elankav.com>');
+  assert.equal(payload.headers['In-Reply-To'], '<message-1@example.com>');
+  assert.equal(payload.headers.References, '<message-1@example.com>');
+});
+
+
+test('global email capability becomes VERIFIED for configured verified Resend domain', () => {
+  const service = createChannelDeliveryService({
+    env: {
+      WAHA_API_KEY: 'WAHA-KEY',
+      RESEND_API_KEY: 're_test_key',
+      RESEND_DOMAIN_VERIFIED: 'true'
+    }
+  });
+
+  const email = service
+    .capabilitySnapshot()
+    .find(item => item.channel === 'email');
+
+  assert.equal(email.provider, 'resend');
+  assert.equal(email.configured, true);
+  assert.equal(email.state, 'VERIFIED');
+});
+
 
 test('Messenger requires a scoped recipient and uses Page messages endpoint', async () => {
   const calls = [];
