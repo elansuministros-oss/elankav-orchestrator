@@ -1,0 +1,37 @@
+name: TEMP Owner Quotation 165 Validation
+
+on:
+  push:
+    branches:
+      - fix/OWNER-QUOTATION-LOOKUP-SEND-01
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --ignore-scripts
+
+      - name: Syntax
+        run: |
+          node --check services/ownerBusinessCommandService.js
+          node --check tests/ownerQuotationLookupSend.test.js
+          node --check services/ownerBusinessProcessMessageGateway.js
+
+      - name: Quotation lookup regressions
+        run: |
+          node --test             tests/ownerQuotationLookupSend.test.js             tests/ownerCustomerList.test.js             tests/ownerBusinessModesPricingLogistics.test.js
+
+      - name: Existing owner business regressions
+        run: |
+          node --test             tests/ownerBusinessQuotationItemPatch.test.js             tests/ownerBusinessProcessMessageGateway.test.js             tests/ownerBusinessProcessMessageIntegration.test.js             tests/ownerQuotationHomonymResolver.test.js
