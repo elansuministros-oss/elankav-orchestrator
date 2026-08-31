@@ -70,6 +70,67 @@ test('Gmail sends token only to OAuth/Gmail endpoints and preserves threadId', a
   assert.doesNotMatch(JSON.stringify(calls[1].init.body), /client-secret|refresh-token/);
 });
 
+
+test('Gmail sender identities are server-allowlisted and cannot be invented by a platform', async () => {
+  const calls = [];
+  const adapter = createGmailDeliveryAdapter({
+    env: {
+      GMAIL_OAUTH_CLIENT_ID: 'client-id',
+      GMAIL_OAUTH_CLIENT_SECRET: 'client-secret',
+      GMAIL_OAUTH_REFRESH_TOKEN: 'refresh-token',
+      GMAIL_USER: 'elan@elankav.com',
+      GMAIL_SENDER_IDENTITIES_JSON: JSON.stringify({
+        elanvisual: 'visual@elankav.com',
+        'elan-go': 'go@elankav.com'
+      })
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'ACCESS-TOKEN' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify({ id: 'MSG-ALIAS', threadId: 'THREAD-ALIAS' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  });
+
+  await adapter.sendText({
+    to: 'cliente@example.com',
+    subject: 'Cotización',
+    text: 'Mensaje',
+    fromIdentity: 'elanvisual'
+  });
+
+  const gmailRequest = calls.find(call =>
+    call.url.includes('gmail.googleapis.com/gmail/v1/users/me/messages/send')
+  );
+  assert.ok(gmailRequest);
+  const requestPayload = JSON.parse(gmailRequest.init.body);
+  const normalized = requestPayload.raw
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
+  const mime = Buffer.from(normalized + padding, 'base64').toString('utf8');
+  assert.match(mime, /^From: visual@elankav\.com\r?$/m);
+
+  const callsBeforeRejectedIdentity = calls.length;
+  await assert.rejects(
+    adapter.sendText({
+      to: 'cliente@example.com',
+      subject: 'No autorizado',
+      text: 'Mensaje',
+      fromIdentity: 'inventado'
+    }),
+    error => error.code === 'GMAIL_SENDER_IDENTITY_NOT_ALLOWED'
+  );
+  assert.equal(calls.length, callsBeforeRejectedIdentity);
+});
+
 test('Messenger requires a scoped recipient and uses Page messages endpoint', async () => {
   const calls = [];
   const adapter = createMetaDeliveryAdapter({
