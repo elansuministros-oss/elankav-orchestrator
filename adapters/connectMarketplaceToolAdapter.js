@@ -87,12 +87,6 @@ function createConnectMarketplaceToolAdapter({
     return payload;
   }
 
-  async function getContactCapabilities() {
-    return request('/api/v1/marketplace/contact-capabilities', {
-      method: 'GET'
-    });
-  }
-
   async function executeContactNext(caseCode) {
     const normalized = clean(caseCode).toUpperCase();
     if (!normalized) {
@@ -110,7 +104,6 @@ function createConnectMarketplaceToolAdapter({
   }
 
   return Object.freeze({
-    getContactCapabilities,
     executeContactNext
   });
 }
