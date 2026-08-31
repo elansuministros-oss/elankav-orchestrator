@@ -85,6 +85,12 @@ test('una demanda fallida no detiene las siguientes', async () => {
       outreachEnabled: true
     }),
     recordHeartbeat: async () => ({ ok: true }),
+    processInterests: async () => ({
+      ok: true,
+      processed: 0,
+      contacted: 0,
+      results: []
+    }),
     runDiscovery: async () => ({
       ok: true,
       searches: 0,
