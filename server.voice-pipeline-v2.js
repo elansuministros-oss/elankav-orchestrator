@@ -76,6 +76,10 @@ require('./services/humanLanguageMessagePatch').installHumanLanguageMessagePatch
 // explicitly formalizes it.
 require('./services/ownerProviderCandidateOutreachMessagePatch').installOwnerProviderCandidateOutreachMessagePatch();
 
+// Canonical supplier recruitment sits outermost: every Owner provider command
+// must pass CONNECT dedupe/evidence/contact preflight before any external send.
+require('./services/ownerProviderRecruitmentMessagePatch').installOwnerProviderRecruitmentMessagePatch();
+
 if (enabled) {
   const legacyModulePath = require.resolve('./api/wahaWebhookApi');
   const v2Exports = require('./api/wahaWebhookApiV2');
