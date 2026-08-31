@@ -33,6 +33,12 @@ function resolveTarget(text) {
   return null;
 }
 
+function canonicalBranch(target) {
+  if (target === 'orchestrator') return 'orchestrator-next';
+  if (target === 'connect') return 'main';
+  return null;
+}
+
 function createOperationId(now = Date.now()) {
   return `OPS-${now}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
 }
@@ -125,7 +131,13 @@ async function prepareDeploy(command, env = process.env) {
         target,
         requestedBy: 'owner-whatsapp',
         impact: 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio.',
-        parameters: { expectedCommit: commit, install: true, restart: true },
+        parameters: {
+          expectedCommit: commit,
+          branch: canonicalBranch(target),
+          deployStrategy: 'canonical-fast-forward',
+          install: true,
+          restart: true
+        },
         state: 'awaiting_confirmation',
         expiresAt: new Date(now + DEFAULT_TTL_MS).toISOString(),
         confirmedAt: null,
@@ -278,6 +290,14 @@ async function statusOperation(command, env = process.env) {
   operation.result.operation.executedAt = operation.finishedAt;
   await saveOperation(operation, env);
 
+  const execution = result.execution && typeof result.execution === 'object'
+    ? result.execution
+    : {};
+  const detail = result.detail || result.details || execution.detail || execution.details || null;
+  const step = result.step || execution.step || null;
+  const activeCommit = execution.after || execution.activeCommit || null;
+  const branch = execution.branch || operation.result.operation.parameters?.branch || null;
+
   return {
     command: command.type,
     job: operation,
@@ -286,8 +306,12 @@ async function statusOperation(command, env = process.env) {
       '',
       `Operación: ${id}`,
       `Error: ${operation.error}`,
+      step ? `Paso: ${step}` : null,
+      branch ? `Branch: ${branch}` : null,
+      activeCommit ? `Commit observado: ${activeCommit}` : null,
+      detail ? `Detalle: ${String(detail).slice(0, 1200)}` : null,
       'No se forzó ningún cambio fuera de la política permitida.'
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
     ownerOps: result
   };
 }
@@ -307,6 +331,7 @@ module.exports = {
   getOperation,
   getStorePath,
   getSupervisorDir,
+  canonicalBranch,
   prepareDeploy,
   confirmOperation,
   statusOperation
