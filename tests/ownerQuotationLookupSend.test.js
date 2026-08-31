@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   BUSINESS_COMMANDS,
   detectOwnerBusinessCommand,
+  parseQuotationCustomerList,
   parseQuotationLookup,
   parseQuotationLookupSend,
   parseQuotationReadRequest,
@@ -29,6 +30,27 @@ test('detects natural quotation lookup + send request before customer search', (
   });
 });
 
+
+test('detects plural quotation searches as quotations, never as customer list', () => {
+  const cases = [
+    'Elan busca la cotizaciones de polarizado que tengamos',
+    'BUSCA LAS COTIZACIONES DEL CLIENTE POLARIZADO QUE HAY'
+  ];
+
+  for (const message of cases) {
+    const command = detectOwnerBusinessCommand(message);
+    assert.equal(command?.type, BUSINESS_COMMANDS.QUOTATION_CUSTOMER_LIST, message);
+    assert.equal(command?.customerReference, 'polarizado', message);
+  }
+
+  assert.deepEqual(
+    parseQuotationCustomerList('Busca las cotizaciones del cliente POLARIZADO que hay'),
+    {
+      type: BUSINESS_COMMANDS.QUOTATION_CUSTOMER_LIST,
+      customerReference: 'polarizado'
+    }
+  );
+});
 
 test('detects standalone quotation lookup without changing send routing', () => {
   assert.deepEqual(
