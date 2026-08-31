@@ -91,6 +91,12 @@ test('una demanda fallida no detiene las siguientes', async () => {
       contacted: 0,
       results: []
     }),
+    runBuyerHunter: async () => ({
+      ok: true,
+      offersScanned: 0,
+      buyersFound: 0,
+      results: []
+    }),
     runDiscovery: async () => ({
       ok: true,
       searches: 0,
