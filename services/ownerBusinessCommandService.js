@@ -178,6 +178,29 @@ function parseQuotationSplitSend(message) {
   };
 }
 
+function parseQuotationCustomerList(message) {
+  const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
+  if (!/\bcotizaciones\b/.test(normalized)) return null;
+  if (!/\b(busca|buscar|muestra|mostrar|lista|listar|dame|hay|tenemos|tengamos)\b/.test(normalized)) return null;
+
+  const patterns = [
+    /\bcotizaciones\s+(?:del|de\s+la|de|para\s+el|para\s+la)\s+cliente\s+(.+?)(?=\s+que\s+(?:hay|tenemos|tengamos)\b|[,.;!?]|$)/,
+    /\bcotizaciones\s+(?:del|de\s+la|de|para)\s+(.+?)(?=\s+que\s+(?:hay|tenemos|tengamos)\b|[,.;!?]|$)/
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    const customerReference = String(match?.[1] || '').trim();
+    if (!customerReference || /^(?:cliente|clientes)$/.test(customerReference)) continue;
+    return {
+      type: BUSINESS_COMMANDS.QUOTATION_CUSTOMER_LIST,
+      customerReference
+    };
+  }
+
+  return null;
+}
+
 function parseQuotationLookupSend(message) {
   const raw = String(message || '').trim();
   const normalized = normalize(raw).replace(/^elan[\s,;:]+/, '').trim();
@@ -586,6 +609,8 @@ function parseLogisticsRule(message) {
 function detectOwnerBusinessCommand(message) {
   const quotationSplitSend = parseQuotationSplitSend(message);
   if (quotationSplitSend) return quotationSplitSend;
+  const quotationCustomerList = parseQuotationCustomerList(message);
+  if (quotationCustomerList) return quotationCustomerList;
   const quotationRead = parseQuotationReadRequest(message);
   if (quotationRead) return quotationRead;
   const quotationLookupSend = parseQuotationLookupSend(message);
@@ -1310,6 +1335,7 @@ module.exports = {
   parseProviderList,
   parseProviderQuoteRequest,
   parseProviderSearch,
+  parseQuotationCustomerList,
   parseQuotationLookup,
   parseQuotationLookupSend,
   parseQuotationReadRequest,
