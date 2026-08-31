@@ -160,7 +160,8 @@ function createChannelDeliveryService({
         text,
         threadId: input.threadId,
         inReplyTo: input.inReplyTo,
-        references: input.references
+        references: input.references,
+        fromIdentity: input.fromIdentity
       });
       return {
         channel,
