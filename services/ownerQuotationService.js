@@ -496,10 +496,11 @@ async function splitActiveQuotation(input) {
 
   const response = await getQuotation(context.activeProjectId);
   const current = response?.data || response || {};
-  if (String(current.status || '').toLowerCase() !== 'draft') {
+  const sourceStatus = String(current.status || '').toLowerCase();
+  if (!['draft', 'sent'].includes(sourceStatus)) {
     return {
       ready: false,
-      question: `La cotización ${current.quotationNumber || context.activeQuotationNumber || ''} ya no está en borrador. No crearé alternativas derivadas sin una revisión explícita.`
+      question: `La cotización ${current.quotationNumber || context.activeQuotationNumber || ''} está en estado ${sourceStatus || 'desconocido'}. Solo puedo dividir cotizaciones en borrador o ya enviadas; la original nunca se modifica.`
     };
   }
 
