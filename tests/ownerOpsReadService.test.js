@@ -161,6 +161,42 @@ test('channels.audit uses derived token and performs no message delivery', async
 });
 
 
+test('channels.audit returns visible failure instead of throwing on CONNECT auth error', async () => {
+  const result = await readChannelBridgeAudit({
+    env: { VQS_API_TOKEN: 'V'.repeat(40) },
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: {
+        code: 'CONNECT_INTERNAL_UNAUTHORIZED',
+        message: 'Credencial interna inválida.'
+      }
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  });
+
+  assert.equal(result.capability, 'channels.audit');
+  assert.equal(result.bridgeState, 'FAILED');
+  assert.equal(result.errorCode, 'CONNECT_INTERNAL_UNAUTHORIZED');
+  assert.equal(result.messagesSent, 0);
+  assert.equal(result.secretsExposed, false);
+});
+
+
+test('channels.audit returns visible failure instead of throwing when CONNECT is unavailable', async () => {
+  const result = await readChannelBridgeAudit({
+    env: { VQS_API_TOKEN: 'V'.repeat(40) },
+    fetchImpl: async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:4400');
+    }
+  });
+
+  assert.equal(result.bridgeState, 'FAILED');
+  assert.equal(result.errorCode, 'CHANNEL_BRIDGE_CONNECT_UNAVAILABLE');
+  assert.equal(result.messagesSent, 0);
+});
+
+
 test('file.inspect reads an authorized operational source file', async () => {
   const result = await readFileInspect(
     'orchestrator-owner-command'
