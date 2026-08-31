@@ -215,11 +215,20 @@ async function runCommand(kind,args,deps={}) {
   if(kind==='add_catalog') {
     if(!args.metadata?.media?.url) throw Object.assign(new Error('Adjuntá el catálogo o archivo que querés agregar.'),{code:'PROVIDER_CATALOG_MEDIA_REQUIRED',status:400});
     const media=await downloadProviderMedia({url:args.metadata.media.url,fetchImpl});
-    const result=await postBytes('/api/v1/providers/'+encodeURIComponent(id)+'/recruitment/documents',media.buffer,{
-      mimeType:media.mimeType||args.metadata.media.mimeType,fileName:args.metadata.media.filename||'catalogo',
-      messageId:args.metadata?.messageId,documentType:'catalog'
+    const fileName=args.metadata.media.filename||'catalogo';
+    const analysis=await postBytes('/api/v1/providers/'+encodeURIComponent(id)+'/intelligence/documents',media.buffer,{
+      mimeType:media.mimeType||args.metadata.media.mimeType,fileName,
+      messageId:args.metadata?.messageId
     },fetchImpl);
-    return ownerResult(summarize(result,'Catálogo agregado'),{type:kind,providerId:id,raw:args.message});
+    const result=await postBytes('/api/v1/providers/'+encodeURIComponent(id)+'/recruitment/documents',media.buffer,{
+      mimeType:media.mimeType||args.metadata.media.mimeType,fileName,
+      messageId:args.metadata?.messageId,documentType:analysis?.documentType||'catalog'
+    },fetchImpl);
+    return ownerResult([
+      summarize(result,'Catálogo agregado'),
+      'Datos comerciales nuevos: '+Number(analysis?.observationsSaved||0),
+      'Duplicados omitidos: '+Number(analysis?.duplicatesSkipped||0)
+    ].join('\n'),{type:kind,providerId:id,raw:args.message});
   }
   if(kind==='contact'||kind==='request_price_list') {
     let result;
