@@ -6,8 +6,22 @@ on:
       - orchestrator-next
       - feature/ELAN-OPENAI-MULTICHANNEL-TOOLS-01
     paths:
+      - 'adapters/connectMarketplaceToolAdapter.js'
+      - 'adapters/connectChannelToolAdapter.js'
+      - 'adapters/openaiAdapter.js'
+      - 'adapters/gmailDeliveryAdapter.js'
+      - 'adapters/metaDeliveryAdapter.js'
+      - 'services/channelDeliveryService.js'
+      - 'api/channelDeliveryApi.js'
+      - 'server.js'
       - 'services/ownerOpsDeployBridge.js'
       - 'test/ownerOpsDeployBridge.test.js'
+      - 'services/openaiCommercialToolService.js'
+      - 'services/openaiChannelToolService.js'
+      - 'tests/openaiCommercialTools.test.js'
+      - 'tests/commercialDeliveryAdapters.test.js'
+      - 'package.json'
+      - 'package-lock.json'
       - 'docs/deploy-markers/**'
       - '.github/workflows/orchestrator-multichannel-tools-ci.yml'
   pull_request:
