@@ -139,15 +139,41 @@ function parseQuotationSplitSend(message) {
     .replace(/[.!?]+$/g, '')
     .trim();
 
-  if (!/\bcotizaciones\b/.test(normalized)) return null;
-  if (!/\b(envia|enviale|envialas|manda|mandale|mandalas|comparte|compartile|compartilas)\b/.test(normalized)) return null;
-  if (!/\b(dos|ambas|alternativas)\b/.test(normalized)) return null;
+  const sendIntent = /\b(envia|enviar|enviale|envialas|enviaselas|manda|mandar|mandale|mandalas|mandaselas|comparte|compartir|compartile|compartilas|compartiselas)\b/.test(normalized);
+  if (!sendIntent) return null;
 
-  const customerMatch = normalized.match(/\bcliente\s+(.+?)(?=[,;.]|$)/);
+  const explicitPluralObject =
+    /\b(cotizaciones|alternativas|propuestas)\b/.test(normalized) ||
+    /\b(las\s+dos|ambas|esas\s+dos|estas\s+dos|las\s+ultimas|las\s+últimas)\b/.test(normalized) ||
+    /\b(enviaselas|mandaselas|compartiselas)\b/.test(normalized);
+
+  if (!explicitPluralObject) return null;
+
+  const explicitCountMatch = normalized.match(/\b(\d+)\s+(?:cotizaciones|alternativas|propuestas)\b/);
+  const expectedCount = explicitCountMatch
+    ? Math.max(2, Number(explicitCountMatch[1]))
+    : (/\b(dos|las\s+dos|ambas|esas\s+dos|estas\s+dos)\b/.test(normalized) ? 2 : null);
+
+  const customerPatterns = [
+    /\b(?:al\s+cliente|cliente)\s+(.+?)(?=[,;.]|$)/,
+    /\b(?:a|para)\s+([a-z0-9][a-z0-9 .&'_-]{1,80}?)(?=[,;.]|$)/
+  ];
+  let customerReference = '';
+  for (const pattern of customerPatterns) {
+    const match = normalized.match(pattern);
+    if (!match?.[1]) continue;
+    const candidate = match[1]
+      .replace(/^(?:el|la)\s+cliente\s+/,'')
+      .trim();
+    if (!candidate || /^(?:las?|los?)\s+(?:dos|cotizaciones|alternativas|propuestas)$/.test(candidate)) continue;
+    customerReference = candidate;
+    break;
+  }
+
   return {
     type: BUSINESS_COMMANDS.QUOTATION_SPLIT_SEND,
-    expectedCount: 2,
-    ...(customerMatch?.[1] ? { customerReference: customerMatch[1].trim() } : {})
+    ...(expectedCount ? { expectedCount } : {}),
+    ...(customerReference ? { customerReference } : {})
   };
 }
 
@@ -758,9 +784,10 @@ async function executeOwnerBusinessCommand(command) {
           titleGroups.get(key).push({ row, metadata });
         }
 
-        const expectedCount = Number(command.expectedCount || 2);
+        const expectedCount = Number(command.expectedCount || 0);
         const validTitleGroups = [...titleGroups.entries()].filter(([, entries]) => {
-          if (entries.length !== expectedCount) return false;
+          if (entries.length < 2) return false;
+          if (expectedCount && entries.length !== expectedCount) return false;
           const indexes = entries.map(entry => entry.metadata.partIndex).sort((a, b) => a - b);
           return indexes.every((value, index) => value === index + 1);
         });
@@ -782,15 +809,41 @@ async function executeOwnerBusinessCommand(command) {
       }
     }
 
+    if (!candidates.length && context.lastEntityType === 'quotation_split') {
+      const titleGroups = new Map();
+      for (const row of rows) {
+        if (quotationStatus(row) !== 'draft') continue;
+        const metadata = quotationSplitTitleMetadata(row);
+        if (!metadata) continue;
+        const key = normalize(metadata.baseTitle);
+        if (!key) continue;
+        if (!titleGroups.has(key)) titleGroups.set(key, []);
+        titleGroups.get(key).push({ row, metadata });
+      }
+
+      const requestedCount = Number(command.expectedCount || 0);
+      const validGroups = [...titleGroups.entries()].filter(([, entries]) => {
+        if (entries.length < 2) return false;
+        if (requestedCount && entries.length !== requestedCount) return false;
+        const indexes = entries.map(entry => entry.metadata.partIndex).sort((a, b) => a - b);
+        return indexes.every((value, index) => value === index + 1);
+      });
+
+      if (validGroups.length === 1) {
+        splitGroupId = `title:${validGroups[0][0]}`;
+        candidates = validGroups[0][1].map(entry => entry.row);
+      }
+    }
+
     if (!candidates.length) {
       return {
         handled: true,
-        outputText: 'No tengo identificado un grupo de cotizaciones divididas para enviar. Primero dividí la cotización o indicame el cliente de las alternativas.',
+        outputText: 'No pude identificar con seguridad qué grupo de cotizaciones querés enviar. No envié nada. Podés decirme el cliente o los números de cotización.',
         result: { status: 'split_group_not_found' }
       };
     }
 
-    const expectedCount = Number(command.expectedCount || 2);
+    const expectedCount = Number(command.expectedCount || candidates.length);
     const sorted = [...candidates].sort((a, b) => {
       const aIndex = Number(
         quotationRelations(a)?.splitPartIndex ||
