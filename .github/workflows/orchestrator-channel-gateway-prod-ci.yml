@@ -12,9 +12,11 @@ on:
       - release/OWNER-EMAIL-SELFTEST-PROD-01
       - release/META-AUTH-AUDIT-PROD-01
       - release/META-AUTH-DIAGNOSTICS-PROD-01
+      - release/META-INBOUND-RECEIVE-ONLY-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
+      - 'api/metaWebhookApi.js'
       - 'services/channelDeliveryService.js'
       - 'adapters/gmailDeliveryAdapter.js'
       - 'adapters/resendDeliveryAdapter.js'
@@ -27,6 +29,7 @@ on:
       - 'services/operatorModeService.js'
       - 'tests/ownerOpsReadService.test.js'
       - 'tests/commercialDeliveryAdapters.test.js'
+      - 'tests/metaWebhookApi.test.js'
       - '.github/workflows/orchestrator-channel-gateway-prod-ci.yml'
 
 jobs:
@@ -50,6 +53,7 @@ jobs:
       - name: Syntax
         run: |
           node --check api/channelDeliveryApi.js
+          node --check api/metaWebhookApi.js
           node --check services/channelDeliveryService.js
           node --check adapters/gmailDeliveryAdapter.js
           node --check adapters/resendDeliveryAdapter.js
@@ -58,7 +62,7 @@ jobs:
           node --check server.js
 
       - name: Channel gateway tests
-        run: node --test tests/commercialDeliveryAdapters.test.js tests/wahaDeliveryAdapter.test.js
+        run: node --test tests/commercialDeliveryAdapters.test.js tests/wahaDeliveryAdapter.test.js tests/metaWebhookApi.test.js
 
       - name: Owner OPS supervisor regression
         run: node --test test/ownerOpsSupervisor.test.js tests/ownerWhatsAppRepositoryDeploy.test.js
