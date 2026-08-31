@@ -150,6 +150,9 @@ async function runElanMarketplaceBrokerWorkerOnce({
       spendEnabled: control.spendEnabled,
       activeDemands: 0,
       searches: 0,
+      discoverySearches: 0,
+      publishedDiscoveries: 0,
+      failedDiscovery: 0,
       failedDemands: 0,
       results: []
     };
@@ -224,7 +227,6 @@ async function runElanMarketplaceBrokerWorkerOnce({
     } catch (error) {
       failedDiscovery = 1;
       state.failed += 1;
-      state.lastDiscoveryAt = nowIso;
       state.lastState = 'DISCOVERY_FAILED';
       state.lastErrorCode = errorCode(error);
 
@@ -344,7 +346,7 @@ async function runElanMarketplaceBrokerWorkerOnce({
   });
 
   return {
-    ok: failedDemands === 0,
+    ok: failedDemands === 0 && failedDiscovery === 0,
     autonomous: true,
     authority: 'CONNECT',
     operator: 'ELAN',
