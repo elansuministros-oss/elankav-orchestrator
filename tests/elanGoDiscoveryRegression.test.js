@@ -1,0 +1,171 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const discovery = require('../services/elanMarketplaceDiscoveryService');
+const worker = require('../services/elanMarketplaceBrokerWorkerService');
+
+test('radar normaliza ofertas y demandas reales', () => {
+  const offer = discovery.normalizeDiscovery({
+    kind: 'offer',
+    title: 'Pickup en venta',
+    category: 'vehicle',
+    subcategory: 'pickup',
+    operation: 'sale',
+    priceAmount: 18000,
+    priceCurrency: 'USD',
+    sourceName: 'Marketplace',
+    sourceUrl: 'https://example.com/pickup',
+    confidence: 'high'
+  }, {
+    kind: 'offer',
+    category: 'vehicle',
+    focus: 'pickups',
+    region: 'Nicaragua'
+  });
+
+  assert.equal(offer.kind, 'offer');
+  assert.equal(offer.operation, 'sale');
+  assert.equal(offer.priceCurrency, 'USD');
+
+  const demand = discovery.normalizeDiscovery({
+    kind: 'demand',
+    title: 'Empresa busca pickup',
+    category: 'vehicle',
+    subcategory: 'pickup',
+    intent: 'purchase',
+    sourceName: 'Directorio público',
+    sourceUrl: 'https://example.org/rfq',
+    confidence: 'medium'
+  }, {
+    kind: 'demand',
+    category: 'vehicle',
+    focus: 'pickups',
+    region: 'Nicaragua'
+  });
+
+  assert.equal(demand.kind, 'demand');
+  assert.equal(demand.intent, 'purchase');
+});
+
+test('radar descarta hallazgos sin URL HTTPS o con categoría inventada', () => {
+  assert.equal(
+    discovery.normalizeDiscovery({
+      kind: 'offer',
+      title: 'Oferta dudosa',
+      category: 'vehicle',
+      subcategory: 'pickup',
+      operation: 'sale',
+      sourceName: 'Fuente',
+      sourceUrl: 'http://inseguro.test'
+    }, {
+      kind: 'offer',
+      category: 'vehicle',
+      focus: 'pickups'
+    }),
+    null
+  );
+
+  assert.equal(
+    discovery.normalizeDiscovery({
+      kind: 'offer',
+      title: 'Oferta incorrecta',
+      category: 'machinery',
+      subcategory: 'loader',
+      operation: 'sale',
+      sourceName: 'Fuente',
+      sourceUrl: 'https://example.com/loader'
+    }, {
+      kind: 'offer',
+      category: 'vehicle',
+      focus: 'pickups'
+    }),
+    null
+  );
+});
+
+test('ciclo autónomo busca oferta y demanda y publica ambas', async () => {
+  const persisted = [];
+
+  const result = await discovery.runAutonomousDiscoveryCycle({
+    env: {
+      ELAN_MARKETPLACE_DISCOVERY_SEARCHES_PER_RUN: '2',
+      ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS: '900000'
+    },
+    now: 1_800_000,
+    searchWeb: async (target) => ({
+      discoveries: [
+        {
+          kind: target.kind,
+          title: target.kind === 'offer'
+            ? 'Oferta real encontrada'
+            : 'Demanda real encontrada',
+          category: target.category,
+          subcategory: 'test',
+          ...(target.kind === 'offer'
+            ? { operation: 'sale' }
+            : { intent: 'purchase' }),
+          sourceName: 'Fuente pública',
+          sourceUrl: target.kind === 'offer'
+            ? 'https://example.com/offer'
+            : 'https://example.com/demand',
+          confidence: 'high'
+        }
+      ],
+      searchSummary: 'ok'
+    }),
+    persist: async (item) => {
+      persisted.push(item);
+      return {
+        result: {
+          discoveryCode: `DISC-${String(persisted.length).padStart(6, '0')}`
+        }
+      };
+    }
+  });
+
+  assert.equal(result.searches, 2);
+  assert.equal(result.published, 2);
+  assert.equal(persisted[0].kind, 'offer');
+  assert.equal(persisted[1].kind, 'demand');
+});
+
+test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async () => {
+  let discoveryCalls = 0;
+  let demandListCalls = 0;
+
+  const result = await worker.runElanMarketplaceBrokerWorkerOnce({
+    env: {
+      ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS: '900000'
+    },
+    now: 10_000_000,
+    getControl: async () => ({
+      enabled: true,
+      spendEnabled: true,
+      outreachEnabled: false
+    }),
+    recordHeartbeat: async () => ({ ok: true }),
+    runDiscovery: async () => {
+      discoveryCalls += 1;
+      return {
+        ok: true,
+        category: 'vehicle',
+        searches: 2,
+        published: 3,
+        results: []
+      };
+    },
+    listDemands: async () => {
+      demandListCalls += 1;
+      return { result: [] };
+    }
+  });
+
+  assert.equal(discoveryCalls, 1);
+  assert.equal(demandListCalls, 1);
+  assert.equal(result.activeDemands, 0);
+  assert.equal(result.discoverySearches, 2);
+  assert.equal(result.publishedDiscoveries, 3);
+  assert.equal(result.state, 'DISCOVERY_PUBLISHED');
+});
