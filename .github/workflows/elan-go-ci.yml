@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/ELAN-GO-WHATSAPP-CONTROL-01
+      - feature/ELAN-GO-AUTONOMOUS-WEB-RADAR-01
   pull_request:
     branches:
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
@@ -35,10 +36,14 @@ jobs:
           node --check services/elanUnifiedOwnerCommandService.js
           node --check services/elanUnifiedRuntimeMessagePatch.js
           node --check services/elanMarketplaceWebSearchService.js
+          node --check services/elanMarketplaceDiscoveryService.js
           node --check services/elanMarketplaceAutonomyService.js
           node --check services/elanMarketplaceBrokerWorkerService.js
           node --check services/elanUnifiedToolRegistry.js
 
       - name: ELAN GO regressions
         run: |
-          node --test             tests/elanGoOwnerControlRegression.test.js             tests/elanGoBrokerControlRegression.test.js
+          node --test \
+            tests/elanGoOwnerControlRegression.test.js \
+            tests/elanGoBrokerControlRegression.test.js \
+            tests/elanGoDiscoveryRegression.test.js
