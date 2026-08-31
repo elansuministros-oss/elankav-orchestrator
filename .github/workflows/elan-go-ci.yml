@@ -5,6 +5,7 @@ on:
     branches:
       - feature/ELAN-GO-WHATSAPP-CONTROL-01
       - feature/ELAN-GO-AUTONOMOUS-WEB-RADAR-01
+      - hotfix/ELAN-GO-INTEREST-BROKER-01
   pull_request:
     branches:
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
