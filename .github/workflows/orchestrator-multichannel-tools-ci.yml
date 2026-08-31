@@ -7,6 +7,9 @@ on:
       - 'adapters/openaiAdapter.js'
       - 'adapters/gmailDeliveryAdapter.js'
       - 'adapters/metaDeliveryAdapter.js'
+      - 'services/commercialDeliveryService.js'
+      - 'api/commercialDeliveryApi.js'
+      - 'server.js'
       - 'services/openaiCommercialToolService.js'
       - 'tests/openaiCommercialTools.test.js'
       - 'tests/commercialDeliveryAdapters.test.js'
@@ -35,6 +38,9 @@ jobs:
           node --check adapters/openaiAdapter.js
           node --check adapters/gmailDeliveryAdapter.js
           node --check adapters/metaDeliveryAdapter.js
+          node --check services/commercialDeliveryService.js
+          node --check api/commercialDeliveryApi.js
+          node --check server.js
           node --check services/openaiCommercialToolService.js
           node --check tests/openaiCommercialTools.test.js
 
