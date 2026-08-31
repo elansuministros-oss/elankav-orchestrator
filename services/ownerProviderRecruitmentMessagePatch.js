@@ -41,14 +41,15 @@ async function post(path, body, fetchImpl=fetch) {
 async function patch(path, body, fetchImpl=fetch) {
   return json(await fetchImpl(connectUrl()+path,{method:'PATCH',headers:headers({'Content-Type':'application/json'}),body:JSON.stringify(body),signal:AbortSignal.timeout(30000)}));
 }
-async function postBytes(path, bytes, {mimeType,fileName,messageId,contextText,documentType,ownerPhone}={}, fetchImpl=fetch) {
+async function postBytes(path, bytes, {mimeType,fileName,messageId,contextText,documentType,ownerPhone,source}={}, fetchImpl=fetch) {
   const h=headers({
     'Content-Type':mimeType || 'application/octet-stream',
     'X-File-Name':encodeURIComponent(fileName || 'provider-evidence'),
     ...(messageId?{'X-External-Message-Id':encodeURIComponent(messageId)}:{}),
     ...(contextText?{'X-Context-Text':encodeURIComponent(contextText)}:{}),
     ...(documentType?{'X-Document-Type':encodeURIComponent(documentType)}:{}),
-    ...(ownerPhone?{'X-Owner-Phone':encodeURIComponent(ownerPhone)}:{})
+    ...(ownerPhone?{'X-Owner-Phone':encodeURIComponent(ownerPhone)}:{}),
+    ...(source?{'X-Source-Json':encodeURIComponent(JSON.stringify(source))}:{})
   });
   return json(await fetchImpl(connectUrl()+path,{method:'POST',headers:h,body:bytes,signal:AbortSignal.timeout(150000)}));
 }
@@ -133,7 +134,8 @@ async function intakeFromOwner(args,{fetchImpl=fetch}={}) {
       fileName:args.metadata.media.filename || 'provider-evidence',
       messageId:args.metadata?.messageId,
       contextText:args.message,
-      ownerPhone:args.phone
+      ownerPhone:args.phone,
+      source
     },fetchImpl);
   }
   return post('/api/v1/providers/recruitment/intake',{
