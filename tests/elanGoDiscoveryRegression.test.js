@@ -7,6 +7,7 @@ const discovery = require('../services/elanMarketplaceDiscoveryService');
 const worker = require('../services/elanMarketplaceBrokerWorkerService');
 const sourceVerification = require('../services/elanMarketplaceSourceVerificationService');
 const interestOutreach = require('../services/elanMarketplaceInterestOutreachService');
+const buyerHunter = require('../services/elanMarketplaceBuyerHunterService');
 
 test('radar normaliza ofertas y demandas reales', () => {
   const offer = discovery.normalizeDiscovery({
@@ -124,7 +125,12 @@ test('ciclo autónomo busca oferta y demanda y publica ambas', async () => {
       finalUrl: 'https://example.com/confirmed',
       pageTitle: 'Oferta real encontrada',
       sourceDescription: 'Publicación original confirmada',
-      imageUrl: 'https://example.com/image.jpg',
+      imageUrl: 'https://example.com/image-1.jpg',
+      imageUrls: [
+        'https://example.com/image-1.jpg',
+        'https://example.com/image-2.jpg',
+        'https://example.com/image-3.jpg'
+      ],
       priceConfirmed: false,
       locationConfirmed: false,
       contactConfirmed: false,
@@ -143,7 +149,8 @@ test('ciclo autónomo busca oferta y demanda y publica ambas', async () => {
   assert.equal(result.searches, 2);
   assert.equal(result.published, 2);
   assert.equal(persisted[0].verificationStatus, 'validated');
-  assert.equal(persisted[0].imageUrl, 'https://example.com/image.jpg');
+  assert.equal(persisted[0].imageUrl, 'https://example.com/image-1.jpg');
+  assert.equal(persisted[0].imageUrls.length, 3);
   assert.equal(persisted[0].kind, 'offer');
   assert.equal(persisted[1].kind, 'demand');
 });
@@ -175,6 +182,94 @@ test('verificación rechaza coincidencias de título insuficientes', () => {
     ),
     false
   );
+});
+
+test('buyer hunter cruza ofertas con demandas internas compatibles', () => {
+  assert.equal(
+    buyerHunter.internalDemandCompatible(
+      {
+        category: 'vehicle',
+        subcategory: 'pickup',
+        title: 'Toyota Hilux 2026'
+      },
+      {
+        category: 'vehicle',
+        subcategory: 'pickup',
+        title: 'Busco pickup para empresa'
+      }
+    ),
+    true
+  );
+
+  assert.equal(
+    buyerHunter.internalDemandCompatible(
+      {
+        category: 'vehicle',
+        subcategory: 'pickup',
+        title: 'Toyota Hilux 2026'
+      },
+      {
+        category: 'real_estate',
+        subcategory: 'house',
+        title: 'Busco casa'
+      }
+    ),
+    false
+  );
+});
+
+test('buyer hunter guarda demanda interna y comprador web confirmado', async () => {
+  const persisted = [];
+
+  const result = await buyerHunter.runBuyerHuntForOffer({
+    offer: {
+      discoveryCode: 'DISC-000010',
+      kind: 'offer',
+      title: 'Toyota Hilux 2026',
+      category: 'vehicle',
+      subcategory: 'pickup',
+      operation: 'sale'
+    },
+    listDemands: async () => ({
+      result: [{
+        demandCode: 'NIC-DEMAND-000007',
+        title: 'Empresa busca pickup',
+        category: 'vehicle',
+        subcategory: 'pickup',
+        status: 'active'
+      }]
+    }),
+    searchWeb: async () => ({
+      buyers: [{
+        buyerName: 'Empresa logística',
+        buyerNeed: 'Empresa logística busca pickup para operaciones',
+        sourceName: 'Solicitud pública',
+        sourceUrl: 'https://example.org/rfq/pickup',
+        contactHint: '+505 8111 1111',
+        confidence: 'high'
+      }]
+    }),
+    verifyWebBuyer: async () => ({
+      validated: true,
+      finalUrl: 'https://example.org/rfq/pickup',
+      verifiedAt: '2026-08-31T02:00:00.000Z'
+    }),
+    persist: async (item) => {
+      persisted.push(item);
+      return {
+        result: {
+          candidateCode: 'BUYER-' + String(persisted.length).padStart(6, '0')
+        }
+      };
+    }
+  });
+
+  assert.equal(result.internalCandidates, 1);
+  assert.equal(result.webCandidates, 1);
+  assert.equal(result.persisted, 2);
+  assert.equal(persisted[0].sourceKind, 'internal_demand');
+  assert.equal(persisted[1].sourceKind, 'web');
+  assert.equal(persisted[1].verificationStatus, 'validated');
 });
 
 test('mensaje al propietario identifica a ELAN como IA intermediaria y negocia comisión', () => {
@@ -217,6 +312,12 @@ test('worker procesa intereses de clientes cuando outreach está habilitado', as
       published: 0,
       results: []
     }),
+    runBuyerHunter: async () => ({
+      ok: true,
+      offersScanned: 0,
+      buyersFound: 0,
+      results: []
+    }),
     listDemands: async () => ({ result: [] })
   });
 
@@ -250,6 +351,12 @@ test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async (
         results: []
       };
     },
+    runBuyerHunter: async () => ({
+      ok: true,
+      offersScanned: 1,
+      buyersFound: 2,
+      results: []
+    }),
     listDemands: async () => {
       demandListCalls += 1;
       return { result: [] };
