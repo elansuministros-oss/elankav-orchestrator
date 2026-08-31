@@ -10,10 +10,12 @@ on:
       - 'services/ownerEntityCreateContinuityService.js'
       - 'services/ownerSeller*.js'
       - 'services/ownerHumanLanguage*.js'
+      - 'services/ownerProviderRecruitmentMessagePatch.js'
       - 'services/humanLanguage*.js'
       - 'server.voice-pipeline-v2.js'
       - 'test/ownerSeller*.test.js'
       - 'test/humanLanguageInterpreter.test.js'
+      - 'test/ownerProviderRecruitmentMessagePatch.test.js'
       - 'tests/ownerEntityCreateContinuity.test.js'
       - 'tests/ownerProviderStructuredContinuity.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
@@ -61,6 +63,7 @@ jobs:
           node --check services/ownerSellerUpdateOutreachMessagePatch.js
           node --check services/humanLanguageInterpreter.js
           node --check services/ownerHumanLanguageIntentPatch.js
+          node --check services/ownerProviderRecruitmentMessagePatch.js
           node --check services/humanLanguageMessagePatch.js
           node --check server.voice-pipeline-v2.js
           node --check tests/ownerEntityCreateContinuity.test.js
@@ -87,7 +90,8 @@ jobs:
             test/ownerSellerPreviewConfirmationPatch.test.js \
             test/ownerSellerRecruitmentService.test.js \
             test/ownerSellerUpdateOutreachService.test.js \
-            test/humanLanguageInterpreter.test.js
+            test/humanLanguageInterpreter.test.js \
+            test/ownerProviderRecruitmentMessagePatch.test.js
 
   owner_entity_continuity:
     runs-on: ubuntu-latest
