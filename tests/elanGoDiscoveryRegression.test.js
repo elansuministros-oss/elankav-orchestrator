@@ -233,7 +233,7 @@ test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async (
     env: {
       ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS: '900000'
     },
-    now: 10_000_000,
+    now: 20_000_000,
     getControl: async () => ({
       enabled: true,
       spendEnabled: true,
