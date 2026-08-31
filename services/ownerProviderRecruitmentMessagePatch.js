@@ -7,6 +7,8 @@ const { rawOwnerIdentity } = require('./ownerProviderCandidateOutreachMessagePat
 
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 let installed = false;
+const PENDING_MEDIA_TTL_MS = 5 * 60 * 1000;
+const pendingOwnerMedia = new Map();
 
 function clean(value) { return String(value || '').trim(); }
 function normalized(value) {
@@ -55,6 +57,20 @@ function extractPhone(message) {
   const match=clean(message).match(/(?:\+?505[\s().-]*)?\d{4}[\s.-]*\d{4}/);
   return match ? normalizePhone(match[0]) : '';
 }
+function pendingKey(args={}) { return normalizePhone(args.phone || args.externalUserId || args.metadata?.senderRaw || '') || 'owner'; }
+function rememberPendingMedia(args,kind) {
+  pendingOwnerMedia.set(pendingKey(args),{kind,originalMessage:clean(args.message),expiresAt:Date.now()+PENDING_MEDIA_TTL_MS});
+}
+function consumePendingMedia(args) {
+  const key=pendingKey(args),item=pendingOwnerMedia.get(key);
+  if(!item) return null;
+  if(item.expiresAt<=Date.now()){pendingOwnerMedia.delete(key);return null;}
+  if(!args.metadata?.media?.url) return null;
+  pendingOwnerMedia.delete(key);
+  return item;
+}
+function clearPendingOwnerMedia(){ pendingOwnerMedia.clear(); }
+
 function commandKind(message, metadata={}) {
   const n=normalized(message), hasMedia=Boolean(metadata?.media?.url);
   if(!n) return null;
@@ -230,8 +246,22 @@ function installOwnerProviderRecruitmentMessagePatch() {
   const previous=messageService.processMessage;
   if(typeof previous!=='function') throw Object.assign(new Error('MESSAGE_SERVICE_PROCESS_MESSAGE_REQUIRED'),{code:'MESSAGE_SERVICE_PROCESS_MESSAGE_REQUIRED'});
   messageService.processMessage=async function processMessageWithProviderRecruitment(args={}){
-    const kind=commandKind(args.message,args.metadata);
-    if(!kind || !rawOwnerIdentity(args)) return previous(args);
+    if(!rawOwnerIdentity(args)) return previous(args);
+    const pending=consumePendingMedia(args);
+    const detected=commandKind(args.message,args.metadata);
+    const kind=pending?.kind || detected;
+    if(!kind) return previous(args);
+    if((kind==='register'||kind==='investigate') && !args.metadata?.media?.url) {
+      const phone=extractPhone(args.message);
+      const query=extractProviderQuery(args.message);
+      if(!phone && !query) {
+        rememberPendingMedia(args,kind);
+        return ownerResult('Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del proveedor y lo asociaré a este reclutamiento.',{type:kind,pendingMedia:true,raw:args.message});
+      }
+    }
+    if(pending) {
+      args={...args,message:[pending.originalMessage,clean(args.message)].filter(Boolean).join('\n')};
+    }
     try {
       return await runCommand(kind,args);
     } catch(error) {
@@ -252,5 +282,5 @@ function installOwnerProviderRecruitmentMessagePatch() {
 
 module.exports={
   commandKind,contactProvider,extractProviderQuery,initialMessage,installOwnerProviderRecruitmentMessagePatch,
-  intakeFromOwner,resolveTarget,runCommand
+  intakeFromOwner,resolveTarget,runCommand,rememberPendingMedia,consumePendingMedia,clearPendingOwnerMedia
 };
