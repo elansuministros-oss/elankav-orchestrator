@@ -10,7 +10,7 @@ const {
   searchProviders
 } = require('./ownerBusinessConnectClient');
 const { createWahaDeliveryAdapter, normalizePhone } = require('../adapters/wahaDeliveryAdapter');
-const { updateContext } = require('./ownerBusinessContextService');
+const { readContext, updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
 const { parseQuotationRequest, prepareAndCreateQuotation } = require('./ownerQuotationService');
@@ -27,6 +27,7 @@ const BUSINESS_COMMANDS = Object.freeze({
   QUOTATION_CREATE: 'business_quotation_create',
   QUOTATION_LOOKUP: 'business_quotation_lookup',
   QUOTATION_LOOKUP_SEND: 'business_quotation_lookup_send',
+  QUOTATION_SPLIT_SEND: 'business_quotation_split_send',
   QUOTATION_LATEST: 'business_quotation_latest',
   QUOTATION_RECENT: 'business_quotation_recent'
 });
@@ -132,6 +133,24 @@ function parseQuotationReadRequest(message) {
   return null;
 }
 
+function parseQuotationSplitSend(message) {
+  const normalized = normalize(message)
+    .replace(/^elan[\s,;:]+/, '')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+
+  if (!/\bcotizaciones\b/.test(normalized)) return null;
+  if (!/\b(envia|enviale|envialas|manda|mandale|mandalas|comparte|compartile|compartilas)\b/.test(normalized)) return null;
+  if (!/\b(dos|ambas|alternativas)\b/.test(normalized)) return null;
+
+  const customerMatch = normalized.match(/\bcliente\s+(.+?)(?=[,;.]|$)/);
+  return {
+    type: BUSINESS_COMMANDS.QUOTATION_SPLIT_SEND,
+    expectedCount: 2,
+    ...(customerMatch?.[1] ? { customerReference: customerMatch[1].trim() } : {})
+  };
+}
+
 function parseQuotationLookupSend(message) {
   const raw = String(message || '').trim();
   const normalized = normalize(raw).replace(/^elan[\s,;:]+/, '').trim();
@@ -181,6 +200,10 @@ function quotationRows(payload) {
 
 function quotationPublicDocument(row) {
   return row?.quotation_document?.publicDocument || row?.quotationDocument?.publicDocument || {};
+}
+
+function quotationRelations(row) {
+  return quotationPublicDocument(row)?.relations || {};
 }
 
 function quotationCustomerReferences(row) {
@@ -504,6 +527,8 @@ function parseLogisticsRule(message) {
 }
 
 function detectOwnerBusinessCommand(message) {
+  const quotationSplitSend = parseQuotationSplitSend(message);
+  if (quotationSplitSend) return quotationSplitSend;
   const quotationRead = parseQuotationReadRequest(message);
   if (quotationRead) return quotationRead;
   const quotationLookupSend = parseQuotationLookupSend(message);
@@ -644,6 +669,148 @@ function formatLogisticsRule(rule) {
 }
 
 async function executeOwnerBusinessCommand(command) {
+  if (command.type === BUSINESS_COMMANDS.QUOTATION_SPLIT_SEND) {
+    const context = await readContext();
+    const payload = await listQuotations();
+    const rows = quotationRows(payload);
+
+    let splitGroupId = context.lastEntityType === 'quotation_split'
+      ? String(context.lastEntityId || '').trim()
+      : '';
+
+    let candidates = splitGroupId
+      ? rows.filter(row => String(quotationRelations(row)?.splitGroupId || '').trim() === splitGroupId)
+      : [];
+
+    if (command.customerReference) {
+      const wanted = normalize(command.customerReference);
+      const matchesCustomer = row => quotationCustomerReferences(row).some(value => {
+        const candidate = normalize(value);
+        return candidate && (candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate));
+      });
+
+      if (candidates.length && !candidates.every(matchesCustomer)) {
+        return {
+          handled: true,
+          outputText: `El último grupo dividido no corresponde de forma segura al cliente “${command.customerReference}”. No preparé ningún envío.`,
+          result: { status: 'customer_mismatch', candidates }
+        };
+      }
+
+      if (!candidates.length) {
+        const grouped = new Map();
+        for (const row of rows.filter(matchesCustomer)) {
+          const groupId = String(quotationRelations(row)?.splitGroupId || '').trim();
+          if (!groupId) continue;
+          if (!grouped.has(groupId)) grouped.set(groupId, []);
+          grouped.get(groupId).push(row);
+        }
+
+        const validGroups = [...grouped.entries()].filter(([, groupRows]) =>
+          groupRows.length === Number(command.expectedCount || 2) &&
+          groupRows.every(row => quotationStatus(row) === 'draft')
+        );
+
+        if (validGroups.length === 1) {
+          splitGroupId = validGroups[0][0];
+          candidates = validGroups[0][1];
+        } else if (validGroups.length > 1) {
+          return {
+            handled: true,
+            outputText: `Encontré más de un grupo de alternativas en borrador para “${command.customerReference}”. No preparé ningún envío para evitar mezclar cotizaciones.`,
+            result: { status: 'ambiguous_split_groups', groups: validGroups.map(([id]) => id) }
+          };
+        }
+      }
+    }
+
+    if (!candidates.length) {
+      return {
+        handled: true,
+        outputText: 'No tengo identificado un grupo de cotizaciones divididas para enviar. Primero dividí la cotización o indicame el cliente de las alternativas.',
+        result: { status: 'split_group_not_found' }
+      };
+    }
+
+    const expectedCount = Number(command.expectedCount || 2);
+    const sorted = [...candidates].sort((a, b) => {
+      const aIndex = Number(quotationRelations(a)?.splitPartIndex || 0);
+      const bIndex = Number(quotationRelations(b)?.splitPartIndex || 0);
+      return aIndex - bIndex || quotationCreatedAt(a).localeCompare(quotationCreatedAt(b));
+    });
+
+    if (sorted.length !== expectedCount) {
+      return {
+        handled: true,
+        outputText: `El grupo dividido tiene ${sorted.length} cotizaciones y la orden pide ${expectedCount}. No preparé ningún envío.`,
+        result: { status: 'split_count_mismatch', candidates: sorted }
+      };
+    }
+
+    const nonDraft = sorted.filter(row => quotationStatus(row) !== 'draft');
+    if (nonDraft.length) {
+      return {
+        handled: true,
+        outputText: `No preparé el envío porque una o más alternativas ya no están en borrador: ${formatQuotationCandidates(nonDraft)}.`,
+        result: { status: 'split_not_draft', candidates: sorted }
+      };
+    }
+
+    const prepared = [];
+    for (const row of sorted) {
+      const projectId = quotationProjectId(row);
+      const qId = quotationId(row);
+      const qNumber = quotationNumber(row);
+      const publicUrl = quotationPublicUrl(row);
+
+      if (!projectId || !qId) {
+        return {
+          handled: true,
+          outputText: 'Una de las alternativas no tiene proyecto o identificador oficial resoluble. No preparé los envíos.',
+          result: { status: 'split_identifier_missing', candidates: sorted }
+        };
+      }
+
+      const operation = await createPendingOperation({
+        capability: 'business.quotation.send-whatsapp',
+        target: 'connect',
+        requestedBy: 'owner-whatsapp',
+        summary: `Enviar ${qNumber || qId} al cliente por WhatsApp`,
+        impact: 'Envía externamente una de las alternativas oficiales. Requiere confirmación explícita del Owner.',
+        parameters: {
+          projectId,
+          quotationId: qId
+        }
+      });
+
+      prepared.push({
+        operation,
+        quotation: {
+          projectId,
+          quotationId: qId,
+          quotationNumber: qNumber || null,
+          publicUrl: publicUrl || null,
+          customerName: quotationCustomerName(row) || command.customerReference || null
+        }
+      });
+    }
+
+    return {
+      handled: true,
+      outputText: [
+        `Preparé ${prepared.length} envíos independientes para las alternativas del cliente.`,
+        'Cada cotización conserva su propia confirmación y trazabilidad.',
+        '',
+        ...prepared.flatMap((entry, index) => [
+          `Alternativa ${index + 1}: ${entry.quotation.quotationNumber || entry.quotation.quotationId}`,
+          formatPendingOperation(entry.operation),
+          ''
+        ])
+      ].join('\n').trim(),
+      result: { status: 'prepared', splitGroupId, prepared }
+    };
+  }
+
   if (
     command.type === BUSINESS_COMMANDS.QUOTATION_LATEST ||
     command.type === BUSINESS_COMMANDS.QUOTATION_RECENT
@@ -965,6 +1132,7 @@ module.exports = {
   parseQuotationLookup,
   parseQuotationLookupSend,
   parseQuotationReadRequest,
+  parseQuotationSplitSend,
   parseSellerName,
   selectQuotationByCustomerReference
 };
