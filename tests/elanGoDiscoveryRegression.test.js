@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const discovery = require('../services/elanMarketplaceDiscoveryService');
 const worker = require('../services/elanMarketplaceBrokerWorkerService');
+const sourceVerification = require('../services/elanMarketplaceSourceVerificationService');
 
 test('radar normaliza ofertas y demandas reales', () => {
   const offer = discovery.normalizeDiscovery({
@@ -115,6 +116,19 @@ test('ciclo autónomo busca oferta y demanda y publica ambas', async () => {
       ],
       searchSummary: 'ok'
     }),
+    verifySource: async () => ({
+      verified: true,
+      code: 'SOURCE_CONFIRMED',
+      statusCode: 200,
+      finalUrl: 'https://example.com/confirmed',
+      pageTitle: 'Oferta real encontrada',
+      sourceDescription: 'Publicación original confirmada',
+      imageUrl: 'https://example.com/image.jpg',
+      priceConfirmed: false,
+      locationConfirmed: false,
+      contactConfirmed: false,
+      verifiedAt: '2026-08-31T01:00:00.000Z'
+    }),
     persist: async (item) => {
       persisted.push(item);
       return {
@@ -127,8 +141,39 @@ test('ciclo autónomo busca oferta y demanda y publica ambas', async () => {
 
   assert.equal(result.searches, 2);
   assert.equal(result.published, 2);
+  assert.equal(persisted[0].verificationStatus, 'validated');
+  assert.equal(persisted[0].imageUrl, 'https://example.com/image.jpg');
   assert.equal(persisted[0].kind, 'offer');
   assert.equal(persisted[1].kind, 'demand');
+});
+
+test('verificación compara título y precio contra la fuente', () => {
+  const html = '<html><head><meta property="og:title" content="Toyota Hilux 2024 en venta"><meta property="og:image" content="https://cdn.example.com/hilux.jpg"></head><body>Managua. Precio US$ 28,500. Toyota Hilux 2024.</body></html>';
+  const text = sourceVerification.stripHtml(html);
+  assert.equal(
+    sourceVerification.titleConfirmed('Toyota Hilux 2024', 'Toyota Hilux 2024 en venta', text),
+    true
+  );
+  assert.equal(sourceVerification.priceConfirmed(28500, text), true);
+  assert.equal(
+    sourceVerification.locationConfirmed({ country: 'Nicaragua', department: 'Managua' }, text),
+    true
+  );
+  assert.equal(
+    sourceVerification.extractMeta(html, ['og:image']),
+    'https://cdn.example.com/hilux.jpg'
+  );
+});
+
+test('verificación rechaza coincidencias de título insuficientes', () => {
+  assert.equal(
+    sourceVerification.titleConfirmed(
+      'Montacargas Toyota 3 toneladas',
+      'Casa en venta en Managua',
+      'propiedad residencial con tres habitaciones'
+    ),
+    false
+  );
 });
 
 test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async () => {
