@@ -217,6 +217,9 @@ async function runDiscoverySearch({
       ...(clean(verification.imageUrl)
         ? { imageUrl: clean(verification.imageUrl) }
         : {}),
+      ...(Array.isArray(verification.imageUrls) && verification.imageUrls.length
+        ? { imageUrls: verification.imageUrls.slice(0, 20) }
+        : {}),
       ...(discovery.priceAmount !== undefined && verification.priceConfirmed !== true
         ? {
             priceAmount: undefined,
