@@ -12,6 +12,9 @@ const {
 const {
   recordAuditSafely
 } = require('./ownerOpsAuditService');
+const {
+  createMetaDeliveryAdapter
+} = require('../adapters/metaDeliveryAdapter');
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 1024 * 1024;
@@ -330,6 +333,69 @@ function deriveChannelInternalToken(rootSecret) {
     .digest('hex');
 }
 
+async function readMetaAuthAudit({
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  assertReadCapability('channels.meta-audit');
+
+  const adapter = createMetaDeliveryAdapter({ env, fetchImpl });
+  const messengerConfig = adapter.messengerConfiguration();
+  const instagramConfig = adapter.instagramConfiguration();
+
+  const messenger = {
+    configured: messengerConfig.configured,
+    authenticated: false,
+    state: 'AUTH_REQUIRED',
+    pageId: null,
+    pageName: null,
+    errorCode: null
+  };
+
+  const instagram = {
+    configured: instagramConfig.configured,
+    authenticated: false,
+    state: 'AUTH_REQUIRED',
+    accountId: null,
+    username: null,
+    errorCode: null
+  };
+
+  if (messengerConfig.configured) {
+    try {
+      const probe = await adapter.probeMessenger();
+      messenger.authenticated = true;
+      messenger.state = 'AUTHENTICATED';
+      messenger.pageId = probe.pageId || null;
+      messenger.pageName = probe.pageName || null;
+    } catch (error) {
+      messenger.errorCode =
+        String(error?.code || 'MESSENGER_PROBE_FAILED');
+    }
+  }
+
+  if (instagramConfig.configured) {
+    try {
+      const probe = await adapter.probeInstagram();
+      instagram.authenticated = true;
+      instagram.state = 'AUTHENTICATED';
+      instagram.accountId = probe.accountId || null;
+      instagram.username = probe.username || null;
+    } catch (error) {
+      instagram.errorCode =
+        String(error?.code || 'INSTAGRAM_PROBE_FAILED');
+    }
+  }
+
+  return {
+    capability: 'channels.meta-audit',
+    messenger,
+    instagram,
+    messagesSent: 0,
+    secretsExposed: false
+  };
+}
+
 async function readChannelBridgeAudit({
   env = process.env,
   fetchImpl = globalThis.fetch
@@ -456,6 +522,54 @@ async function readProductionAudit() {
 function formatResult(result) {
   if (!result) return 'No fue posible obtener el resultado.';
 
+  if (result.capability === 'channels.meta-audit') {
+    const messengerDetail = result.messenger.authenticated
+      ? [
+          result.messenger.pageName
+            ? `Página: ${result.messenger.pageName}`
+            : null,
+          result.messenger.pageId
+            ? `Page ID: ${result.messenger.pageId}`
+            : null,
+          'Envío condicionado a PSID y ventana/conversación elegible.'
+        ].filter(Boolean)
+      : [
+          result.messenger.errorCode
+            ? `Error: ${result.messenger.errorCode}`
+            : 'Faltan credenciales Meta Page.'
+        ];
+
+    const instagramDetail = result.instagram.authenticated
+      ? [
+          result.instagram.username
+            ? `Instagram: @${result.instagram.username}`
+            : null,
+          result.instagram.accountId
+            ? `IG account ID: ${result.instagram.accountId}`
+            : null,
+          'Envío condicionado a IGSID de una conversación iniciada por el usuario.'
+        ].filter(Boolean)
+      : [
+          result.instagram.errorCode
+            ? `Error: ${result.instagram.errorCode}`
+            : 'Faltan credenciales de Instagram Messaging.'
+        ];
+
+    return [
+      'Auditoría READ-ONLY de autenticación Meta completada.',
+      '',
+      `Messenger: ${result.messenger.state}`,
+      ...messengerDetail,
+      '',
+      `Instagram DM: ${result.instagram.state}`,
+      ...instagramDetail,
+      '',
+      `Mensajes enviados: ${result.messagesSent || 0}`,
+      'Valores de secretos expuestos: NO',
+      'No se modificaron campañas, anuncios, publicaciones ni configuraciones de Meta.'
+    ].join('\n');
+  }
+
   if (result.capability === 'channels.audit') {
     const byChannel = new Map(
       (result.channels || []).map(item => [item.channel, item])
@@ -580,6 +694,9 @@ async function executeReadOperation(command) {
   try {
     let result;
     switch (capability) {
+      case 'channels.meta-audit':
+        result = await readMetaAuthAudit();
+        break;
       case 'channels.audit':
         result = await readChannelBridgeAudit();
         break;
@@ -646,6 +763,7 @@ module.exports = {
   resolveTestSuite,
   readConfiguredEnvNames,
   deriveChannelInternalToken,
+  readMetaAuthAudit,
   readChannelBridgeAudit,
   readGitStatus,
   readProductionAudit,
