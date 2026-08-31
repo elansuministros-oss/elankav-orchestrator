@@ -8,6 +8,12 @@ const {
 const {
   createMetaDeliveryAdapter
 } = require('../adapters/metaDeliveryAdapter');
+const {
+  createCommercialDeliveryService
+} = require('../services/commercialDeliveryService');
+const {
+  authorized
+} = require('../api/commercialDeliveryApi');
 
 test('Gmail remains AUTH_REQUIRED without OAuth infrastructure', async () => {
   const adapter = createGmailDeliveryAdapter({ env: {} });
@@ -132,4 +138,70 @@ test('Instagram requires IGSID and uses graph.instagram.com messages endpoint', 
   );
   assert.equal(calls[0].init.headers.Authorization, 'Bearer IG-TOKEN');
   assert.equal(result.messageId, 'IG-MID-1');
+});
+
+
+test('commercial delivery API requires the server internal token', () => {
+  const env = { ORCHESTRATOR_INTERNAL_TOKEN: 'INTERNAL-ONLY' };
+  assert.equal(authorized({
+    headers: { authorization: 'Bearer INTERNAL-ONLY' }
+  }, env), true);
+  assert.equal(authorized({
+    headers: { authorization: 'Bearer WRONG' }
+  }, env), false);
+  assert.equal(authorized({
+    headers: {}
+  }, env), false);
+});
+
+test('commercial runtime refuses Meta delivery without verified target evidence', async () => {
+  let externalCalls = 0;
+  const service = createCommercialDeliveryService({
+    env: {
+      META_GRAPH_API_VERSION: 'v99.0',
+      META_PAGE_ID: 'PAGE-1',
+      META_PAGE_ACCESS_TOKEN: 'PAGE-TOKEN'
+    },
+    fetchImpl: async () => {
+      externalCalls += 1;
+      return new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  });
+
+  await assert.rejects(
+    service.deliver({
+      channel: 'messenger',
+      recipientId: 'PSID-1',
+      text: 'Hola',
+      verifiedTarget: false
+    }),
+    error => error.code === 'MESSENGER_TARGET_NOT_VERIFIED'
+  );
+  assert.equal(externalCalls, 0);
+});
+
+test('commercial capability snapshot does not mark Gmail or Meta VERIFIED from env alone', () => {
+  const service = createCommercialDeliveryService({
+    env: {
+      WAHA_BASE_URL: 'https://waha.example',
+      WAHA_API_KEY: 'WAHA-KEY',
+      GMAIL_OAUTH_CLIENT_ID: 'client',
+      GMAIL_OAUTH_CLIENT_SECRET: 'secret',
+      GMAIL_OAUTH_REFRESH_TOKEN: 'refresh',
+      GMAIL_USER: 'elan@example.com',
+      META_GRAPH_API_VERSION: 'v99.0',
+      META_PAGE_ID: 'PAGE-1',
+      META_PAGE_ACCESS_TOKEN: 'PAGE-TOKEN',
+      META_INSTAGRAM_ACCOUNT_ID: 'IG-1'
+    }
+  });
+
+  const snapshot = service.capabilitySnapshot();
+  assert.equal(snapshot.find(item => item.channel === 'whatsapp').state, 'VERIFIED');
+  assert.equal(snapshot.find(item => item.channel === 'email').state, 'AUTH_REQUIRED');
+  assert.equal(snapshot.find(item => item.channel === 'messenger').state, 'AUTH_REQUIRED');
+  assert.equal(snapshot.find(item => item.channel === 'instagram_dm').state, 'AUTH_REQUIRED');
 });
