@@ -1,0 +1,35 @@
+name: TEMP Owner Quotation Split Sent
+
+on:
+  push:
+    branches:
+      - fix/OWNER-QUOTATION-SPLIT-SENT-01
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --ignore-scripts
+
+      - name: Syntax
+        run: |
+          node --check services/ownerQuotationService.js
+          node --check tests/ownerQuotationSplit.test.js
+
+      - name: Split regressions
+        run: |
+          node --test             tests/ownerQuotationSplit.test.js             tests/ownerQuotationLookupSend.test.js             tests/ownerQuotationUnifiedPriority.test.js
+
+      - name: Preserve existing quotation editing and provider recruitment
+        run: |
+          node --test             tests/ownerBusinessQuotationItemPatch.test.js             tests/ownerQuotationHomonymResolver.test.js             test/ownerProviderRecruitmentMessagePatch.test.js
