@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release/ELANKAV-MULTICHANNEL-ORCH-PROD-01
+      - release/CHANNEL-BRIDGE-AUTH-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
