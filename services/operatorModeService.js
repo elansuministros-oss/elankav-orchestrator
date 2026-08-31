@@ -70,6 +70,7 @@ const ROLE_PROFILES = Object.freeze({
 
 const TECHNICAL_OWNER_OPS_CAPABILITIES = Object.freeze([
   'production.audit',
+  'channels.audit',
   'server.summary',
   'service.status',
   'service.logs',
