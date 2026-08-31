@@ -254,6 +254,30 @@ test('splits POLARIZADO into two independent quotations without changing the sou
   }
 });
 
+test('splits an already sent quotation into new draft alternatives without mutating the source', async () => {
+  const current = productionLikeQuotation({ status: 'sent' });
+  const { service, calls, cleanup } = loadService({ current });
+
+  try {
+    const result = await service.prepareAndCreateQuotation({
+      splitActive: true,
+      splitMode: 'per_item',
+      requestedParts: 2
+    });
+
+    assert.equal(result.ready, true);
+    assert.equal(result.sourceQuotation.status, 'sent');
+    assert.equal(result.quotations.length, 2);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].document.quotation.status, 'draft');
+    assert.equal(calls[1].document.quotation.status, 'draft');
+    assert.equal(calls[0].document.relations.splitFromQuotationNumber, 'COT-2026-31F90973');
+    assert.equal(calls[1].document.relations.splitFromQuotationNumber, 'COT-2026-31F90973');
+  } finally {
+    cleanup();
+  }
+});
+
 test('repeating the split uses the same idempotency keys instead of creating a new split identity', async () => {
   const { service, calls, cleanup } = loadService();
   try {
