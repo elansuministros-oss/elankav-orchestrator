@@ -10,10 +10,6 @@ const ALLOWED_INTENTS = new Set([
   'quotation_recent',
   'quotation_split',
   'quotation_send_split',
-  'customer_list',
-  'customer_search',
-  'provider_list',
-  'provider_search',
   'unknown'
 ]);
 
@@ -51,10 +47,10 @@ function normalizeHistory(history = [], currentMessage = '') {
 function shouldResolveOwnerSemanticIntent(message, history = []) {
   const text = clean(message, 1200);
   if (!text) return false;
-  if (COMMERCIAL_HINT.test(text)) return true;
+  if (QUOTATION_HINT.test(text)) return true;
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length > 8) return false;
-  return normalizeHistory(history, message).slice(-8).some(entry => COMMERCIAL_HINT.test(entry.content));
+  return normalizeHistory(history, message).slice(-8).some(entry => QUOTATION_HINT.test(entry.content));
 }
 
 function extractJsonObject(value) {
@@ -123,18 +119,6 @@ function semanticIntentToBusinessCommand(semantic) {
         ...(semantic.expectedCount ? { expectedCount: semantic.expectedCount } : {}),
         ...(semantic.customerReference ? { customerReference: semantic.customerReference } : {})
       };
-    case 'customer_list':
-      return { type: BUSINESS_COMMANDS.CUSTOMER_LIST, sort: 'alphabetical', countOnly: false };
-    case 'customer_search':
-      return semantic.query
-        ? { type: BUSINESS_COMMANDS.CUSTOMER_SEARCH, query: semantic.query }
-        : null;
-    case 'provider_list':
-      return { type: BUSINESS_COMMANDS.PROVIDER_LIST, countOnly: false };
-    case 'provider_search':
-      return semantic.query
-        ? { type: BUSINESS_COMMANDS.PROVIDER_SEARCH, query: semantic.query }
-        : null;
     default:
       return null;
   }
@@ -161,7 +145,7 @@ async function resolveOwnerSemanticIntent({ message, history = [] } = {}) {
     'Si pide dividir/separar la cotización activa, usá quotation_split.',
     'Si pide enviar ambas/dos/las alternativas ya divididas, usá quotation_send_split.',
     'Si no hay suficiente evidencia, usá unknown con confianza baja.',
-    'INTENTS permitidos: quotation_list_by_customer, quotation_lookup, quotation_latest, quotation_recent, quotation_split, quotation_send_split, customer_list, customer_search, provider_list, provider_search, unknown.',
+    'INTENTS permitidos: quotation_list_by_customer, quotation_lookup, quotation_latest, quotation_recent, quotation_split, quotation_send_split, unknown.',
     'Respondé SOLO JSON válido, sin markdown, con esta forma:',
     '{"intent":"unknown","confidence":0.0,"customerReference":null,"providerReference":null,"query":null,"expectedCount":null,"usesContext":false}.'
   ].join(' ');
@@ -189,7 +173,7 @@ async function resolveOwnerSemanticIntent({ message, history = [] } = {}) {
 
 module.exports = {
   ALLOWED_INTENTS,
-  COMMERCIAL_HINT,
+  QUOTATION_HINT,
   clean,
   extractJsonObject,
   normalizeHistory,
