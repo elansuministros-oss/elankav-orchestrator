@@ -53,6 +53,10 @@ const {
 const {
   getCapability
 } = require('./ownerOpsCapabilityRegistry');
+const {
+  executeOwnerEmailSelfTest,
+  formatOwnerEmailSelfTest
+} = require('./ownerEmailSelfTestService');
 const { formatElanSelfAudit } = require('./elanSelfAuditService');
 const { runTrackedSelfAudit } = require('./elanSelfAuditMonitorService');
 
@@ -76,7 +80,8 @@ const OWNER_COMMANDS = Object.freeze({
   LANGUAGE_LEARN: 'language_learn',
   SELF_AUDIT: 'self_audit',
   BUSINESS_TRANSACTION: 'business_transaction',
-  ELAN_GO_CONTROL: 'elan_go_control'
+  ELAN_GO_CONTROL: 'elan_go_control',
+  EMAIL_SELF_TEST: 'email_self_test'
 });
 
 const PLATFORM_ALIASES = Object.freeze([
@@ -337,6 +342,30 @@ async function checkTechnicalMode(capability) {
   };
 }
 
+function detectOwnerEmailSelfTestCommand(normalizedMessage) {
+  const asksTest =
+    /\b(prueba|probar|test|verifica|verificar)\b/.test(normalizedMessage) &&
+    /\b(correo|email)\b/.test(normalizedMessage);
+
+  if (!asksTest) return null;
+
+  if (/\b(elanvisual|elan visual|visual)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.EMAIL_SELF_TEST,
+      identity: 'visual'
+    });
+  }
+
+  if (/\b(elan-go|elan go|go)\b/.test(normalizedMessage)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.EMAIL_SELF_TEST,
+      identity: 'go'
+    });
+  }
+
+  return null;
+}
+
 function detectOwnerOpsReadCommand(normalizedMessage) {
   const target = resolveOwnerOpsTarget(normalizedMessage);
 
@@ -500,7 +529,9 @@ function detectOwnerCommand(message) {
   if (jobStatusCommand) return jobStatusCommand;
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
-  const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
+  const emailSelfTestCommand = detectOwnerEmailSelfTestCommand(normalized);
+  if (emailSelfTestCommand) return emailSelfTestCommand;
+    const ownerOpsReadCommand = detectOwnerOpsReadCommand(normalized);
   if (ownerOpsReadCommand) return ownerOpsReadCommand;
   if (CAPABILITY_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
   if (JOBS_LIST_PATTERN.test(normalized)) return Object.freeze({ type: OWNER_COMMANDS.JOBS_LIST });
@@ -620,6 +651,33 @@ async function executeOwnerCommand({ command, platform, ownerPhone = null }) {
       languageLearning: learned
     };
   }
+  if (type === OWNER_COMMANDS.EMAIL_SELF_TEST) {
+    const access = await checkTechnicalMode('channels.email-test');
+
+    if (!access.allowed) {
+      return {
+        command: type,
+        job: null,
+        outputText: formatTechnicalModeBlocked(
+          access.state,
+          'channels.email-test'
+        ),
+        ownerOps: null
+      };
+    }
+
+    const result = await executeOwnerEmailSelfTest({
+      identity: command.identity
+    });
+
+    return {
+      command: type,
+      job: null,
+      outputText: formatOwnerEmailSelfTest(result),
+      emailTest: result
+    };
+  }
+
   if (type === OWNER_COMMANDS.ELAN_GO_CONTROL) {
     const result = await executeOwnerElanGoCommand(command.elanGoCommand);
     if (!result.handled) {
@@ -840,6 +898,7 @@ module.exports = {
   OWNER_COMMANDS,
   detectJobStatusCommand,
   detectOwnerCommand,
+  detectOwnerEmailSelfTestCommand,
   detectElanSelfAuditCommand,
   detectOwnerLanguageLearnCommand,
   detectOwnerModeCommand,
