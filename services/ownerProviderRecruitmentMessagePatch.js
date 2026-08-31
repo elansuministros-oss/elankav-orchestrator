@@ -81,6 +81,7 @@ function commandKind(message, metadata={}) {
   if(/\bestado\b.*\bproveedor\b/.test(n)) return 'status';
   if(/\b(?:agrega|anade|añade|guarda|adjunta)\b.*\bcatalogo\b.*\bproveedor\b/.test(n)) return 'add_catalog';
   if(/\b(?:solicita|pide|pedile|pidele)\b.*\b(?:tarifario|lista de precios|precios)\b.*\bproveedor\b/.test(n)) return 'request_price_list';
+  if(/\b(?:recluta|reclutar|incorpora|incorporar)\b.*\bproveedor\b/.test(n)) return 'recruit';
   if(/\b(?:contacta|contactale|escribe|escribile|escribele)\b.*\bproveedor\b/.test(n)) return 'contact';
   if(/\b(?:registra|registrar|agrega|alta)\b.*\bproveedor\b/.test(n)) return 'register';
   if(/\b(?:investiga|investigar|analiza|revisa)\b.*\bproveedor\b/.test(n)) return 'investigate';
@@ -91,7 +92,7 @@ function extractProviderQuery(message) {
   let text=clean(message)
     .replace(/(?:\+?505[\s().-]*)?\d{4}[\s.-]*\d{4}/g,' ')
     .replace(/\belan\b/ig,' ')
-    .replace(/\b(?:registra|registrar|investiga|investigar|analiza|revisa|contacta|contactale|escribe|escribile|escribele|solicita|pide|pedile|pidele|estado|proveedor|proveedores|tarifario|lista de precios|precios|muestrame|mostrame|que|respondio|agrega|catalogo|este|esta|al|a|el|la|de|del|por favor)\b/ig,' ')
+    .replace(/\b(?:recluta|reclutar|incorpora|incorporar|registra|registrar|investiga|investigar|analiza|revisa|contacta|contactale|escribe|escribile|escribele|solicita|pide|pedile|pidele|estado|proveedor|proveedores|tarifario|lista de precios|precios|muestrame|mostrame|que|respondio|agrega|catalogo|este|esta|al|a|el|la|de|del|por favor)\b/ig,' ')
     .replace(/\s+/g,' ').trim();
   return text.length>=2 ? text : '';
 }
@@ -147,6 +148,9 @@ function initialMessage(mode, nextQuestion) {
   if(mode==='request_price_list') {
     return [intro,'Estamos actualizando nuestro registro de proveedores. ¿Podrían compartir por este WhatsApp su catálogo y/o tarifario vigente?'].join('\n\n');
   }
+  if(mode==='recruit') {
+    return [intro,'Estamos incorporando proveedores para nuestro ecosistema. ¿Podrían compartir su catálogo o tarifario vigente? Si no manejan catálogo, indíquenme qué productos o servicios ofrecen actualmente.'].join('\n\n');
+  }
   return [intro,'Estamos incorporando proveedores para nuestro ecosistema.',nextQuestion || 'Para comenzar, ¿qué productos o servicios ofrecen actualmente?'].join('\n\n');
 }
 function providerLabel(result) {
@@ -182,9 +186,39 @@ function ownerResult(reply, command) {
 }
 async function runCommand(kind,args,deps={}) {
   const fetchImpl=deps.fetchImpl||fetch;
-  if(kind==='register'||kind==='investigate') {
+  if(kind==='register'||kind==='investigate'||kind==='recruit') {
     const result=await intakeFromOwner(args,{fetchImpl});
-    return ownerResult(summarize(result,kind==='register'?'Proveedor registrado para reclutamiento':'Proveedor analizado'),{type:kind,providerId:result.provider?.id,raw:args.message});
+    if(kind!=='recruit') {
+      return ownerResult(summarize(result,kind==='register'?'Proveedor registrado para reclutamiento':'Proveedor analizado'),{type:kind,providerId:result.provider?.id,raw:args.message});
+    }
+    const providerId=result?.provider?.id;
+    if(!providerId) throw Object.assign(new Error('No pude crear o identificar el proveedor desde la evidencia.'),{code:'PROVIDER_TARGET_NOT_FOUND',status:404});
+    try {
+      const sent=await contactProvider(providerId,'recruit',{delivery:deps.delivery||createWahaDeliveryAdapter(),fetchImpl});
+      return ownerResult([
+        summarize(result,'Proveedor reclutado'),
+        '',
+        '✅ Primer contacto enviado automáticamente.',
+        'WhatsApp: +'+normalizePhone(sent.pre.contact),
+        'ELAN se identificó explícitamente como inteligencia artificial.',
+        'Estado: CONTACTED'
+      ].join('\n'),{type:kind,providerId,messageId:sent.sent?.messageId||null,raw:args.message});
+    } catch(error) {
+      if(['PROVIDER_CONTACT_NOT_VERIFIED','PROVIDER_CONTACT_MISSING','PROVIDER_CONTACT_BLOCKED'].includes(error?.code)) {
+        return ownerResult([
+          summarize(result,'Proveedor registrado para reclutamiento'),
+          '',
+          '⚠️ No envié ningún mensaje todavía.',
+          error.code==='PROVIDER_CONTACT_NOT_VERIFIED'
+            ? 'Motivo: el número encontrado aún no está suficientemente vinculado al proveedor.'
+            : error.code==='PROVIDER_CONTACT_MISSING'
+              ? 'Motivo: no encontré un WhatsApp o teléfono utilizable.'
+              : 'Motivo: el proveedor está bloqueado para contacto.',
+          'ELAN no contactará un número dudoso o bloqueado.'
+        ].join('\n'),{type:kind,providerId,errorCode:error.code,raw:args.message});
+      }
+      throw error;
+    }
   }
   if(kind==='pending'||kind==='missing_price_list') {
     const path=kind==='missing_price_list'?'/api/v1/providers/recruitment?missing=price_list&limit=50':'/api/v1/providers/recruitment?limit=50';
@@ -262,12 +296,14 @@ function installOwnerProviderRecruitmentMessagePatch() {
     const detected=commandKind(args.message,args.metadata);
     const kind=pending?.kind || detected;
     if(!kind) return previous(args);
-    if((kind==='register'||kind==='investigate') && !args.metadata?.media?.url) {
+    if((kind==='register'||kind==='investigate'||kind==='recruit') && !args.metadata?.media?.url) {
       const phone=extractPhone(args.message);
       const query=extractProviderQuery(args.message);
       if(!phone && !query) {
         rememberPendingMedia(args,kind);
-        return ownerResult('Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del proveedor y lo asociaré a este reclutamiento.',{type:kind,pendingMedia:true,raw:args.message});
+        return ownerResult(kind==='recruit'
+          ? 'Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del posible proveedor. Lo registraré y, si el contacto queda verificado, ELAN le escribirá automáticamente.'
+          : 'Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del proveedor y lo asociaré a este reclutamiento.',{type:kind,pendingMedia:true,raw:args.message});
       }
     }
     if(pending) {
