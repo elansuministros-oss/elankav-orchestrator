@@ -8,11 +8,13 @@ on:
       - release/CHANNEL-BRIDGE-AUDIT-PROD-01
       - release/CHANNEL-AUDIT-MODE-FIX-PROD-01
       - release/CHANNEL-BRIDGE-DUAL-AUTH-PROD-01
+      - release/RESEND-EMAIL-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
       - 'services/channelDeliveryService.js'
       - 'adapters/gmailDeliveryAdapter.js'
+      - 'adapters/resendDeliveryAdapter.js'
       - 'adapters/metaDeliveryAdapter.js'
       - 'server.js'
       - 'services/ownerCommandService.js'
@@ -46,6 +48,7 @@ jobs:
           node --check api/channelDeliveryApi.js
           node --check services/channelDeliveryService.js
           node --check adapters/gmailDeliveryAdapter.js
+          node --check adapters/resendDeliveryAdapter.js
           node --check adapters/metaDeliveryAdapter.js
           node --check server.js
 
