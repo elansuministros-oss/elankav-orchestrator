@@ -280,30 +280,44 @@ async function runElanMarketplaceBrokerWorkerOnce({
   let buyerHunterResult = null;
   let failedBuyerHunter = 0;
 
-  try {
-    buyerHunterResult = await runBuyerHunter({
-      env,
-      limit: positiveInteger(
-        env.ELAN_MARKETPLACE_BUYER_HUNTER_OFFERS_PER_RUN,
-        2
-      )
-    });
-    state.buyerHunts += Number(buyerHunterResult?.offersScanned || 0);
-    state.buyersFound += Number(buyerHunterResult?.buyersFound || 0);
-    state.lastBuyerHuntAt = nowIso;
+  const buyerHunterIntervalMs = positiveInteger(
+    env.ELAN_MARKETPLACE_BUYER_HUNTER_INTERVAL_MS,
+    15 * 60 * 1000
+  );
+  const lastBuyerHuntMs = state.lastBuyerHuntAt
+    ? Date.parse(state.lastBuyerHuntAt)
+    : Number.NaN;
+  const buyerHunterDue =
+    !Number.isFinite(lastBuyerHuntMs) ||
+    now - lastBuyerHuntMs >= buyerHunterIntervalMs;
 
-    if (Number(buyerHunterResult?.buyersFound || 0) > 0) {
-      state.lastState = 'BUYERS_FOUND';
+  if (buyerHunterDue) {
+    try {
+      buyerHunterResult = await runBuyerHunter({
+        env,
+        now,
+        limit: positiveInteger(
+          env.ELAN_MARKETPLACE_BUYER_HUNTER_OFFERS_PER_RUN,
+          2
+        )
+      });
+      state.buyerHunts += Number(buyerHunterResult?.offersScanned || 0);
+      state.buyersFound += Number(buyerHunterResult?.buyersFound || 0);
+      state.lastBuyerHuntAt = nowIso;
+
+      if (Number(buyerHunterResult?.buyersFound || 0) > 0) {
+        state.lastState = 'BUYERS_FOUND';
+      }
+    } catch (error) {
+      failedBuyerHunter = 1;
+      state.failed += 1;
+      state.lastErrorCode = errorCode(error);
+      state.lastState = 'BUYER_HUNTER_FAILED';
+      console.error('[ELAN_MARKETPLACE_BUYER_HUNTER_FAILED]', {
+        code: state.lastErrorCode,
+        message: error?.message || String(error)
+      });
     }
-  } catch (error) {
-    failedBuyerHunter = 1;
-    state.failed += 1;
-    state.lastErrorCode = errorCode(error);
-    state.lastState = 'BUYER_HUNTER_FAILED';
-    console.error('[ELAN_MARKETPLACE_BUYER_HUNTER_FAILED]', {
-      code: state.lastErrorCode,
-      message: error?.message || String(error)
-    });
   }
 
   const payload = await listDemands(env);
