@@ -176,8 +176,8 @@ function parseQuotationSplitRequest(message) {
     .replace(/[.!?]+$/g, '')
     .trim();
 
-  if (!/\bcotizacion\b/.test(normalized)) return null;
-  if (!/\b(divide|dividir|dividila|separa|separar|separala|separame)\b/.test(normalized)) return null;
+  if (!/\bcotizaciones?\b/.test(normalized)) return null;
+  if (!/\b(divide|dividir|dividila|dividela|separa|separar|separala|separame)\b/.test(normalized)) return null;
 
   const perItem = /\b(cada\s+(?:item|items)|una\s+por\s+(?:cada\s+)?(?:item|items)|por\s+(?:item|items))\b/.test(normalized);
   const inTwo = /\b(en\s+dos|dos\s+cotizaciones)\b/.test(normalized);
@@ -581,6 +581,16 @@ async function splitActiveQuotation(input) {
     }))
   });
 
+  await updateContext({
+    activeQuotationId: null,
+    activeQuotationNumber: null,
+    activeQuotationPublicUrl: null,
+    activeProjectId: null,
+    lastQuotationTotalUsd: null,
+    lastEntityType: 'quotation_split',
+    lastEntityId: splitGroupId
+  });
+
   return {
     ready: true,
     split: true,
@@ -600,7 +610,8 @@ async function splitActiveQuotation(input) {
         child.publicUrl ? `Enlace: ${child.publicUrl}` : ''
       ].filter(Boolean)),
       '',
-      'La cotización original quedó intacta como respaldo interno.'
+      'La cotización original quedó intacta como respaldo interno.',
+      'Por seguridad, no dejé activa la cotización consolidada para evitar que se envíe por error.'
     ].join('\n')
   };
 }
