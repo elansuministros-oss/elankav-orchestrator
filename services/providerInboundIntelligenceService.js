@@ -106,7 +106,7 @@ async function resolveRegisteredProvider({ phone, fetchImpl = fetch }) {
   return active.find(item => providerMatchesPhone(item, normalized)) || null;
 }
 
-async function ingestProviderText({ providerId, text, externalMessageId, receivedAt, fetchImpl = fetch }) {
+async function ingestProviderText({ providerId, text, externalMessageId, receivedAt, externalUserId, phone, chatId, fetchImpl = fetch }) {
   const normalizedText = String(text || '').trim();
   if (!normalizedText) return null;
   const response = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/intelligence/messages`, {
@@ -126,7 +126,12 @@ async function ingestProviderText({ providerId, text, externalMessageId, receive
     const recruitmentResponse = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/recruitment/responses`, {
       method: 'POST',
       headers: providerHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ text: normalizedText }),
+      body: JSON.stringify({
+        text: normalizedText,
+        ...(externalUserId ? { externalUserId } : {}),
+        ...(phone ? { phone } : {}),
+        ...(chatId ? { chatId } : {})
+      }),
       signal: AbortSignal.timeout(120_000)
     });
     recruitment = await readJsonResponse(recruitmentResponse);
@@ -209,7 +214,7 @@ async function downloadProviderMedia({ url, fetchImpl = fetch }) {
   }
 }
 
-async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName, externalMessageId, fetchImpl = fetch }) {
+async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName, externalMessageId, externalUserId, phone, chatId, fetchImpl = fetch }) {
   const media = await downloadProviderMedia({ url: mediaUrl, fetchImpl });
   const finalMime = String(media.mimeType || mimeType || 'application/octet-stream').split(';')[0].trim();
   const response = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/intelligence/documents`, {
@@ -232,7 +237,10 @@ async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName
         'Content-Type': finalMime || 'application/octet-stream',
         'X-File-Name': encodeURIComponent(fileName || 'provider-attachment'),
         ...(externalMessageId ? { 'X-External-Message-Id': encodeURIComponent(externalMessageId) } : {}),
-        ...(commercial?.documentType ? { 'X-Document-Type': encodeURIComponent(commercial.documentType) } : {})
+        ...(commercial?.documentType ? { 'X-Document-Type': encodeURIComponent(commercial.documentType) } : {}),
+        ...(externalUserId ? { 'X-External-User-Id': encodeURIComponent(externalUserId) } : {}),
+        ...(phone ? { 'X-Phone': encodeURIComponent(phone) } : {}),
+        ...(chatId ? { 'X-Chat-Id': encodeURIComponent(chatId) } : {})
       }),
       body: media.buffer,
       signal: AbortSignal.timeout(150_000)
