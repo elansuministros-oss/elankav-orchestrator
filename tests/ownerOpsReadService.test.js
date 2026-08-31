@@ -15,6 +15,7 @@ const {
 
 const {
   deriveChannelInternalToken,
+  readMetaAuthAudit,
   readChannelBridgeAudit,
   readFileInspect,
   resolveFileSpec,
@@ -37,6 +38,7 @@ test('file.inspect and test.run are registered as READ capabilities', () => {
   assert.equal(CAPABILITIES['file.inspect']?.risk, 'READ');
   assert.equal(CAPABILITIES['test.run']?.risk, 'READ');
   assert.equal(CAPABILITIES['channels.audit']?.risk, 'READ');
+  assert.equal(CAPABILITIES['channels.meta-audit']?.risk, 'READ');
 });
 
 
@@ -96,6 +98,91 @@ test('Owner router detects controlled Owner Language test request', () => {
     command?.suite,
     'orchestrator-owner-language'
   );
+});
+
+
+test('channels.meta-audit is explicitly allowed in PROGRAMADOR mode', () => {
+  assert.equal(
+    TECHNICAL_OWNER_OPS_CAPABILITIES.includes('channels.meta-audit'),
+    true
+  );
+  assert.equal(
+    canUseModeCapability(MODES.PROGRAMADOR, 'channels.meta-audit'),
+    true
+  );
+  assert.equal(
+    canUseModeCapability(MODES.OWNER_GENERAL, 'channels.meta-audit'),
+    false
+  );
+});
+
+
+test('Owner router detects read-only Meta auth audit request', () => {
+  const command = detectOwnerCommand('ELAN audita meta');
+
+  assert.equal(command?.type, OWNER_COMMANDS.OWNER_OPS_READ);
+  assert.equal(command?.capability, 'channels.meta-audit');
+});
+
+
+test('Meta auth audit probes configured accounts without sending messages', async () => {
+  const calls = [];
+  const result = await readMetaAuthAudit({
+    env: {
+      META_GRAPH_API_VERSION: 'v99.0',
+      META_PAGE_ID: 'PAGE-1',
+      META_PAGE_ACCESS_TOKEN: 'PAGE-TOKEN',
+      META_INSTAGRAM_ACCOUNT_ID: 'IG-1',
+      INSTAGRAM_ACCESS_TOKEN: 'IG-TOKEN'
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('graph.facebook.com')) {
+        return new Response(JSON.stringify({
+          id: 'PAGE-1',
+          name: 'ELAN Suministros & Tecnología'
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (String(url).includes('graph.instagram.com')) {
+        return new Response(JSON.stringify({
+          id: 'IG-1',
+          username: 'elanvisual'
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      throw new Error(`unexpected Meta URL: ${url}`);
+    }
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(result.messenger.state, 'AUTHENTICATED');
+  assert.equal(result.instagram.state, 'AUTHENTICATED');
+  assert.equal(result.messagesSent, 0);
+  assert.equal(result.secretsExposed, false);
+  assert.doesNotMatch(JSON.stringify(result), /PAGE-TOKEN|IG-TOKEN/);
+});
+
+
+test('Meta auth audit reports missing credentials without external calls', async () => {
+  let calls = 0;
+  const result = await readMetaAuthAudit({
+    env: {},
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error('must not call');
+    }
+  });
+
+  assert.equal(calls, 0);
+  assert.equal(result.messenger.state, 'AUTH_REQUIRED');
+  assert.equal(result.instagram.state, 'AUTH_REQUIRED');
 });
 
 
