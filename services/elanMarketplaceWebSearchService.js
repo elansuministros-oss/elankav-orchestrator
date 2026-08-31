@@ -110,6 +110,41 @@ function promptForOpenDiscovery(target = {}) {
   ].join('\n');
 }
 
+function promptForBuyerSearch(offer = {}) {
+  return [
+    'Sos ELAN, broker comercial autónomo de ELANKAV.',
+    'Ya tenés una oferta/producto localizado. Ahora buscá compradores potenciales reales para ESA oferta.',
+    'Buscá señales públicas de demanda: empresas comprando, solicitudes de cotización, RFQ, licitaciones, personas o negocios que publiquen que buscan/compran/necesitan algo compatible.',
+    'Priorizá Nicaragua y luego Centroamérica cuando tenga sentido comercial.',
+    'No inventes compradores, contactos ni URLs.',
+    'Cada candidato web debe tener una URL directa y real encontrada en esta búsqueda.',
+    'No devuelvas vendedores del mismo producto: devolvé posibles COMPRADORES o demandantes.',
+    '',
+    'OFERTA:',
+    JSON.stringify({
+      discoveryCode: offer.discoveryCode || null,
+      title: offer.title || '',
+      description: offer.description || '',
+      category: offer.category || '',
+      subcategory: offer.subcategory || '',
+      operation: offer.operation || '',
+      priceAmount: offer.priceAmount ?? null,
+      priceCurrency: offer.priceCurrency ?? null,
+      location: offer.location || null
+    }),
+    '',
+    'Devolvé SOLO JSON válido:',
+    '{"searchSummary":"...","buyers":[{"buyerName":null,"buyerNeed":"...","sourceName":"...","sourceUrl":"https://...","contactHint":null,"location":{"country":"Nicaragua"},"confidence":"high"}]}',
+    '',
+    'REGLAS:',
+    '- buyerNeed debe explicar por qué esa persona/empresa podría comprar la oferta',
+    '- contactHint solo si aparece públicamente',
+    '- confidence solo high, medium o low',
+    '- máximo 8 compradores potenciales',
+    '- no incluyas la fuente en buyerNeed; sourceName/sourceUrl son solo trazabilidad interna'
+  ].join('\n');
+}
+
 function outputText(response) {
   if (clean(response?.output_text)) return clean(response.output_text);
 
@@ -280,6 +315,66 @@ async function searchOpenMarketOpportunities(target = {}, env = process.env) {
   }
 }
 
+async function executeBuyerSearch({
+  offer = {},
+  toolType = 'web_search',
+  env = process.env
+} = {}) {
+  const openai = client(env);
+  const response = await openai.responses.create({
+    model: model(env),
+    reasoning: { effort: 'low' },
+    tools: [{ type: toolType }],
+    input: promptForBuyerSearch(offer),
+    max_output_tokens: 12000
+  }, {
+    timeout: 180000
+  });
+
+  let parsed;
+  try {
+    parsed = parseJson(outputText(response));
+  } catch {
+    const error = new Error('OpenAI devolvió compradores potenciales no estructurados.');
+    error.code = 'MARKETPLACE_BUYER_SEARCH_INVALID_OUTPUT';
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const sources = extractSources(response);
+  const buyers = (Array.isArray(parsed.buyers) ? parsed.buyers : [])
+    .filter((item) => item && typeof item === 'object')
+    .filter((item) => /^https:\/\//i.test(clean(item.sourceUrl)))
+    .filter((item) => sameSource(item.sourceUrl, sources));
+
+  return {
+    ok: true,
+    provider: 'openai',
+    model: response.model || null,
+    responseId: response.id || null,
+    buyers,
+    searchSummary: clean(parsed.searchSummary),
+    sources,
+    usage: response.usage || null
+  };
+}
+
+async function searchPotentialBuyersForOffer(offer = {}, env = process.env) {
+  try {
+    return await executeBuyerSearch({ offer, toolType: 'web_search', env });
+  } catch (error) {
+    const message = [clean(error?.message), clean(error?.code)].join(' ').toLowerCase();
+    const unsupported =
+      error?.status === 400 ||
+      error?.statusCode === 400 ||
+      message.includes('web_search') ||
+      message.includes('tool');
+
+    if (!unsupported) throw error;
+    return executeBuyerSearch({ offer, toolType: 'web_search_preview', env });
+  }
+}
+
 async function searchMarketplaceNeed(demand = {}, env = process.env) {
   try {
     return await executeSearch({ demand, toolType: 'web_search', env });
@@ -302,12 +397,15 @@ async function searchMarketplaceNeed(demand = {}, env = process.env) {
 }
 
 module.exports = {
+  executeBuyerSearch,
   executeOpenDiscoverySearch,
   executeSearch,
   extractSources,
+  promptForBuyerSearch,
   promptForDemand,
   promptForOpenDiscovery,
   sameSource,
   searchMarketplaceNeed,
-  searchOpenMarketOpportunities
+  searchOpenMarketOpportunities,
+  searchPotentialBuyersForOffer
 };
