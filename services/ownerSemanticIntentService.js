@@ -13,7 +13,14 @@ const ALLOWED_INTENTS = new Set([
   'unknown'
 ]);
 
-const QUOTATION_HINT = /\b(cotiz|alternativa|propuesta|envia|enviar|manda|mandar|divide|dividir|ultim|ambas|mandasela|mandaselas|enviasela|enviaselas)\b/i;
+const QUOTATION_HINT = /\b(?:cotiz\w*|alternativ\w*|propuest\w*|envi\w*|mand\w*|divid\w*|ultim\w*|ambas)\b/i;
+
+function fold(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
 
 function clean(value, maxLength = 160) {
   return String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
@@ -47,10 +54,10 @@ function normalizeHistory(history = [], currentMessage = '') {
 function shouldResolveOwnerSemanticIntent(message, history = []) {
   const text = clean(message, 1200);
   if (!text) return false;
-  if (QUOTATION_HINT.test(text)) return true;
+  if (QUOTATION_HINT.test(fold(text))) return true;
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length > 8) return false;
-  return normalizeHistory(history, message).slice(-8).some(entry => QUOTATION_HINT.test(entry.content));
+  return normalizeHistory(history, message).slice(-8).some(entry => QUOTATION_HINT.test(fold(entry.content)));
 }
 
 function extractJsonObject(value) {
@@ -175,6 +182,7 @@ module.exports = {
   ALLOWED_INTENTS,
   QUOTATION_HINT,
   clean,
+  fold,
   extractJsonObject,
   normalizeHistory,
   normalizeSemanticIntent,
