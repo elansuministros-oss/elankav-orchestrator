@@ -33,5 +33,5 @@ jobs:
           node --check services/openaiCommercialToolService.js
           node --check tests/openaiCommercialTools.test.js
 
-      - name: Test
-        run: npm test
+      - name: Multichannel tool tests
+        run: node --test tests/openaiCommercialTools.test.js
