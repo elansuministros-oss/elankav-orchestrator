@@ -168,8 +168,14 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   installOwnerBusinessProcessMessageGateway(messageService);if(!messageService||typeof messageService.processMessage!=='function')throw new TypeError('messageService.processMessage no está disponible');if(messageService[INSTALL_MARK])return messageService.processMessage;
   const originalProcessMessage=messageService.processMessage;
   messageService.processMessage=async function processMessageWithUnifiedRuntime(args={}){
-    const context=buildContext({message:args.message,source:'elan-unified-runtime-whatsapp',platform:args.platform,channel:args.channel,externalUserId:args.externalUserId,phone:args.phone,metadata:args.metadata&&typeof args.metadata==='object'?args.metadata:{}});const isOwner=Boolean(context?.owner?.isOwner);if(!isOwner)return originalProcessMessage(args);
-    await persistOwnerTurn({context,args,direction:'inbound',text:String(args.message||'').trim(),externalMessageId:args?.metadata?.messageId||null});
+    const context=buildContext({message:args.message,source:'elan-unified-runtime-whatsapp',platform:args.platform,channel:args.channel,externalUserId:args.externalUserId,phone:args.phone,metadata:args.metadata&&typeof args.metadata==='object'?args.metadata:{}});const isOwner=Boolean(context?.owner?.isOwner);
+    const actor=await resolveRuntimeActor(context,args);
+    await persistRuntimeTurn({actor,context,args,direction:'inbound',text:String(args.message||'').trim(),externalMessageId:args?.metadata?.messageId||null});
+    if(!isOwner){
+      const result=await originalProcessMessage(args);
+      if(result?.reply&&result?.suppressDelivery!==true)await persistRuntimeTurn({actor,context,args,direction:'outbound',text:result.reply,externalMessageId:result?.responseId?'reply:'+result.responseId:null});
+      return result;
+    }
 
     const imageIntent=detectQuotationImageIntent(args.message,args.metadata||{});if(imageIntent){const result=await executeQuotationImageIntent({intent:imageIntent,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
     const designSendIntent=detectDesignSendFollowUp(args.message);if(designSendIntent){const result=await executeDesignSendFollowUp({intent:designSendIntent,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
