@@ -155,6 +155,30 @@ test('ciclo autónomo busca oferta y demanda y publica ambas', async () => {
   assert.equal(persisted[1].kind, 'demand');
 });
 
+test('modo bootstrap busca únicamente ofertas en varias categorías', async () => {
+  const targets = [];
+
+  const result = await discovery.runCatalogDiscoveryCycle({
+    env: {
+      ELAN_MARKETPLACE_CATALOG_BOOTSTRAP_SEARCHES_PER_RUN: '4'
+    },
+    now: 30_000_000,
+    mode: 'bootstrap',
+    searchWeb: async (target) => {
+      targets.push(target);
+      return { discoveries: [], searchSummary: 'ok' };
+    },
+    verifySource: async () => ({ verified: false }),
+    persist: async () => ({})
+  });
+
+  assert.equal(result.mode, 'CATALOG_BOOTSTRAP');
+  assert.equal(result.searches, 4);
+  assert.equal(targets.length, 4);
+  assert.ok(targets.every((target) => target.kind === 'offer'));
+  assert.equal(new Set(targets.map((target) => target.category)).size, 4);
+});
+
 test('verificación compara título y precio contra la fuente', () => {
   const html = '<html><head><meta property="og:title" content="Toyota Hilux 2024 en venta"><meta property="og:image" content="https://cdn.example.com/hilux.jpg"></head><body>Managua. Precio US$ 28,500. Toyota Hilux 2024.</body></html>';
   const text = sourceVerification.stripHtml(html);
@@ -318,6 +342,14 @@ test('worker procesa intereses de clientes cuando outreach está habilitado', as
       buyersFound: 0,
       results: []
     }),
+    listDiscoveries: async () => ({
+      result: Array.from({ length: 100 }, (_, index) => ({
+        discoveryCode: `DISC-${String(index + 1).padStart(6, '0')}`,
+        kind: 'offer',
+        status: 'active',
+        verificationStatus: 'validated'
+      }))
+    }),
     listDemands: async () => ({ result: [] })
   });
 
@@ -332,9 +364,10 @@ test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async (
 
   const result = await worker.runElanMarketplaceBrokerWorkerOnce({
     env: {
-      ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS: '900000'
+      ELAN_MARKETPLACE_CATALOG_TARGET_OFFERS: '100',
+      ELAN_MARKETPLACE_CATALOG_BOOTSTRAP_INTERVAL_MS: '1'
     },
-    now: 20_000_000,
+    now: 40_000_000,
     getControl: async () => ({
       enabled: true,
       spendEnabled: true,
@@ -351,12 +384,10 @@ test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async (
         results: []
       };
     },
-    runBuyerHunter: async () => ({
-      ok: true,
-      offersScanned: 1,
-      buyersFound: 2,
-      results: []
-    }),
+    runBuyerHunter: async () => {
+      throw new Error('BUYER_HUNTER_MUST_WAIT_FOR_CATALOG');
+    },
+    listDiscoveries: async () => ({ result: [] }),
     listDemands: async () => {
       demandListCalls += 1;
       return { result: [] };
@@ -368,5 +399,7 @@ test('worker ejecuta radar aunque CONNECT tenga cero demandas internas', async (
   assert.equal(result.activeDemands, 0);
   assert.equal(result.discoverySearches, 2);
   assert.equal(result.publishedDiscoveries, 3);
-  assert.equal(result.state, 'DISCOVERY_PUBLISHED');
+  assert.equal(result.catalogMode, 'CATALOG_BOOTSTRAP');
+  assert.equal(result.catalogTarget, 100);
+  assert.equal(result.state, 'CATALOG_BOOTSTRAP_PUBLISHED');
 });
