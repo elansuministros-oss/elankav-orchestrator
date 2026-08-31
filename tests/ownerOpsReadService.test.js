@@ -170,6 +170,39 @@ test('Meta auth audit probes configured accounts without sending messages', asyn
 });
 
 
+test('Meta auth audit exposes safe Graph error diagnostics without token leakage', async () => {
+  const token = 'EAAG_SUPER_SECRET_PAGE_TOKEN';
+  const result = await readMetaAuthAudit({
+    env: {
+      META_GRAPH_API_VERSION: 'v26.0',
+      META_PAGE_ID: 'PAGE-1',
+      META_PAGE_ACCESS_TOKEN: token
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: {
+        message: 'Invalid OAuth access token.',
+        type: 'OAuthException',
+        code: 190,
+        error_subcode: 463
+      }
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  });
+
+  assert.equal(result.messenger.state, 'AUTH_REQUIRED');
+  assert.equal(result.messenger.errorCode, 'META_API_FAILED');
+  assert.equal(result.messenger.metaCode, 190);
+  assert.equal(result.messenger.metaSubcode, 463);
+  assert.equal(result.messenger.metaType, 'OAuthException');
+  assert.match(result.messenger.errorMessage, /Invalid OAuth access token/);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(token));
+  assert.equal(result.messagesSent, 0);
+  assert.equal(result.secretsExposed, false);
+});
+
+
 test('Meta auth audit reports missing credentials without external calls', async () => {
   let calls = 0;
   const result = await readMetaAuthAudit({
