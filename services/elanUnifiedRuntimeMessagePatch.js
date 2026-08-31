@@ -8,7 +8,16 @@ const {
   loadConversationMemory,
   persistUnifiedContext
 } = require('./elanUnifiedRuntimeService');
-const { installOwnerBusinessProcessMessageGateway } = require('./ownerBusinessProcessMessageGateway');
+const {
+  installOwnerBusinessProcessMessageGateway,
+  executeOwnerBusinessCommand: executeOwnerBusinessGatewayCommand
+} = require('./ownerBusinessProcessMessageGateway');
+const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
+const {
+  resolveOwnerSemanticIntent,
+  semanticIntentToBusinessCommand,
+  shouldResolveOwnerSemanticIntent
+} = require('./ownerSemanticIntentService');
 const { detectOwnerUnifiedCommand, executeOwnerUnifiedCommand } = require('./elanUnifiedOwnerCommandService');
 const {
   handleOwnerEntityCreateContinuity,
