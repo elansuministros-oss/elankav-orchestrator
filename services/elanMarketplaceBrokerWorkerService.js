@@ -2,6 +2,7 @@
 
 const marketplace = require('./ownerBusinessConnectClient');
 const autonomy = require('./elanMarketplaceAutonomyService');
+const discovery = require('./elanMarketplaceDiscoveryService');
 
 const state = {
   running: false,
@@ -11,6 +12,9 @@ const state = {
   controlEnabled: false,
   outreachEnabled: false,
   spendEnabled: false,
+  discoveriesPublished: 0,
+  lastDiscoveryAt: null,
+  lastDiscoveryCategory: null,
   lastControlAt: null,
   lastHeartbeatAt: null,
   lastRunAt: null,
@@ -97,7 +101,8 @@ async function runElanMarketplaceBrokerWorkerOnce({
   getControl = marketplace.getElanGoControl,
   recordHeartbeat = marketplace.recordElanGoHeartbeat,
   listDemands = marketplace.marketplaceListDemands,
-  continueDemand = autonomy.continueMarketplaceDemand
+  continueDemand = autonomy.continueMarketplaceDemand,
+  runDiscovery = discovery.runAutonomousDiscoveryCycle
 } = {}) {
   const nowIso = new Date(now).toISOString();
   state.lastRunAt = nowIso;
@@ -172,9 +177,62 @@ async function runElanMarketplaceBrokerWorkerOnce({
       spendEnabled: false,
       activeDemands: 0,
       searches: 0,
+      discoverySearches: 0,
+      publishedDiscoveries: 0,
+      failedDiscovery: 0,
       failedDemands: 0,
       results: []
     };
+  }
+
+  const discoveryIntervalMs = positiveInteger(
+    env.ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS,
+    15 * 60 * 1000
+  );
+
+  const lastDiscoveryMs = state.lastDiscoveryAt
+    ? Date.parse(state.lastDiscoveryAt)
+    : Number.NaN;
+
+  const discoveryDue =
+    !Number.isFinite(lastDiscoveryMs) ||
+    now - lastDiscoveryMs >= discoveryIntervalMs;
+
+  let discoveryResult = null;
+  let discoverySearches = 0;
+  let publishedDiscoveries = 0;
+  let failedDiscovery = 0;
+
+  if (discoveryDue) {
+    try {
+      discoveryResult = await runDiscovery({
+        env,
+        now
+      });
+
+      discoverySearches = Number(discoveryResult?.searches || 0);
+      publishedDiscoveries = Number(discoveryResult?.published || 0);
+      state.discoveriesPublished += publishedDiscoveries;
+      state.lastDiscoveryAt = nowIso;
+      state.lastDiscoveryCategory =
+        clean(discoveryResult?.category) || null;
+
+      state.lastState =
+        publishedDiscoveries > 0
+          ? 'DISCOVERY_PUBLISHED'
+          : 'DISCOVERY_SCAN_COMPLETE';
+    } catch (error) {
+      failedDiscovery = 1;
+      state.failed += 1;
+      state.lastDiscoveryAt = nowIso;
+      state.lastState = 'DISCOVERY_FAILED';
+      state.lastErrorCode = errorCode(error);
+
+      console.error('[ELAN_MARKETPLACE_DISCOVERY_FAILED]', {
+        code: state.lastErrorCode,
+        message: error?.message || String(error)
+      });
+    }
   }
 
   const payload = await listDemands(env);
@@ -195,7 +253,22 @@ async function runElanMarketplaceBrokerWorkerOnce({
   let failedDemands = 0;
   const results = [];
 
-  if (!demands.length) state.lastState = 'IDLE_NO_ACTIVE_DEMANDS';
+  if (!demands.length && !discoveryDue) {
+    state.lastState = 'IDLE_NO_ACTIVE_DEMANDS';
+  } else if (
+    !demands.length &&
+    discoveryDue &&
+    failedDiscovery === 0 &&
+    publishedDiscoveries === 0
+  ) {
+    state.lastState = 'DISCOVERY_SCAN_COMPLETE';
+  } else if (
+    !demands.length &&
+    discoveryDue &&
+    publishedDiscoveries > 0
+  ) {
+    state.lastState = 'DISCOVERY_PUBLISHED';
+  }
 
   for (const demand of demands) {
     if (searches >= maximumSearches) break;
@@ -251,10 +324,16 @@ async function runElanMarketplaceBrokerWorkerOnce({
     }
   }
 
-  if (failedDemands === 0) state.lastErrorCode = null;
+  if (failedDemands === 0 && failedDiscovery === 0) {
+    state.lastErrorCode = null;
+  }
 
-  const successAt = failedDemands === 0 ? nowIso : null;
-  const cycleError = failedDemands > 0 ? state.lastErrorCode : null;
+  const cycleFailed =
+    failedDemands > 0 ||
+    failedDiscovery > 0;
+
+  const successAt = cycleFailed ? null : nowIso;
+  const cycleError = cycleFailed ? state.lastErrorCode : null;
 
   await bestEffortHeartbeat({
     recordHeartbeat,
@@ -275,7 +354,11 @@ async function runElanMarketplaceBrokerWorkerOnce({
     spendEnabled: control.spendEnabled,
     activeDemands: demands.length,
     searches,
+    discoverySearches,
+    publishedDiscoveries,
+    failedDiscovery,
     failedDemands,
+    discovery: discoveryResult,
     results
   };
 }
