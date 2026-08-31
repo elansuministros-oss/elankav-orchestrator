@@ -203,13 +203,55 @@ function createGmailDeliveryAdapter({
     return payload;
   }
 
+  async function probeSenderIdentities() {
+    const identities = parseSenderIdentities(configuredSenderIdentities);
+    const entries = Object.entries(identities);
+    if (!entries.length) {
+      return Object.freeze({
+        state: 'VERIFIED',
+        identities: []
+      });
+    }
+
+    const payload = await gmailRequest('/settings/sendAs', { method: 'GET' });
+    const sendAs = Array.isArray(payload.sendAs) ? payload.sendAs : [];
+    const byAddress = new Map(
+      sendAs
+        .filter(item => item && typeof item === 'object')
+        .map(item => [clean(item.sendAsEmail).toLowerCase(), item])
+        .filter(([address]) => Boolean(address))
+    );
+
+    const status = entries.map(([identity, address]) => {
+      const item = byAddress.get(address);
+      const verificationStatus = clean(item?.verificationStatus).toLowerCase();
+      const verified =
+        Boolean(item) &&
+        (verificationStatus === 'accepted' || item?.isPrimary === true);
+
+      return Object.freeze({
+        identity,
+        address,
+        verified,
+        verificationStatus: verificationStatus || (item ? 'unknown' : 'missing')
+      });
+    });
+
+    return Object.freeze({
+      state: status.every(item => item.verified) ? 'VERIFIED' : 'AUTH_REQUIRED',
+      identities: status
+    });
+  }
+
   async function probe() {
     const payload = await gmailRequest('/profile', { method: 'GET' });
+    const senderIdentities = await probeSenderIdentities();
     return Object.freeze({
-      state: 'VERIFIED',
+      state: senderIdentities.state,
       emailAddress: clean(payload.emailAddress) || sender,
       messagesTotal: Number(payload.messagesTotal || 0),
-      threadsTotal: Number(payload.threadsTotal || 0)
+      threadsTotal: Number(payload.threadsTotal || 0),
+      senderIdentities: senderIdentities.identities
     });
   }
 
@@ -285,6 +327,7 @@ function createGmailDeliveryAdapter({
   return Object.freeze({
     configuration,
     probe,
+    probeSenderIdentities,
     sendText,
     listMessages,
     getMessage
