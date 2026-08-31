@@ -395,6 +395,7 @@ function detectOwnerOpsReadCommand(normalizedMessage) {
     });
   }
 
+  if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(meta|messenger|instagram|facebook)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'channels.meta-audit' });
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(canales|multicanal|multicanales|channel bridge|puente de canales)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'channels.audit' });
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar)\b/.test(normalizedMessage) && /\b(produccion)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'production.audit' });
   if (/\b(audita|auditar|revisa|revisar|diagnostica|diagnosticar|estado|salud)\b/.test(normalizedMessage) && /\b(servidor|vps|sistema)\b/.test(normalizedMessage)) return Object.freeze({ type: OWNER_COMMANDS.OWNER_OPS_READ, capability: 'server.summary' });
