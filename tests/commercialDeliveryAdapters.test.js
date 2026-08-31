@@ -131,6 +131,78 @@ test('Gmail sender identities are server-allowlisted and cannot be invented by a
   assert.equal(calls.length, callsBeforeRejectedIdentity);
 });
 
+
+test('Gmail probe requires configured Workspace send-as identities to be accepted', async () => {
+  let tokenCalls = 0;
+  const adapter = createGmailDeliveryAdapter({
+    env: {
+      GMAIL_OAUTH_CLIENT_ID: 'client-id',
+      GMAIL_OAUTH_CLIENT_SECRET: 'client-secret',
+      GMAIL_OAUTH_REFRESH_TOKEN: 'refresh-token',
+      GMAIL_USER: 'elan@elankav.com',
+      GMAIL_SENDER_IDENTITIES_JSON: JSON.stringify({
+        elanvisual: 'visual@elankav.com',
+        'elan-go': 'go@elankav.com'
+      })
+    },
+    fetchImpl: async (url) => {
+      const target = String(url);
+      if (target.includes('oauth2.googleapis.com/token')) {
+        tokenCalls += 1;
+        return new Response(JSON.stringify({ access_token: `ACCESS-${tokenCalls}` }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      if (target.endsWith('/profile')) {
+        return new Response(JSON.stringify({
+          emailAddress: 'elan@elankav.com',
+          messagesTotal: 10,
+          threadsTotal: 5
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      if (target.endsWith('/settings/sendAs')) {
+        return new Response(JSON.stringify({
+          sendAs: [
+            {
+              sendAsEmail: 'visual@elankav.com',
+              verificationStatus: 'accepted'
+            },
+            {
+              sendAsEmail: 'go@elankav.com',
+              verificationStatus: 'pending'
+            }
+          ]
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      throw new Error(`unexpected Gmail URL: ${target}`);
+    }
+  });
+
+  const probe = await adapter.probe();
+  assert.equal(probe.state, 'AUTH_REQUIRED');
+  assert.deepEqual(probe.senderIdentities, [
+    {
+      identity: 'elanvisual',
+      address: 'visual@elankav.com',
+      verified: true,
+      verificationStatus: 'accepted'
+    },
+    {
+      identity: 'elan-go',
+      address: 'go@elankav.com',
+      verified: false,
+      verificationStatus: 'pending'
+    }
+  ]);
+});
+
 test('Messenger requires a scoped recipient and uses Page messages endpoint', async () => {
   const calls = [];
   const adapter = createMetaDeliveryAdapter({
