@@ -1,0 +1,48 @@
+name: Orchestrator Channel Gateway Prod CI
+
+on:
+  push:
+    branches:
+      - release/ELANKAV-MULTICHANNEL-ORCH-PROD-01
+      - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
+    paths:
+      - 'api/channelDeliveryApi.js'
+      - 'services/channelDeliveryService.js'
+      - 'adapters/gmailDeliveryAdapter.js'
+      - 'adapters/metaDeliveryAdapter.js'
+      - 'server.js'
+      - 'tests/commercialDeliveryAdapters.test.js'
+      - '.github/workflows/orchestrator-channel-gateway-prod-ci.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax
+        run: |
+          node --check api/channelDeliveryApi.js
+          node --check services/channelDeliveryService.js
+          node --check adapters/gmailDeliveryAdapter.js
+          node --check adapters/metaDeliveryAdapter.js
+          node --check server.js
+
+      - name: Channel gateway tests
+        run: node --test tests/commercialDeliveryAdapters.test.js tests/wahaDeliveryAdapter.test.js
+
+      - name: Owner OPS supervisor regression
+        run: node --test test/ownerOpsSupervisor.test.js tests/ownerWhatsAppRepositoryDeploy.test.js
+
+      - name: ELANVISUAL WAHA regressions
+        run: node --test test/wahaWebhookApi.test.js test/wahaWebhookApiV2.test.js tests/vqsQuotationWaha01.test.js tests/ownerWahaSend01.test.js
