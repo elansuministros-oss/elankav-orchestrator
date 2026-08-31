@@ -409,13 +409,17 @@ async function resolveIncomingMessage(incoming, dependencies = {}) {
 function providerAcknowledgement(provider, result, fileName) {
   const saved = Number(result?.observationsSaved || 0);
   const type = String(result?.documentType || 'other');
+  const nextQuestion = String(result?.recruitment?.nextQuestion || '').trim();
+  const identity = 'Soy ELAN, asistente de inteligencia artificial de ELAN Suministros & Tecnología.';
+  let acknowledgement;
   if (saved > 0) {
-    return `Gracias. Recibí ${fileName ? `el archivo ${fileName}` : 'la información comercial'} de ${provider.tradeName} y registré ${saved} ${saved === 1 ? 'dato comercial' : 'datos comerciales'} para futuras cotizaciones.`;
+    acknowledgement = `Gracias. ${identity} Recibí ${fileName ? `el archivo ${fileName}` : 'la información comercial'} de ${provider.tradeName} y registré ${saved} ${saved === 1 ? 'dato comercial' : 'datos comerciales'}.`;
+  } else if (type === 'business_card') {
+    acknowledgement = `Gracias. ${identity} Recibí la información de ${provider.tradeName} y actualicé su ficha de evaluación.`;
+  } else {
+    acknowledgement = `Gracias. ${identity} Registré la información recibida de ${provider.tradeName}.`;
   }
-  if (type === 'business_card') {
-    return `Gracias. Recibí la información de ${provider.tradeName}. La tarjeta quedó analizada para actualizar la ficha del proveedor.`;
-  }
-  return `Gracias. Recibí la información de ${provider.tradeName}. No encontré un precio o condición comercial nueva para registrar.`;
+  return nextQuestion ? `${acknowledgement}\n\n${nextQuestion}` : acknowledgement;
 }
 
 async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
@@ -526,14 +530,14 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       }
     }));
 
-    if (registeredProvider && Number(providerTextResult?.observationsSaved || 0) > 0) {
+    if (registeredProvider && (providerTextResult?.recruitment || Number(providerTextResult?.observationsSaved || 0) > 0)) {
       const reply = providerAcknowledgement(registeredProvider, providerTextResult);
       const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
       await persistConversationEventImpl(buildConversationEvent({
         incoming, direction: 'outbound', text: reply, externalMessageId: sent?.messageId || sent?.id || null,
         actorType: 'assistant', actorName: 'ELAN IA', metadata: { replyType: 'text', providerMode: true, providerId: registeredProvider.id }
       }));
-      sendJson(res, 200, { ok: true, processed: true, replySent: true, providerRecognized: true, providerId: registeredProvider.id, observationsSaved: providerTextResult.observationsSaved });
+      sendJson(res, 200, { ok: true, processed: true, replySent: true, providerRecognized: true, providerId: registeredProvider.id, observationsSaved: providerTextResult.observationsSaved || 0, recruitmentStatus: providerTextResult?.recruitment?.recruitment?.recruitmentStatus || null });
       return true;
     }
 
