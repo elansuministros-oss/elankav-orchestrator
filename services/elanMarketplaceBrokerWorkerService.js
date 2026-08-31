@@ -19,6 +19,9 @@ const state = {
   interestsContacted: 0,
   buyerHunts: 0,
   buyersFound: 0,
+  catalogOfferCount: 0,
+  catalogTarget: 0,
+  catalogMode: null,
   lastBuyerHuntAt: null,
   lastDiscoveryAt: null,
   lastDiscoveryCategory: null,
@@ -108,8 +111,9 @@ async function runElanMarketplaceBrokerWorkerOnce({
   getControl = marketplace.getElanGoControl,
   recordHeartbeat = marketplace.recordElanGoHeartbeat,
   listDemands = marketplace.marketplaceListDemands,
+  listDiscoveries = marketplace.marketplaceListDiscoveries,
   continueDemand = autonomy.continueMarketplaceDemand,
-  runDiscovery = discovery.runAutonomousDiscoveryCycle,
+  runDiscovery = discovery.runCatalogDiscoveryCycle,
   processInterests = interestOutreach.processPendingDiscoveryInterests,
   runBuyerHunter = buyerHunter.runBuyerHunterCycle
 } = {}) {
@@ -228,9 +232,44 @@ async function runElanMarketplaceBrokerWorkerOnce({
     };
   }
 
+  const catalogTarget = positiveInteger(
+    env.ELAN_MARKETPLACE_CATALOG_TARGET_OFFERS,
+    100
+  );
+
+  let catalogOfferCount = 0;
+  try {
+    const catalogPayload = unwrap(await listDiscoveries({
+      kind: 'offer',
+      limit: Math.max(100, Math.min(500, catalogTarget + 50))
+    }, env));
+    const catalogItems = Array.isArray(catalogPayload) ? catalogPayload : [];
+    catalogOfferCount = catalogItems.filter((item) =>
+      clean(item.kind) === 'offer' &&
+      clean(item.status) === 'active' &&
+      clean(item.verificationStatus) === 'validated'
+    ).length;
+  } catch (error) {
+    const code = errorCode(error);
+    state.lastErrorCode = code;
+    state.lastState = 'CATALOG_COUNT_FAILED';
+    throw error;
+  }
+
+  const catalogBootstrap = catalogOfferCount < catalogTarget;
+  state.catalogOfferCount = catalogOfferCount;
+  state.catalogTarget = catalogTarget;
+  state.catalogMode = catalogBootstrap
+    ? 'CATALOG_BOOTSTRAP'
+    : 'CATALOG_OPERATIONAL';
+
   const discoveryIntervalMs = positiveInteger(
-    env.ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS,
-    15 * 60 * 1000
+    catalogBootstrap
+      ? env.ELAN_MARKETPLACE_CATALOG_BOOTSTRAP_INTERVAL_MS
+      : env.ELAN_MARKETPLACE_DISCOVERY_INTERVAL_MS,
+    catalogBootstrap
+      ? 5 * 60 * 1000
+      : 15 * 60 * 1000
   );
 
   const lastDiscoveryMs = state.lastDiscoveryAt
@@ -250,12 +289,14 @@ async function runElanMarketplaceBrokerWorkerOnce({
     try {
       discoveryResult = await runDiscovery({
         env,
-        now
+        now,
+        mode: catalogBootstrap ? 'bootstrap' : 'replenish'
       });
 
       discoverySearches = Number(discoveryResult?.searches || 0);
       publishedDiscoveries = Number(discoveryResult?.published || 0);
       state.discoveriesPublished += publishedDiscoveries;
+      state.catalogOfferCount = catalogOfferCount + publishedDiscoveries;
       state.lastDiscoveryAt = nowIso;
       state.lastDiscoveryCategory =
         clean(discoveryResult?.category) || null;
@@ -291,7 +332,7 @@ async function runElanMarketplaceBrokerWorkerOnce({
     !Number.isFinite(lastBuyerHuntMs) ||
     now - lastBuyerHuntMs >= buyerHunterIntervalMs;
 
-  if (buyerHunterDue) {
+  if (buyerHunterDue && !catalogBootstrap) {
     try {
       buyerHunterResult = await runBuyerHunter({
         env,
@@ -320,6 +361,17 @@ async function runElanMarketplaceBrokerWorkerOnce({
     }
   }
 
+  if (catalogBootstrap) {
+    buyerHunterResult = {
+      ok: true,
+      state: 'WAITING_FOR_CATALOG',
+      offersScanned: 0,
+      buyersFound: 0,
+      catalogOfferCount,
+      catalogTarget
+    };
+  }
+
   const payload = await listDemands(env);
   const demandsPayload = unwrap(payload);
   const demands = Array.isArray(demandsPayload) ? demandsPayload : [];
@@ -338,7 +390,12 @@ async function runElanMarketplaceBrokerWorkerOnce({
   let failedDemands = 0;
   const results = [];
 
-  if (!demands.length && !discoveryDue) {
+  if (catalogBootstrap) {
+    state.lastState =
+      publishedDiscoveries > 0
+        ? 'CATALOG_BOOTSTRAP_PUBLISHED'
+        : 'CATALOG_BOOTSTRAP';
+  } else if (!demands.length && !discoveryDue) {
     state.lastState = 'IDLE_NO_ACTIVE_DEMANDS';
   } else if (
     !demands.length &&
@@ -355,7 +412,7 @@ async function runElanMarketplaceBrokerWorkerOnce({
     state.lastState = 'DISCOVERY_PUBLISHED';
   }
 
-  for (const demand of demands) {
+  for (const demand of catalogBootstrap ? [] : demands) {
     if (searches >= maximumSearches) break;
 
     const demandCode = clean(demand.demandCode || demand.id) || null;
@@ -449,6 +506,9 @@ async function runElanMarketplaceBrokerWorkerOnce({
     outreachEnabled: control.outreachEnabled,
     spendEnabled: control.spendEnabled,
     activeDemands: demands.length,
+    catalogOfferCount: state.catalogOfferCount,
+    catalogTarget,
+    catalogMode: state.catalogMode,
     searches,
     discoverySearches,
     publishedDiscoveries,
@@ -497,6 +557,9 @@ function startElanMarketplaceBrokerWorker({
         spendEnabled: result.spendEnabled,
         outreachEnabled: result.outreachEnabled,
         activeDemands: result.activeDemands,
+        catalogOfferCount: result.catalogOfferCount || 0,
+        catalogTarget: result.catalogTarget || 0,
+        catalogMode: result.catalogMode || null,
         searches: result.searches,
         interestsProcessed: result.interests?.processed || 0,
         interestsContacted: result.interests?.contacted || 0,
