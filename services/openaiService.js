@@ -262,6 +262,19 @@ function buildContextInstructions(context) {
     lines.push(`GitHub autenticado=${context.ecosystem.githubAuthenticated === true}.`);
   }
 
+  if (context.workingMemory && typeof context.workingMemory === 'object' && !Array.isArray(context.workingMemory)) {
+    let memory = '';
+    try {
+      memory = JSON.stringify(context.workingMemory).slice(0, 12000);
+    } catch {
+      memory = '';
+    }
+    if (memory && memory !== '{}') {
+      lines.push('MEMORIA DE TRABAJO PERSISTENTE DEL USUARIO: conservá estas referencias entre turnos y resolvé pronombres, elipsis y frases cortas usando esta memoria cuando sea inequívoco.');
+      lines.push(`WORKING_MEMORY=${memory}`);
+    }
+  }
+
   lines.push('No contradigas ni ignores este contexto. No muestres identificadores técnicos salvo que el remitente los solicite.');
   return lines.join(' ');
 }

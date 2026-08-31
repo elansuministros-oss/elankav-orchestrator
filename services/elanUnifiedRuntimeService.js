@@ -2,7 +2,13 @@
 
 const { resolveCanonicalIdentity } = require('./context/identityResolver');
 const { executeTool, getToolManifest } = require('./elanUnifiedToolRegistry');
-const { readUnifiedMemory, publishUnifiedMemoryEvent, publishUnifiedMemoryEventSafely } = require('./connectConversationClient');
+const {
+  readUnifiedMemory,
+  publishUnifiedMemoryEvent,
+  publishUnifiedMemoryEventSafely,
+  writeUnifiedMemoryState,
+  writeUnifiedMemoryStateSafely
+} = require('./connectConversationClient');
 
 function normalizeScopes(scopes, role) {
   const values = Array.isArray(scopes) ? scopes.map(value => String(value).trim()).filter(Boolean) : [];
@@ -70,8 +76,34 @@ async function loadConversationMemory({ actor, platform = 'ELANVISUAL', limit = 
   return {
     actorKey,
     conversationId: payload?.conversationId || null,
-    history: Array.isArray(payload?.history) ? payload.history : []
+    history: Array.isArray(payload?.history) ? payload.history : [],
+    workingState: payload?.workingState && typeof payload.workingState === 'object' && !Array.isArray(payload.workingState)
+      ? payload.workingState
+      : {}
   };
+}
+
+async function persistUnifiedWorkingState({
+  actor,
+  platform = 'ELANVISUAL',
+  workingState = {},
+  env = process.env,
+  safe = false
+} = {}) {
+  const resolved = resolveActor(actor || {});
+  const actorKey = actorMemoryKey(resolved);
+  if (!actorKey) return { ok: false, skipped: true, reason: 'actor_key_missing' };
+  const input = {
+    actorKey,
+    actorRole: resolved.role,
+    platform: String(platform || 'ELANVISUAL').toUpperCase(),
+    workingState: workingState && typeof workingState === 'object' && !Array.isArray(workingState)
+      ? workingState
+      : {}
+  };
+  return safe
+    ? writeUnifiedMemoryStateSafely(input, { env })
+    : writeUnifiedMemoryState(input, { env });
 }
 
 async function persistUnifiedContext({ actor, platform = 'ELANVISUAL', channel = 'unknown', direction, text, messageType = 'text', externalMessageId, occurredAt, env = process.env, safe = false } = {}) {
@@ -160,6 +192,7 @@ module.exports = {
   loadConversationMemory,
   loadUnifiedContext,
   persistUnifiedContext,
+  persistUnifiedWorkingState,
   resolveActor,
   unwrapConnectPayload
 };

@@ -157,6 +157,49 @@ async function readUnifiedMemory({ actorKey, actorRole, platform = 'ELANVISUAL',
   return payload;
 }
 
+async function writeUnifiedMemoryState(
+  { actorKey, actorRole, platform = 'ELANVISUAL', workingState = {} } = {},
+  { fetchImpl = globalThis.fetch, env = process.env } = {}
+) {
+  const key = clean(actorKey);
+  if (!key) throw Object.assign(new Error('ACTOR_KEY_REQUIRED'), { code: 'ACTOR_KEY_REQUIRED' });
+  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory/state`, {
+    method: 'PATCH',
+    headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      actorKey: key,
+      actorRole: clean(actorRole) || null,
+      platform: clean(platform) || 'ELANVISUAL',
+      workingState: workingState && typeof workingState === 'object' && !Array.isArray(workingState)
+        ? workingState
+        : {}
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok === false) {
+    throw Object.assign(new Error(payload?.error?.message || `CONNECT_MEMORY_HTTP_${response.status}`), {
+      code: payload?.error?.code || 'CONNECT_UNIFIED_MEMORY_STATE_FAILED',
+      status: response.status
+    });
+  }
+  return payload;
+}
+
+async function writeUnifiedMemoryStateSafely(input, options) {
+  try {
+    return await writeUnifiedMemoryState(input, options);
+  } catch (error) {
+    console.error('[CONNECT_UNIFIED_MEMORY_STATE_FAILED]', {
+      code: error.code || null,
+      status: error.status || null,
+      message: error.message
+    });
+    return { ok: false, error: error.code || error.message };
+  }
+}
+
 async function publishUnifiedMemoryEvent(event, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
   const { token, baseUrl } = requireTransport(fetchImpl, env);
   const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory/events`, {
@@ -218,6 +261,8 @@ module.exports = {
   publishUnifiedMemoryEventSafely,
   readUnifiedMemory,
   requestConversationDecision,
+  writeUnifiedMemoryState,
+  writeUnifiedMemoryStateSafely,
   resolveConnectToken,
   resolveConnectUrl
 };

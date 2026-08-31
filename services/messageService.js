@@ -20,6 +20,7 @@ const {
 const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
 const { resolveAccessPolicy } = require('./accessPolicyService');
 const { isLiveModeRequest, requestLiveSession } = require('./connectLiveAccessService');
+const { loadConversationMemory } = require('./elanUnifiedRuntimeService');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -48,6 +49,31 @@ function normalizeHistory(history, currentMessage) {
   const last = normalized[normalized.length - 1];
   if (last?.role === 'user' && current && last.content === current) normalized.pop();
   return normalized;
+}
+
+function mergeConversationHistories(...histories) {
+  const merged = [];
+  const seen = new Set();
+  for (const history of histories) {
+    for (const item of Array.isArray(history) ? history : []) {
+      const role = item?.role === 'assistant' ? 'assistant' : item?.role === 'user' ? 'user' : null;
+      const content = normalizeMessage(item?.content);
+      if (!role || !content) continue;
+      const key = `${role}\u0000${content}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({ role, content, createdAt: item?.createdAt || null });
+    }
+  }
+  return merged
+    .sort((a, b) => {
+      const left = Date.parse(a.createdAt || '');
+      const right = Date.parse(b.createdAt || '');
+      if (Number.isFinite(left) && Number.isFinite(right)) return left - right;
+      return 0;
+    })
+    .slice(-30)
+    .map(({ role, content }) => ({ role, content }));
 }
 
 function buildKnowledgeQuery(history, currentMessage) {
@@ -174,7 +200,35 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     actorRole: actor?.role,
     actorScopes: actor?.scopes
   });
-  const history = normalizeHistory(decision.history, normalizedMessage);
+  let unifiedMemory = { history: [], workingState: {} };
+  try {
+    unifiedMemory = await loadConversationMemory({
+      actor: {
+        role: actor?.role || 'prospect',
+        actorId: actor?.actorId || actor?.sellerId || actor?.customerId || actor?.providerId || actor?.prospectId || context.externalUserId || externalUserId || null,
+        sellerId: actor?.sellerId || null,
+        sellerName: actor?.displayName || null,
+        registered: actor?.registered === true,
+        platformAllowed: actor?.platformAllowed !== false,
+        scopes: Array.isArray(actor?.scopes) ? actor.scopes : [],
+        authority: actor?.authority || null,
+        phone: actor?.canonicalPhone || context.phone || phone || null
+      },
+      platform: platformId,
+      limit: 30
+    });
+  } catch (error) {
+    console.error('[ELAN_UNIFIED_MEMORY_LOAD_FAILED]', {
+      role: actor?.role || 'prospect',
+      code: error?.code || null,
+      message: error?.message || String(error)
+    });
+  }
+
+  const history = normalizeHistory(
+    mergeConversationHistories(decision.history, unifiedMemory.history),
+    normalizedMessage
+  );
   const knowledgeQuery = buildKnowledgeQuery(history, normalizedMessage);
 
   console.log('[ELAN_AI_CONTEXT_LOADED]', {
@@ -249,7 +303,8 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
         initialMessage: runtimePlatform.initialMessage || ''
       },
       officialKnowledge: knowledge,
-      prospectMemory: decision.prospect || null
+      prospectMemory: decision.prospect || null,
+      workingMemory: unifiedMemory.workingState || {}
     }
   });
 
@@ -422,9 +477,30 @@ async function processMessage({ message, platform, channel, externalUserId, phon
         loadEcosystemContext({ platform: context.platform || platform || 'ELANVISUAL', query: normalizedMessage })
       ]);
 
+      let ownerMemory = { history: [], workingState: {} };
+      try {
+        ownerMemory = await loadConversationMemory({
+          actor: {
+            role: 'owner',
+            actorId: 'owner',
+            authority: 'owner_identity',
+            phone: context.phone || phone || null,
+            scopes: ['*'],
+            platforms: ['*']
+          },
+          platform: context.platform || platform || 'ELANVISUAL',
+          limit: 30
+        });
+      } catch (error) {
+        console.error('[OWNER_UNIFIED_MEMORY_LOAD_FAILED]', {
+          code: error?.code || null,
+          message: error?.message || String(error)
+        });
+      }
+
       return generateText({
         input: normalizedMessage,
-        history: [],
+        history: normalizeHistory(ownerMemory.history, normalizedMessage),
         instructions: OWNER_INSTRUCTIONS,
         context: {
           ownerMode: true,
@@ -435,7 +511,8 @@ async function processMessage({ message, platform, channel, externalUserId, phon
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
           crm,
-          ecosystem
+          ecosystem,
+          workingMemory: ownerMemory.workingState || {}
         }
       });
     }
@@ -477,6 +554,7 @@ module.exports = {
   OWNER_INSTRUCTIONS,
   normalizeMessage,
   normalizeHistory,
+  mergeConversationHistories,
   buildKnowledgeQuery,
   actorInstructions,
   checkHumanTakeover,

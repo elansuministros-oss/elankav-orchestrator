@@ -27,6 +27,7 @@ const BUSINESS_COMMANDS = Object.freeze({
   QUOTATION_CREATE: 'business_quotation_create',
   QUOTATION_LOOKUP: 'business_quotation_lookup',
   QUOTATION_LOOKUP_SEND: 'business_quotation_lookup_send',
+  QUOTATION_CUSTOMER_LIST: 'business_quotation_customer_list',
   QUOTATION_SPLIT_SEND: 'business_quotation_split_send',
   QUOTATION_LATEST: 'business_quotation_latest',
   QUOTATION_RECENT: 'business_quotation_recent'
@@ -175,6 +176,29 @@ function parseQuotationSplitSend(message) {
     ...(expectedCount ? { expectedCount } : {}),
     ...(customerReference ? { customerReference } : {})
   };
+}
+
+function parseQuotationCustomerList(message) {
+  const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
+  if (!/\bcotizaciones\b/.test(normalized)) return null;
+  if (!/\b(busca|buscar|muestra|mostrar|lista|listar|dame|hay|tenemos|tengamos)\b/.test(normalized)) return null;
+
+  const patterns = [
+    /\bcotizaciones\s+(?:del|de\s+la|de|para\s+el|para\s+la)\s+cliente\s+(.+?)(?=\s+que\s+(?:hay|tenemos|tengamos)\b|[,.;!?]|$)/,
+    /\bcotizaciones\s+(?:del|de\s+la|de|para)\s+(.+?)(?=\s+que\s+(?:hay|tenemos|tengamos)\b|[,.;!?]|$)/
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    const customerReference = String(match?.[1] || '').trim();
+    if (!customerReference || /^(?:cliente|clientes)$/.test(customerReference)) continue;
+    return {
+      type: BUSINESS_COMMANDS.QUOTATION_CUSTOMER_LIST,
+      customerReference
+    };
+  }
+
+  return null;
 }
 
 function parseQuotationLookupSend(message) {
@@ -345,16 +369,23 @@ function formatQuotationReadRow(row) {
 }
 
 
-function selectQuotationByCustomerReference(payload, reference) {
+function filterQuotationsByCustomerReference(payload, reference) {
   const wanted = normalize(reference);
-  if (!wanted) return { status: 'not_found', candidates: [] };
+  if (!wanted) return [];
 
-  const matches = quotationRows(payload).filter(row =>
+  return quotationRows(payload).filter(row =>
     quotationCustomerReferences(row).some(value => {
       const candidate = normalize(value);
       return candidate && (candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate));
     })
   );
+}
+
+function selectQuotationByCustomerReference(payload, reference) {
+  const wanted = normalize(reference);
+  if (!wanted) return { status: 'not_found', candidates: [] };
+
+  const matches = filterQuotationsByCustomerReference(payload, reference);
 
   if (!matches.length) return { status: 'not_found', candidates: [] };
 
@@ -578,6 +609,8 @@ function parseLogisticsRule(message) {
 function detectOwnerBusinessCommand(message) {
   const quotationSplitSend = parseQuotationSplitSend(message);
   if (quotationSplitSend) return quotationSplitSend;
+  const quotationCustomerList = parseQuotationCustomerList(message);
+  if (quotationCustomerList) return quotationCustomerList;
   const quotationRead = parseQuotationReadRequest(message);
   if (quotationRead) return quotationRead;
   const quotationLookupSend = parseQuotationLookupSend(message);
@@ -718,14 +751,60 @@ function formatLogisticsRule(rule) {
 }
 
 async function executeOwnerBusinessCommand(command) {
+  if (command.type === BUSINESS_COMMANDS.QUOTATION_CUSTOMER_LIST) {
+    const payload = await listQuotations();
+    const rows = filterQuotationsByCustomerReference(payload, command.customerReference)
+      .slice()
+      .sort((a, b) => quotationCreatedAt(b).localeCompare(quotationCreatedAt(a)));
+
+    if (!rows.length) {
+      return {
+        handled: true,
+        outputText: `No encontré cotizaciones oficiales asociadas al cliente “${command.customerReference}”.`,
+        result: { status: 'not_found', rows: [] }
+      };
+    }
+
+    await updateContext({
+      activeQuotationId: null,
+      activeQuotationNumber: null,
+      activeQuotationPublicUrl: null,
+      activeProjectId: null,
+      lastEntityType: 'quotation_customer_list',
+      lastEntityId: String(command.customerReference || '').trim(),
+      activeCustomerReference: quotationCustomerName(rows[0]) || String(command.customerReference || '').trim(),
+      lastIntent: 'quotation_list_by_customer',
+      lastQuotationCustomerReference: quotationCustomerName(rows[0]) || String(command.customerReference || '').trim(),
+      lastQuotationIds: rows.map(quotationId).filter(Boolean),
+      lastQuotationNumbers: rows.map(quotationNumber).filter(Boolean),
+      lastQuotationProjectIds: rows.map(quotationProjectId).filter(Boolean),
+      lastQuotationListAt: new Date().toISOString()
+    });
+
+    return {
+      handled: true,
+      outputText: [
+        `Cotizaciones de ${quotationCustomerName(rows[0]) || command.customerReference}: ${rows.length}`,
+        '',
+        ...rows.flatMap((row, index) => [
+          `${index + 1}. ${formatQuotationReadRow(row).replace(/\n/g, '\n   ')}`,
+          ''
+        ])
+      ].join('\n').trim(),
+      result: { status: 'found', rows }
+    };
+  }
+
   if (command.type === BUSINESS_COMMANDS.QUOTATION_SPLIT_SEND) {
     const context = await readContext();
     const payload = await listQuotations();
     const rows = quotationRows(payload);
 
-    let splitGroupId = context.lastEntityType === 'quotation_split'
-      ? String(context.lastEntityId || '').trim()
-      : '';
+    let splitGroupId = String(context.lastSplitGroupId || '').trim() || (
+      context.lastEntityType === 'quotation_split'
+        ? String(context.lastEntityId || '').trim()
+        : ''
+    );
 
     let candidates = splitGroupId
       ? rows.filter(row => String(quotationRelations(row)?.splitGroupId || '').trim() === splitGroupId)
@@ -809,7 +888,7 @@ async function executeOwnerBusinessCommand(command) {
       }
     }
 
-    if (!candidates.length && context.lastEntityType === 'quotation_split') {
+    if (!candidates.length && (context.lastSplitGroupId || context.lastEntityType === 'quotation_split')) {
       const titleGroups = new Map();
       for (const row of rows) {
         if (quotationStatus(row) !== 'draft') continue;
@@ -998,7 +1077,14 @@ async function executeOwnerBusinessCommand(command) {
         activeQuotationNumber: qNumber || null,
         activeQuotationPublicUrl: publicUrl || null,
         lastEntityType: 'quotation',
-        lastEntityId: qId
+        lastEntityId: qId,
+        activeCustomerReference: quotationCustomerName(row) || command.customerReference || null,
+        lastIntent: 'quotation_lookup',
+        lastQuotationCustomerReference: quotationCustomerName(row) || command.customerReference || null,
+        lastQuotationIds: [qId],
+        lastQuotationNumbers: qNumber ? [qNumber] : [],
+        lastQuotationProjectIds: [projectId],
+        lastQuotationListAt: new Date().toISOString()
       });
     }
 
@@ -1233,6 +1319,7 @@ module.exports = {
   chooseProvider,
   detectOwnerBusinessCommand,
   executeOwnerBusinessCommand,
+  filterQuotationsByCustomerReference,
   formatCustomerList,
   formatProvider,
   formatProviderList,
@@ -1248,6 +1335,7 @@ module.exports = {
   parseProviderList,
   parseProviderQuoteRequest,
   parseProviderSearch,
+  parseQuotationCustomerList,
   parseQuotationLookup,
   parseQuotationLookupSend,
   parseQuotationReadRequest,
