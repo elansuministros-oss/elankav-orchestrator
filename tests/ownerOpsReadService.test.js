@@ -8,6 +8,8 @@ const {
 } = require('../services/ownerOpsCapabilityRegistry');
 
 const {
+  deriveChannelInternalToken,
+  readChannelBridgeAudit,
   readFileInspect,
   resolveFileSpec,
   resolveTestSuite,
@@ -23,6 +25,7 @@ const {
 test('file.inspect and test.run are registered as READ capabilities', () => {
   assert.equal(CAPABILITIES['file.inspect']?.risk, 'READ');
   assert.equal(CAPABILITIES['test.run']?.risk, 'READ');
+  assert.equal(CAPABILITIES['channels.audit']?.risk, 'READ');
 });
 
 
@@ -82,6 +85,57 @@ test('Owner router detects controlled Owner Language test request', () => {
     command?.suite,
     'orchestrator-owner-language'
   );
+});
+
+
+test('Owner router detects read-only channel bridge audit request', () => {
+  const command = detectOwnerCommand('ELAN audita canales');
+
+  assert.equal(command?.type, OWNER_COMMANDS.OWNER_OPS_READ);
+  assert.equal(command?.capability, 'channels.audit');
+});
+
+
+test('channels.audit uses derived token and performs no message delivery', async () => {
+  const root = 'V'.repeat(40);
+  const expectedToken = deriveChannelInternalToken(root);
+  let called = 0;
+
+  const result = await readChannelBridgeAudit({
+    env: { VQS_API_TOKEN: root },
+    fetchImpl: async (url, init) => {
+      called += 1;
+      assert.equal(
+        String(url),
+        'http://127.0.0.1:4400/api/v1/channels/capabilities?probe=false'
+      );
+      assert.equal(
+        init.headers['X-Elankav-Internal-Token'],
+        expectedToken
+      );
+      assert.notEqual(
+        init.headers['X-Elankav-Internal-Token'],
+        root
+      );
+      return new Response(JSON.stringify({
+        scope: 'ELANKAV_GLOBAL',
+        capabilities: [
+          { channel: 'whatsapp', state: 'VERIFIED', configured: true },
+          { channel: 'email', state: 'AUTH_REQUIRED', configured: false },
+          { channel: 'messenger', state: 'AUTH_REQUIRED', configured: false },
+          { channel: 'instagram_dm', state: 'AUTH_REQUIRED', configured: false }
+        ]
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  });
+
+  assert.equal(called, 1);
+  assert.equal(result.bridgeState, 'VERIFIED');
+  assert.equal(result.messagesSent, 0);
+  assert.equal(result.secretsExposed, false);
 });
 
 
