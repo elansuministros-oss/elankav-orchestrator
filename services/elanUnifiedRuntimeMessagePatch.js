@@ -11,6 +11,7 @@ const {
 } = require('./elanUnifiedRuntimeService');
 const {
   installOwnerBusinessProcessMessageGateway,
+  detectOwnerBusinessCommand: detectOwnerBusinessGatewayCommand,
   executeOwnerBusinessCommand: executeOwnerBusinessGatewayCommand
 } = require('./ownerBusinessProcessMessageGateway');
 const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
@@ -231,6 +232,26 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
       }
     }catch(error){
       console.error('[OWNER_SEMANTIC_ROUTE_FAILED]',{code:error?.code||null,message:error?.message||String(error)});
+    }
+
+    const deterministicBusinessCommand=detectOwnerBusinessGatewayCommand(args.message);
+    if(deterministicBusinessCommand&&String(deterministicBusinessCommand.type||'').startsWith('business_quotation_')){
+      try{
+        const execution=await executeOwnerBusinessGatewayCommand(deterministicBusinessCommand);
+        if(execution?.handled){
+          const result=runtimeResult({
+            args,
+            context,
+            execution:{actor:ownerActor(context,args),version:'1.0.0'},
+            reply:execution.outputText,
+            command:deterministicBusinessCommand.type
+          });
+          await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});
+          return result;
+        }
+      }catch(error){
+        console.error('[OWNER_QUOTATION_DETERMINISTIC_ROUTE_FAILED]',{code:error?.code||null,message:error?.message||String(error)});
+      }
     }
 
     const unifiedCommand=detectOwnerUnifiedCommand(args.message);if(unifiedCommand){const result=await executeGenericOwnerCommand({command:unifiedCommand,context,args});if(result){await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}}
