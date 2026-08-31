@@ -141,6 +141,15 @@ async function runElanMarketplaceBrokerWorkerOnce({
   state.spendEnabled = control.spendEnabled;
   state.lastControlAt = nowIso;
 
+  try {
+    await recordHeartbeat({
+      heartbeatAt: nowIso,
+      lastCycleAt: nowIso,
+      lastError: null
+    }, env);
+    state.lastHeartbeatAt = nowIso;
+  } catch {}
+
   if (!control.enabled) {
     state.lastState = 'CONTROL_DISABLED';
     state.lastErrorCode = null;
@@ -372,9 +381,12 @@ async function runElanMarketplaceBrokerWorkerOnce({
     };
   }
 
-  const payload = await listDemands(env);
-  const demandsPayload = unwrap(payload);
-  const demands = Array.isArray(demandsPayload) ? demandsPayload : [];
+  let demands = [];
+  if (!catalogBootstrap) {
+    const payload = await listDemands(env);
+    const demandsPayload = unwrap(payload);
+    demands = Array.isArray(demandsPayload) ? demandsPayload : [];
+  }
 
   const retryMs = positiveInteger(
     env.ELAN_MARKETPLACE_SEARCH_RETRY_MS,
