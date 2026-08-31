@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const { createHmac } = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
@@ -321,6 +322,97 @@ function readConfiguredEnvNames() {
     .sort();
 }
 
+function deriveChannelInternalToken(rootSecret) {
+  const secret = String(rootSecret || '').trim();
+  if (!secret) return '';
+  return createHmac('sha256', secret)
+    .update('ELANKAV_CHANNEL_INTERNAL_V1')
+    .digest('hex');
+}
+
+async function readChannelBridgeAudit({
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  assertReadCapability('channels.audit');
+
+  const rootSecret = String(env.VQS_API_TOKEN || '').trim();
+  if (!rootSecret) {
+    const error = new Error('No existe raíz segura para auditar el puente de canales.');
+    error.code = 'CHANNEL_BRIDGE_ROOT_TOKEN_REQUIRED';
+    throw error;
+  }
+
+  const token = deriveChannelInternalToken(rootSecret);
+  const baseUrl = String(
+    env.CONNECT_INTERNAL_BASE_URL ||
+    'http://127.0.0.1:4400'
+  ).trim().replace(/\/+$/, '');
+
+  let response;
+  try {
+    response = await fetchImpl(
+      `${baseUrl}/api/v1/channels/capabilities?probe=false`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'X-Elankav-Internal-Token': token
+        }
+      }
+    );
+  } catch (cause) {
+    const error = new Error(cause?.message || 'CONNECT no respondió.');
+    error.code = 'CHANNEL_BRIDGE_CONNECT_UNAVAILABLE';
+    throw error;
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload || payload.scope !== 'ELANKAV_GLOBAL' || !Array.isArray(payload.capabilities)) {
+    const error = new Error(
+      payload?.error?.message ||
+      payload?.message ||
+      `CONNECT HTTP ${response.status}`
+    );
+    error.code =
+      payload?.error?.code ||
+      payload?.code ||
+      'CHANNEL_BRIDGE_CONNECT_FAILED';
+    throw error;
+  }
+
+  const wanted = new Set([
+    'whatsapp',
+    'email',
+    'messenger',
+    'instagram_dm'
+  ]);
+
+  const channels = payload.capabilities
+    .filter(item => wanted.has(String(item?.channel || '')))
+    .map(item => ({
+      channel: String(item.channel),
+      state: String(item.state || 'UNKNOWN'),
+      configured: item.configured === true,
+      reason: String(item.reason || '').trim() || null
+    }));
+
+  const whatsapp = channels.find(item => item.channel === 'whatsapp');
+  const bridgeState =
+    whatsapp?.state === 'VERIFIED'
+      ? 'VERIFIED'
+      : 'DEGRADED';
+
+  return {
+    capability: 'channels.audit',
+    scope: payload.scope,
+    bridgeState,
+    channels,
+    messagesSent: 0,
+    secretsExposed: false
+  };
+}
+
 async function readProductionAudit() {
   assertReadCapability('production.audit');
   const [server, connectGit, orchestratorGit, connectService, orchestratorService] = await Promise.all([
@@ -349,6 +441,31 @@ async function readProductionAudit() {
 
 function formatResult(result) {
   if (!result) return 'No fue posible obtener el resultado.';
+
+  if (result.capability === 'channels.audit') {
+    const byChannel = new Map(
+      (result.channels || []).map(item => [item.channel, item])
+    );
+
+    const line = (channel, label) => {
+      const item = byChannel.get(channel);
+      return `${label}: ${item?.state || 'NO_DISPONIBLE'}${item?.configured ? ' (configurado)' : ''}`;
+    };
+
+    return [
+      'Auditoría READ-ONLY del puente multicanal completada.',
+      '',
+      `CONNECT ↔ ORCHESTRATOR: ${result.bridgeState}`,
+      line('whatsapp', 'WhatsApp'),
+      line('email', 'Email'),
+      line('messenger', 'Messenger'),
+      line('instagram_dm', 'Instagram DM'),
+      '',
+      `Mensajes enviados: ${result.messagesSent || 0}`,
+      'Valores de secretos expuestos: NO',
+      'No se realizaron envíos, búsquedas, reinicios ni cambios.'
+    ].join('\n');
+  }
 
   if (result.capability === 'production.audit') {
     return [
@@ -447,6 +564,9 @@ async function executeReadOperation(command) {
   try {
     let result;
     switch (capability) {
+      case 'channels.audit':
+        result = await readChannelBridgeAudit();
+        break;
       case 'production.audit':
         result = await readProductionAudit();
         break;
@@ -509,6 +629,8 @@ module.exports = {
   resolveFileSpec,
   resolveTestSuite,
   readConfiguredEnvNames,
+  deriveChannelInternalToken,
+  readChannelBridgeAudit,
   readGitStatus,
   readProductionAudit,
   readServerSummary,
