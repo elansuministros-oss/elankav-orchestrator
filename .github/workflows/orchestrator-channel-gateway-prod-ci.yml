@@ -11,6 +11,7 @@ on:
       - release/RESEND-EMAIL-PROD-01
       - release/OWNER-EMAIL-SELFTEST-PROD-01
       - release/META-AUTH-AUDIT-PROD-01
+      - release/META-AUTH-DIAGNOSTICS-PROD-01
       - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
     paths:
       - 'api/channelDeliveryApi.js'
