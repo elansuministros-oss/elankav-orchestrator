@@ -13,7 +13,7 @@ const ALLOWED_INTENTS = new Set([
   'unknown'
 ]);
 
-const COMMERCIAL_HINT = /\b(cotiz|cliente|proveedor|provedor|precio|producto|proyecto|alternativa|propuesta|envia|enviar|manda|mandar|divide|dividir|busca|buscar|muestra|mostrar|lista|listar|ultim|ambas|esas|estas|mandasela|mandaselas|enviasela|enviaselas)\b/i;
+const QUOTATION_HINT = /\b(cotiz|alternativa|propuesta|envia|enviar|manda|mandar|divide|dividir|ultim|ambas|mandasela|mandaselas|enviasela|enviaselas)\b/i;
 
 function clean(value, maxLength = 160) {
   return String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
