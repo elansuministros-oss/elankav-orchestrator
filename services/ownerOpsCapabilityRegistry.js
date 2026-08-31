@@ -19,6 +19,7 @@ const REPOSITORIES = Object.freeze({
 
 const CAPABILITIES = Object.freeze({
   'production.audit': Object.freeze({ id: 'production.audit', risk: RISK.READ, description: 'Auditoría integral de producción: servidor, servicios, Git y presencia de configuración sin revelar secretos.' }),
+  'channels.audit': Object.freeze({ id: 'channels.audit', risk: RISK.READ, description: 'Comprueba el puente interno CONNECT ↔ ORCHESTRATOR y estados multicanal sin enviar mensajes ni revelar secretos.' }),
   'server.summary': Object.freeze({ id: 'server.summary', risk: RISK.READ, description: 'Resumen de uptime, memoria, disco y estado de servicios ELANKAV.' }),
   'service.status': Object.freeze({ id: 'service.status', risk: RISK.READ, description: 'Consulta si un servicio autorizado está activo.' }),
   'service.logs': Object.freeze({ id: 'service.logs', risk: RISK.READ, description: 'Lee logs recientes de un servicio autorizado.' }),
