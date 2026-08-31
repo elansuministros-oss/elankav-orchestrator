@@ -546,7 +546,7 @@ async function splitActiveQuotation(input) {
     };
   }
 
-  const splitGroupId = randomUUID();
+  const splitGroupId = String(current.quotationId || context.activeQuotationId);
   const created = [];
 
   for (let index = 0; index < businessItems.length; index += 1) {
@@ -561,7 +561,7 @@ async function splitActiveQuotation(input) {
       splitGroupId
     });
     const itemKey = String(item?.itemId || item?.id || index).trim() || String(index);
-    const idempotencyKey = `owner-split-${current.quotationId}-${itemKey}`;
+    const idempotencyKey = `owner-split-${current.quotationId}-${partIndex}-${itemKey}`;
     const childResponse = await createQuotation(document, idempotencyKey);
     const child = childResponse?.data || childResponse || {};
     created.push(child);
