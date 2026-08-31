@@ -4,6 +4,7 @@ const marketplace = require('./ownerBusinessConnectClient');
 const autonomy = require('./elanMarketplaceAutonomyService');
 const discovery = require('./elanMarketplaceDiscoveryService');
 const interestOutreach = require('./elanMarketplaceInterestOutreachService');
+const buyerHunter = require('./elanMarketplaceBuyerHunterService');
 
 const state = {
   running: false,
@@ -16,6 +17,9 @@ const state = {
   discoveriesPublished: 0,
   interestsProcessed: 0,
   interestsContacted: 0,
+  buyerHunts: 0,
+  buyersFound: 0,
+  lastBuyerHuntAt: null,
   lastDiscoveryAt: null,
   lastDiscoveryCategory: null,
   lastControlAt: null,
@@ -106,7 +110,8 @@ async function runElanMarketplaceBrokerWorkerOnce({
   listDemands = marketplace.marketplaceListDemands,
   continueDemand = autonomy.continueMarketplaceDemand,
   runDiscovery = discovery.runAutonomousDiscoveryCycle,
-  processInterests = interestOutreach.processPendingDiscoveryInterests
+  processInterests = interestOutreach.processPendingDiscoveryInterests,
+  runBuyerHunter = buyerHunter.runBuyerHunterCycle
 } = {}) {
   const nowIso = new Date(now).toISOString();
   state.lastRunAt = nowIso;
@@ -272,6 +277,35 @@ async function runElanMarketplaceBrokerWorkerOnce({
     }
   }
 
+  let buyerHunterResult = null;
+  let failedBuyerHunter = 0;
+
+  try {
+    buyerHunterResult = await runBuyerHunter({
+      env,
+      limit: positiveInteger(
+        env.ELAN_MARKETPLACE_BUYER_HUNTER_OFFERS_PER_RUN,
+        2
+      )
+    });
+    state.buyerHunts += Number(buyerHunterResult?.offersScanned || 0);
+    state.buyersFound += Number(buyerHunterResult?.buyersFound || 0);
+    state.lastBuyerHuntAt = nowIso;
+
+    if (Number(buyerHunterResult?.buyersFound || 0) > 0) {
+      state.lastState = 'BUYERS_FOUND';
+    }
+  } catch (error) {
+    failedBuyerHunter = 1;
+    state.failed += 1;
+    state.lastErrorCode = errorCode(error);
+    state.lastState = 'BUYER_HUNTER_FAILED';
+    console.error('[ELAN_MARKETPLACE_BUYER_HUNTER_FAILED]', {
+      code: state.lastErrorCode,
+      message: error?.message || String(error)
+    });
+  }
+
   const payload = await listDemands(env);
   const demandsPayload = unwrap(payload);
   const demands = Array.isArray(demandsPayload) ? demandsPayload : [];
@@ -364,7 +398,8 @@ async function runElanMarketplaceBrokerWorkerOnce({
   if (
     failedDemands === 0 &&
     failedDiscovery === 0 &&
-    failedInterestOutreach === 0
+    failedInterestOutreach === 0 &&
+    failedBuyerHunter === 0
   ) {
     state.lastErrorCode = null;
   }
@@ -372,7 +407,8 @@ async function runElanMarketplaceBrokerWorkerOnce({
   const cycleFailed =
     failedDemands > 0 ||
     failedDiscovery > 0 ||
-    failedInterestOutreach > 0;
+    failedInterestOutreach > 0 ||
+    failedBuyerHunter > 0;
 
   const successAt = cycleFailed ? null : nowIso;
   const cycleError = cycleFailed ? state.lastErrorCode : null;
@@ -389,7 +425,8 @@ async function runElanMarketplaceBrokerWorkerOnce({
     ok:
       failedDemands === 0 &&
       failedDiscovery === 0 &&
-      failedInterestOutreach === 0,
+      failedInterestOutreach === 0 &&
+      failedBuyerHunter === 0,
     autonomous: true,
     authority: 'CONNECT',
     operator: 'ELAN',
@@ -403,8 +440,10 @@ async function runElanMarketplaceBrokerWorkerOnce({
     publishedDiscoveries,
     failedDiscovery,
     failedInterestOutreach,
+    failedBuyerHunter,
     failedDemands,
     discovery: discoveryResult,
+    buyerHunter: buyerHunterResult,
     interests: interestResult,
     results
   };
@@ -447,6 +486,9 @@ function startElanMarketplaceBrokerWorker({
         searches: result.searches,
         interestsProcessed: result.interests?.processed || 0,
         interestsContacted: result.interests?.contacted || 0,
+        buyerOffersScanned: result.buyerHunter?.offersScanned || 0,
+        buyersFound: result.buyerHunter?.buyersFound || 0,
+        failedBuyerHunter: result.failedBuyerHunter || 0,
         failedInterestOutreach: result.failedInterestOutreach || 0,
         failedDemands: result.failedDemands,
         processed: state.processed,
