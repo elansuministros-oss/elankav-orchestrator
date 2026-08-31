@@ -3,26 +3,27 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  createConnectMarketplaceToolAdapter
-} = require('../adapters/connectMarketplaceToolAdapter');
+  createConnectChannelToolAdapter
+} = require('../adapters/connectChannelToolAdapter');
 const {
-  ELAN_COMMERCIAL_TOOLS,
-  executeCommercialTool,
-  runCommercialToolDecision
-} = require('../services/openaiCommercialToolService');
+  GLOBAL_CHANNEL_TOOL,
+  MARKETPLACE_CONTACT_TOOL,
+  executeChannelTool,
+  runChannelToolDecision,
+  toolsForScope
+} = require('../services/openaiChannelToolService');
 
-test('CONNECT tool adapter keeps auth inside infrastructure headers', async () => {
+test('global CONNECT channel adapter keeps auth inside infrastructure headers', async () => {
   const calls = [];
-  const adapter = createConnectMarketplaceToolAdapter({
+  const adapter = createConnectChannelToolAdapter({
     env: {
       CONNECT_BASE_URL: 'https://connect.example',
-      MARKETPLACE_RUNTIME_TOKEN: 'SERVER_ONLY_TOKEN'
+      CONNECT_INTERNAL_API_TOKEN: 'SERVER_ONLY_GLOBAL_TOKEN'
     },
     fetchImpl: async (url, init) => {
-      calls.push({ url, init });
+      calls.push({ url: String(url), init });
       return new Response(JSON.stringify({
-        elanGoEnabled: false,
-        outreachEnabled: false,
+        scope: 'ELANKAV_GLOBAL',
         capabilities: []
       }), {
         status: 200,
@@ -31,25 +32,39 @@ test('CONNECT tool adapter keeps auth inside infrastructure headers', async () =
     }
   });
 
-  await adapter.getContactCapabilities();
+  await adapter.getChannelCapabilities();
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://connect.example/api/v1/marketplace/contact-capabilities');
+  assert.equal(
+    calls[0].url,
+    'https://connect.example/api/v1/channels/capabilities'
+  );
+  assert.equal(
+    calls[0].init.headers['X-Elankav-Internal-Token'],
+    'SERVER_ONLY_GLOBAL_TOKEN'
+  );
   assert.equal(
     calls[0].init.headers['X-Elankav-Marketplace-Token'],
-    'SERVER_ONLY_TOKEN'
+    undefined
   );
-  assert.equal(calls[0].init.headers['X-Elankav-Actor-Role'], 'owner');
 });
 
-test('commercial OpenAI tool schemas never contain credentials', () => {
-  const serialized = JSON.stringify(ELAN_COMMERCIAL_TOOLS);
-  assert.match(serialized, /get_contact_capabilities/);
-  assert.match(serialized, /execute_contact_next/);
+test('global OpenAI scope does not expose ELAN GO tools', () => {
+  const globalTools = toolsForScope('global');
+  assert.equal(globalTools.length, 1);
+  assert.equal(globalTools[0].name, 'get_channel_capabilities');
+
+  const marketplaceTools = toolsForScope('marketplace');
+  assert.equal(marketplaceTools.length, 2);
+  assert.equal(marketplaceTools[0], GLOBAL_CHANNEL_TOOL);
+  assert.equal(marketplaceTools[1], MARKETPLACE_CONTACT_TOOL);
+
+  const serialized = JSON.stringify(globalTools);
   assert.doesNotMatch(serialized, /TOKEN|access_token|api_key|password/i);
+  assert.doesNotMatch(serialized, /marketplace_contact/i);
 });
 
-test('tool runner returns CONNECT result through function_call_output', async () => {
+test('global tool runner returns channel capabilities through function_call_output', async () => {
   const calls = [];
   const responses = [
     {
@@ -58,74 +73,62 @@ test('tool runner returns CONNECT result through function_call_output', async ()
       output: [{
         type: 'function_call',
         call_id: 'call-1',
-        name: 'get_contact_capabilities',
+        name: 'get_channel_capabilities',
         arguments: '{}'
       }]
     },
     {
       id: 'resp-2',
-      outputText: 'ELAN GO está bloqueado.',
+      outputText: 'WhatsApp está disponible globalmente.',
       output: []
     }
   ];
 
-  const adapter = {
-    async getContactCapabilities() {
+  const channelAdapter = {
+    async getChannelCapabilities() {
       return {
-        elanGoEnabled: false,
-        outreachEnabled: false,
+        scope: 'ELANKAV_GLOBAL',
         capabilities: [{
           channel: 'whatsapp',
-          state: 'BLOCKED',
-          transportState: 'VERIFIED'
+          state: 'VERIFIED',
+          configured: true
         }]
       };
-    },
-    async executeContactNext() {
-      throw new Error('unexpected execute');
     }
   };
 
-  const result = await runCommercialToolDecision({
-    input: '¿Puedo contactar este caso?',
-    adapter,
+  const result = await runChannelToolDecision({
+    input: '¿Qué canales hay disponibles?',
+    scope: 'global',
+    channelAdapter,
     createToolResponseImpl: async payload => {
       calls.push(payload);
       return responses.shift();
     }
   });
 
-  assert.equal(result.outputText, 'ELAN GO está bloqueado.');
+  assert.equal(result.outputText, 'WhatsApp está disponible globalmente.');
   assert.equal(calls.length, 2);
   assert.equal(calls[1].previousResponseId, 'resp-1');
-  assert.equal(calls[1].input[0].type, 'function_call_output');
   const toolOutput = JSON.parse(calls[1].input[0].output);
   assert.equal(toolOutput.ok, true);
-  assert.equal(toolOutput.result.capabilities[0].state, 'BLOCKED');
+  assert.equal(toolOutput.result.scope, 'ELANKAV_GLOBAL');
+  assert.equal(toolOutput.result.capabilities[0].state, 'VERIFIED');
 });
 
-test('execute tool returns blocked/failed CONNECT errors without fabricating success', async () => {
-  const adapter = {
-    async getContactCapabilities() {
-      return {};
-    },
-    async executeContactNext() {
-      const error = new Error('El contacto comercial está apagado.');
-      error.code = 'CONTACT_CAPABILITY_NOT_VERIFIED';
-      error.status = 409;
-      throw error;
-    }
-  };
-
-  const result = await executeCommercialTool({
-    name: 'execute_contact_next',
+test('GO execution tool is denied outside marketplace scope', async () => {
+  const result = await executeChannelTool({
+    name: 'execute_marketplace_contact_next',
     arguments: JSON.stringify({ case_code: 'CONTACT-ABC123' })
-  }, adapter);
+  }, {
+    channelAdapter: {
+      async getChannelCapabilities() {
+        return {};
+      }
+    },
+    marketplaceAdapter: null
+  });
 
   assert.equal(result.ok, false);
-  assert.deepEqual(result.error, {
-    code: 'CONTACT_CAPABILITY_NOT_VERIFIED',
-    message: 'El contacto comercial está apagado.',
-    status: 409
-  });
+  assert.equal(result.error.code, 'ELAN_TOOL_SCOPE_DENIED');
 });
