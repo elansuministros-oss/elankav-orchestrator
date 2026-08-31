@@ -32,6 +32,8 @@ test('prepara, confirma y delega repository.deploy al supervisor', async () => {
   assert.equal(request.capability, 'repository.deploy');
   assert.equal(request.target, 'connect');
   assert.equal(request.parameters.expectedCommit, sha);
+  assert.equal(request.parameters.branch, 'main');
+  assert.equal(request.parameters.deployStrategy, 'canonical-fast-forward');
   assert.equal(request.parameters.install, true);
   assert.equal(request.parameters.restart, true);
 });
@@ -47,4 +49,59 @@ test('consulta resultado verificado del supervisor', async () => {
   const status = await statusOperation(detectOwnerOpsDeployCommand(`ELAN estado ${prepared.job.id}`), env);
   assert.equal(status.ownerOps.status, 'completed');
   assert.equal(status.ownerOps.execution.after, sha);
+});
+
+
+test('ORCHESTRATOR deploy request pins canonical orchestrator-next branch', async () => {
+  const sha = '1fcf8d51f9ea464eab8906b4db6581afdde72dd1';
+  const { base, env } = testEnv();
+  const prepared = await prepareDeploy(
+    detectOwnerOpsDeployCommand(`ELAN despliega ORCHESTRATOR commit ${sha}`),
+    env
+  );
+  await confirmOperation(
+    detectOwnerOpsDeployCommand(`CONFIRMAR ${prepared.job.id}`),
+    env
+  );
+  const request = JSON.parse(
+    fs.readFileSync(
+      path.join(base, 'supervisor', 'requests', `${prepared.job.id}.json`),
+      'utf8'
+    )
+  );
+  assert.equal(request.parameters.branch, 'orchestrator-next');
+  assert.equal(request.parameters.deployStrategy, 'canonical-fast-forward');
+});
+
+test('failed supervisor status surfaces step, branch and detail when available', async () => {
+  const sha = '1fcf8d51f9ea464eab8906b4db6581afdde72dd1';
+  const { base, env } = testEnv();
+  const prepared = await prepareDeploy(
+    detectOwnerOpsDeployCommand(`ELAN despliega ORCHESTRATOR commit ${sha}`),
+    env
+  );
+  await confirmOperation(
+    detectOwnerOpsDeployCommand(`CONFIRMAR ${prepared.job.id}`),
+    env
+  );
+  const resultDir = path.join(base, 'supervisor', 'results');
+  fs.mkdirSync(resultDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(resultDir, `${prepared.job.id}.json`),
+    JSON.stringify({
+      id: prepared.job.id,
+      status: 'failed',
+      error: 'SUPERVISOR_BUILD_FAILED',
+      step: 'build',
+      detail: 'npm test failed',
+      execution: { branch: 'orchestrator-next' }
+    })
+  );
+  const status = await statusOperation(
+    detectOwnerOpsDeployCommand(`ELAN estado ${prepared.job.id}`),
+    env
+  );
+  assert.match(status.outputText, /Paso: build/);
+  assert.match(status.outputText, /Branch: orchestrator-next/);
+  assert.match(status.outputText, /Detalle: npm test failed/);
 });
