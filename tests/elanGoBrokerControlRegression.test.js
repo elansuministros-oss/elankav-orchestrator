@@ -104,6 +104,14 @@ test('una demanda fallida no detiene las siguientes', async () => {
       category: 'vehicle',
       results: []
     }),
+    listDiscoveries: async () => ({
+      result: Array.from({ length: 100 }, (_, index) => ({
+        discoveryCode: `DISC-${String(index + 1).padStart(6, '0')}`,
+        kind: 'offer',
+        status: 'active',
+        verificationStatus: 'validated'
+      }))
+    }),
     listDemands: async () => ({
       result: [
         { id: 'bad', demandCode: 'BAD' },
