@@ -2,6 +2,7 @@
 
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const { createGmailDeliveryAdapter } = require('../adapters/gmailDeliveryAdapter');
+const { createResendDeliveryAdapter } = require('../adapters/resendDeliveryAdapter');
 const { createMetaDeliveryAdapter } = require('../adapters/metaDeliveryAdapter');
 
 class ChannelDeliveryError extends Error {
@@ -22,6 +23,7 @@ function createChannelDeliveryService({
 } = {}) {
   const waha = createWahaDeliveryAdapter({ env, fetchImpl });
   const gmail = createGmailDeliveryAdapter({ env, fetchImpl });
+  const resend = createResendDeliveryAdapter({ env, fetchImpl });
   const meta = createMetaDeliveryAdapter({ env, fetchImpl });
 
   function whatsappConfigured() {
@@ -32,7 +34,9 @@ function createChannelDeliveryService({
   }
 
   function capabilitySnapshot() {
+    const resendConfig = resend.configuration();
     const gmailConfig = gmail.configuration();
+    const emailConfig = resendConfig.configured ? resendConfig : gmailConfig;
     const messengerConfig = meta.messengerConfiguration();
     const instagramConfig = meta.instagramConfiguration();
 
@@ -45,9 +49,14 @@ function createChannelDeliveryService({
       },
       {
         channel: 'email',
-        state: 'AUTH_REQUIRED',
-        configured: gmailConfig.configured,
-        requiresPerTargetVerification: false
+        state:
+          emailConfig.state === 'VERIFIED'
+            ? 'VERIFIED'
+            : 'AUTH_REQUIRED',
+        configured: emailConfig.configured,
+        provider: resendConfig.configured ? 'resend' : 'gmail',
+        requiresPerTargetVerification: false,
+        reason: emailConfig.reason
       },
       {
         channel: 'messenger',
@@ -76,11 +85,24 @@ function createChannelDeliveryService({
 
       try {
         if (item.channel === 'email') {
+          const resendConfig = resend.configuration();
+          if (resendConfig.configured) {
+            result.push({
+              ...item,
+              state: resendConfig.state,
+              authenticated: resendConfig.state === 'VERIFIED',
+              provider: 'resend',
+              reason: resendConfig.reason
+            });
+            continue;
+          }
+
           const probe = await gmail.probe();
           result.push({
             ...item,
             state: probe.state === 'VERIFIED' ? 'VERIFIED' : 'AUTH_REQUIRED',
-            authenticated: probe.state === 'VERIFIED'
+            authenticated: probe.state === 'VERIFIED',
+            provider: 'gmail'
           });
           continue;
         }
@@ -154,7 +176,9 @@ function createChannelDeliveryService({
     }
 
     if (channel === 'email') {
-      const result = await gmail.sendText({
+      const resendConfig = resend.configuration();
+      const transport = resendConfig.configured ? resend : gmail;
+      const result = await transport.sendText({
         to: input.to,
         subject: input.subject,
         text,
@@ -167,7 +191,10 @@ function createChannelDeliveryService({
         channel,
         status: 'SENT',
         externalRef: result.id,
-        threadId: result.threadId
+        provider: result.provider || (resendConfig.configured ? 'resend' : 'gmail'),
+        ...(result.threadId ? { threadId: result.threadId } : {}),
+        ...(result.sender ? { sender: result.sender } : {}),
+        ...(result.recipient ? { recipient: result.recipient } : {})
       };
     }
 
