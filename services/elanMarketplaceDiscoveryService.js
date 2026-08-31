@@ -217,12 +217,6 @@ async function runDiscoverySearch({
       ...(clean(verification.imageUrl)
         ? { imageUrl: clean(verification.imageUrl) }
         : {}),
-      ...(clean(verification.pageTitle)
-        ? { title: clean(verification.pageTitle).slice(0, 220) }
-        : {}),
-      ...(clean(verification.sourceDescription)
-        ? { description: clean(verification.sourceDescription).slice(0, 10000) }
-        : {}),
       ...(discovery.priceAmount !== undefined && verification.priceConfirmed !== true
         ? {
             priceAmount: undefined,
@@ -243,6 +237,8 @@ async function runDiscoverySearch({
         priceConfirmed: verification.priceConfirmed === true,
         locationConfirmed: verification.locationConfirmed === true,
         contactConfirmed: verification.contactConfirmed === true,
+        sourcePageTitle: clean(verification.pageTitle).slice(0, 300),
+        sourceDescriptionPresent: Boolean(clean(verification.sourceDescription)),
         verifiedAt: clean(verification.verifiedAt) || new Date().toISOString()
       }
     };
