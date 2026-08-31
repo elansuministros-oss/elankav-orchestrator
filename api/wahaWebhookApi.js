@@ -479,7 +479,10 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         mediaUrl: incoming.media.url,
         mimeType: incoming.media.mimeType,
         fileName: incoming.media.filename,
-        externalMessageId: incoming.messageId || undefined
+        externalMessageId: incoming.messageId || undefined,
+        externalUserId: incoming.senderRaw || undefined,
+        phone: incoming.phone || undefined,
+        chatId: incoming.chatId || undefined
       });
       const eventText = incoming.text || `[Archivo comercial recibido: ${incoming.media.filename || 'adjunto'}]`;
       await persistConversationEventImpl(buildConversationEvent({
@@ -508,7 +511,10 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           providerId: registeredProvider.id,
           text: resolvedMessage,
           externalMessageId: incoming.messageId || undefined,
-          receivedAt: new Date().toISOString()
+          receivedAt: new Date().toISOString(),
+          externalUserId: incoming.senderRaw || undefined,
+          phone: incoming.phone || undefined,
+          chatId: incoming.chatId || undefined
         });
       } catch (providerError) {
         console.error('[PROVIDER_TEXT_INTELLIGENCE_FAILED]', { providerId: registeredProvider.id, code: providerError.code || null, status: providerError.status || null, message: providerError.message });
