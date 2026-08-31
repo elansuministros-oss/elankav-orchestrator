@@ -170,6 +170,27 @@ function parseEditDescription(message) {
   return '';
 }
 
+function parseQuotationSplitRequest(message) {
+  const normalized = normalize(message)
+    .replace(/^elan[\s,;:]+/, '')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+
+  if (!/\bcotizacion\b/.test(normalized)) return null;
+  if (!/\b(divide|dividir|dividila|separa|separar|separala|separame)\b/.test(normalized)) return null;
+
+  const perItem = /\b(cada\s+(?:item|items)|una\s+por\s+(?:cada\s+)?(?:item|items)|por\s+(?:item|items))\b/.test(normalized);
+  const inTwo = /\b(en\s+dos|dos\s+cotizaciones)\b/.test(normalized);
+  if (!perItem && !inTwo) return null;
+
+  return {
+    splitActive: true,
+    splitMode: perItem ? 'per_item' : 'two',
+    requestedParts: inTwo ? 2 : null,
+    message: String(message || '').trim()
+  };
+}
+
 function parseQuotationEditRequest(message) {
   const normalized = normalize(message).replace(/^elan[\s,;:]+/, '').trim();
   const editVerb = /\b(corrige|corregir|cambia|cambiar|modifica|modificar|actualiza|actualizar|ajusta|ajustar)\b/.test(normalized);
@@ -193,6 +214,9 @@ function parseQuotationEditRequest(message) {
 
 function parseQuotationRequest(message) {
   if (parseQuotationSendFollowup(message)) return { sendActive: true, message: String(message || '').trim() };
+
+  const split = parseQuotationSplitRequest(message);
+  if (split) return split;
 
   const edit = parseQuotationEditRequest(message);
   if (edit) return edit;
@@ -363,6 +387,224 @@ function recomputePaymentTerms(paymentTerms, total) {
   };
 }
 
+function splitItemSubtotal(item) {
+  const direct = Number(item?.subtotalUsd ?? item?.subtotal);
+  if (Number.isFinite(direct) && direct >= 0) return Number(direct.toFixed(2));
+  const quantity = Math.max(1, Number(item?.quantity) || 1);
+  const unitPrice = Number(item?.unitPriceUsd ?? item?.unitPrice ?? 0);
+  return Number((quantity * unitPrice).toFixed(2));
+}
+
+function splitPricing(originalTotals, total) {
+  const totals = clone(originalTotals, {});
+  const exchangeRate = Number(totals.exchangeRate || 0);
+  const payableTotalNio = exchangeRate > 0 ? Number((total * exchangeRate).toFixed(2)) : 0;
+
+  return {
+    ...totals,
+    subtotalGross: total,
+    subtotalUsd: total,
+    subtotal: total,
+    discountUsd: 0,
+    discount: 0,
+    taxUsd: 0,
+    tax: 0,
+    totalUsd: total,
+    total,
+    payableTotalNio,
+    convertedTotal: payableTotalNio
+  };
+}
+
+function splitPaymentTerms(originalTerms, total, payableTotalNio) {
+  const terms = clone(originalTerms, {});
+  if (Array.isArray(terms.installments) && terms.installments.length) {
+    terms.installments = terms.installments.map((installment, index) => {
+      const percentage = Number(installment?.percentage ?? installment?.percent ?? 0);
+      const amountUsd = Number((total * percentage / 100).toFixed(2));
+      const amountNio = Number((payableTotalNio * percentage / 100).toFixed(2));
+      return {
+        ...installment,
+        id: installment?.id || `installment-${index + 1}`,
+        percentage,
+        amountUsd,
+        amountNio
+      };
+    });
+    return terms;
+  }
+
+  return recomputePaymentTerms(terms, total);
+}
+
+function buildSplitQuotationDocument({
+  current,
+  publicDocument,
+  item,
+  partIndex,
+  partCount,
+  splitGroupId
+}) {
+  const total = splitItemSubtotal(item);
+  const pricing = splitPricing(publicDocument.totals, total);
+  const baseTitle = String(publicDocument.project?.title || 'Proyecto visual').trim();
+  const itemTitle = String(item?.title || item?.description || `Alternativa ${partIndex}`).trim();
+  const paymentTerms = splitPaymentTerms(publicDocument.paymentTerms, total, Number(pricing.payableTotalNio || 0));
+
+  return {
+    quotation: {
+      status: 'draft',
+      source: {
+        type: 'manual',
+        sourceId: `OWNER-SPLIT-${splitGroupId}-${partIndex}`,
+        channel: 'owner-whatsapp'
+      }
+    },
+    project: {
+      title: `${baseTitle} — Alternativa ${partIndex}: ${itemTitle}`,
+      status: 'pending_activation',
+      currentStage: 'quotation'
+    },
+    relations: {
+      customerId: current.customerId || publicDocument.customer?.customerId,
+      executiveId: current.executiveId || publicDocument.advisor?.executiveId,
+      splitGroupId,
+      splitFromQuotationId: current.quotationId,
+      splitFromProjectId: current.projectId,
+      splitFromQuotationNumber: current.quotationNumber,
+      splitPartIndex: partIndex,
+      splitPartCount: partCount,
+      commercialProjectTitle: baseTitle
+    },
+    customerSnapshot: clone(publicDocument.customer, {}),
+    executiveSnapshot: clone(publicDocument.advisor, {}),
+    items: [clone(item, {})],
+    pricing,
+    paymentTerms,
+    paymentAccountsSnapshot: clone(publicDocument.paymentAccountsSnapshot, []),
+    brandSnapshot: clone(publicDocument.brandSnapshot, {}),
+    template: clone(publicDocument.template, {}),
+    contractVersion: current.quotation_document?.schemaVersion || '1.0.0'
+  };
+}
+
+async function splitActiveQuotation(input) {
+  const context = await readContext();
+  if (!context.activeProjectId || !context.activeQuotationId) {
+    return { ready: false, question: 'No tengo una cotización activa para dividir. Primero buscá la cotización que querés separar.' };
+  }
+
+  const response = await getQuotation(context.activeProjectId);
+  const current = response?.data || response || {};
+  if (String(current.status || '').toLowerCase() !== 'draft') {
+    return {
+      ready: false,
+      question: `La cotización ${current.quotationNumber || context.activeQuotationNumber || ''} ya no está en borrador. No crearé alternativas derivadas sin una revisión explícita.`
+    };
+  }
+
+  const envelope = current.quotation_document || {};
+  const publicDocument = envelope.publicDocument || {};
+  const items = clone(publicDocument.items, []);
+
+  if (!Array.isArray(items) || items.length < 2) {
+    return { ready: false, question: 'La cotización activa no tiene al menos dos ítems para dividir.' };
+  }
+
+  const logisticsItems = items.filter(item => String(item?.source || '').toUpperCase() === 'LOGISTICS_LIBRARY');
+  if (logisticsItems.length) {
+    return {
+      ready: false,
+      question: 'La cotización contiene logística separada. Antes de dividirla necesito saber a cuál alternativa se asigna ese costo para no duplicarlo.'
+    };
+  }
+
+  const businessItems = items.filter(item => String(item?.source || '').toUpperCase() !== 'LOGISTICS_LIBRARY');
+  if (input?.requestedParts && businessItems.length !== Number(input.requestedParts)) {
+    return {
+      ready: false,
+      question: `Pediste dividirla en ${input.requestedParts}, pero la cotización tiene ${businessItems.length} ítems comerciales. Indicame si querés una cotización por cada ítem.`
+    };
+  }
+
+  const totals = publicDocument.totals || {};
+  const discount = Number(totals.discountUsd ?? totals.discount ?? 0);
+  const tax = Number(totals.taxUsd ?? totals.tax ?? 0);
+  if (Math.abs(discount) > 0.001 || Math.abs(tax) > 0.001) {
+    return {
+      ready: false,
+      question: 'La cotización tiene descuento o impuesto global. Necesito una regla explícita para repartirlo antes de dividirla.'
+    };
+  }
+
+  const itemTotal = Number(businessItems.reduce((sum, item) => sum + splitItemSubtotal(item), 0).toFixed(2));
+  const officialTotal = Number(totals.totalUsd ?? totals.total ?? current.totalUsd ?? 0);
+  if (Math.abs(itemTotal - officialTotal) > 0.01) {
+    return {
+      ready: false,
+      question: `La suma de los ítems es USD ${itemTotal.toFixed(2)}, pero el total oficial es USD ${officialTotal.toFixed(2)}. No dividiré importes que no cuadran.`
+    };
+  }
+
+  const splitGroupId = randomUUID();
+  const created = [];
+
+  for (let index = 0; index < businessItems.length; index += 1) {
+    const item = businessItems[index];
+    const partIndex = index + 1;
+    const document = buildSplitQuotationDocument({
+      current,
+      publicDocument,
+      item,
+      partIndex,
+      partCount: businessItems.length,
+      splitGroupId
+    });
+    const itemKey = String(item?.itemId || item?.id || index).trim() || String(index);
+    const idempotencyKey = `owner-split-${current.quotationId}-${itemKey}`;
+    const childResponse = await createQuotation(document, idempotencyKey);
+    const child = childResponse?.data || childResponse || {};
+    created.push(child);
+  }
+
+  trace('vqs-split-success', {
+    sourceProjectId: current.projectId,
+    sourceQuotationId: current.quotationId,
+    sourceQuotationNumber: current.quotationNumber,
+    splitGroupId,
+    childCount: created.length,
+    children: created.map(child => ({
+      projectId: child.projectId || null,
+      quotationId: child.quotationId || null,
+      quotationNumber: child.quotationNumber || null,
+      totalUsd: child.totalUsd || null
+    }))
+  });
+
+  return {
+    ready: true,
+    split: true,
+    sourceQuotation: current,
+    splitGroupId,
+    quotations: created,
+    summary: [
+      '✅ Cotización dividida en alternativas independientes.',
+      '',
+      `Origen conservado: ${current.quotationNumber || current.quotationId}`,
+      `Proyecto comercial: ${publicDocument.project?.title || 'Proyecto visual'}`,
+      `Cliente: ${publicDocument.customer?.name || publicDocument.customer?.companyName || 'Cliente'}`,
+      '',
+      ...created.flatMap((child, index) => [
+        `Alternativa ${index + 1}: ${child.quotationNumber || child.quotationId}`,
+        `Total: USD ${Number(child.totalUsd || splitItemSubtotal(businessItems[index])).toFixed(2)}`,
+        child.publicUrl ? `Enlace: ${child.publicUrl}` : ''
+      ].filter(Boolean)),
+      '',
+      'La cotización original quedó intacta como respaldo interno.'
+    ].join('\n')
+  };
+}
+
 async function editActiveQuotation(input) {
   const context = await readContext();
   if (!context.activeProjectId || !context.activeQuotationId) {
@@ -518,6 +760,15 @@ async function editActiveQuotation(input) {
 
 async function prepareAndCreateQuotation(input) {
   if (input?.sendActive === true) return prepareActiveQuotationDelivery();
+  if (input?.splitActive === true) {
+    try {
+      return await splitActiveQuotation(input);
+    } catch (error) {
+      const details = errorDetails(error);
+      trace('split-failed', details);
+      return { ready: false, failed: true, error: details, question: visibleQuotationError(error) };
+    }
+  }
   if (input?.editActive === true) {
     try {
       return await editActiveQuotation(input);
@@ -684,10 +935,16 @@ module.exports = {
   parseProductQuery,
   parseQuotationEditRequest,
   parseQuotationRequest,
+  parseQuotationSplitRequest,
   parseQuotationSendFollowup,
   prepareActiveQuotationDelivery,
   prepareAndCreateQuotation,
   recomputePaymentTerms,
+  splitActiveQuotation,
+  splitItemSubtotal,
+  splitPaymentTerms,
+  splitPricing,
+  buildSplitQuotationDocument,
   resolveLogistics,
   selectDistanceRule,
   selectLogisticsRule,
