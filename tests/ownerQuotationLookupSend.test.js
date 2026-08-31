@@ -6,6 +6,7 @@ const {
   BUSINESS_COMMANDS,
   detectOwnerBusinessCommand,
   parseQuotationLookupSend,
+  parseQuotationReadRequest,
   selectQuotationByCustomerReference
 } = require('../services/ownerBusinessCommandService');
 
@@ -65,4 +66,33 @@ test('does not guess when multiple draft quotations exist', () => {
   const resolved = selectQuotationByCustomerReference(payload, 'polarizado');
   assert.equal(resolved.status, 'ambiguous');
   assert.equal(resolved.candidates.length, 2);
+});
+
+
+test('detects latest quotation read requests deterministically', () => {
+  assert.deepEqual(
+    parseQuotationReadRequest('ELAN cuál es la última cotización'),
+    {
+      type: BUSINESS_COMMANDS.QUOTATION_LATEST,
+      limit: 1
+    }
+  );
+
+  assert.deepEqual(
+    detectOwnerBusinessCommand('ELAN cual fue la cotizacion mas reciente'),
+    {
+      type: BUSINESS_COMMANDS.QUOTATION_LATEST,
+      limit: 1
+    }
+  );
+});
+
+test('detects recent quotations list requests', () => {
+  assert.deepEqual(
+    parseQuotationReadRequest('ELAN mostrame las ultimas cotizaciones'),
+    {
+      type: BUSINESS_COMMANDS.QUOTATION_RECENT,
+      limit: 5
+    }
+  );
 });
