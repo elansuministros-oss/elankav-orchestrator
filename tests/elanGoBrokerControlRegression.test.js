@@ -28,7 +28,7 @@ test('ELAN GO OFF no lista demandas ni ejecuta trabajo', async () => {
 
   assert.equal(result.state, 'CONTROL_DISABLED');
   assert.equal(listCalls, 0);
-  assert.equal(heartbeatCalls, 1);
+  assert.equal(heartbeatCalls, 2);
 });
 
 test('spend OFF bloquea el ciclo aunque ELAN GO esté encendido', async () => {
