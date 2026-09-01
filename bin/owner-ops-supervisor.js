@@ -614,6 +614,10 @@ async function cleanGeneratedConnectCatalog(config) {
   return backupPath;
 }
 
+function isRecoverableDetachedConnectBranch(target, currentBranch) {
+  return target === 'connect' && !String(currentBranch || '').trim();
+}
+
 async function deployRepository(target, parameters = {}) {
   const config = TARGETS[target];
   const expectedCommit = String(parameters.expectedCommit || '').trim().toLowerCase();
@@ -648,7 +652,7 @@ async function deployRepository(target, parameters = {}) {
   if (currentBranch.stdout !== branch) {
     const detachedHead = (await run('git', ['-C', config.repo, 'rev-parse', 'HEAD'])).stdout;
 
-    if (target === 'connect' && !currentBranch.stdout) {
+    if (isRecoverableDetachedConnectBranch(target, currentBranch.stdout)) {
       try {
         await run('git', ['-C', config.repo, 'merge-base', '--is-ancestor', detachedHead, remote]);
       } catch {
@@ -937,5 +941,6 @@ module.exports = {
   verifyWhatsappBridgeHealth,
   runWhatsappCoreContract,
   restoreOrchestratorBaseline,
+  isRecoverableDetachedConnectBranch,
   restoreConnectBaseline
 };
