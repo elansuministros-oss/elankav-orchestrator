@@ -1,0 +1,36 @@
+name: Owner Multimedia Library CI
+
+on:
+  pull_request:
+    paths:
+      - 'api/wahaWebhookApi.js'
+      - 'services/prospectingMediaLibraryService.js'
+      - 'test/wahaWebhookApi.test.js'
+      - 'test/prospectingMediaLibraryService.test.js'
+      - '.github/workflows/owner-media-library-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax
+        run: |
+          node --check api/wahaWebhookApi.js
+          node --check services/prospectingMediaLibraryService.js
+          node --check test/wahaWebhookApi.test.js
+          node --check test/prospectingMediaLibraryService.test.js
+
+      - name: Multimedia bridge regressions
+        run: |
+          node --test test/prospectingMediaLibraryService.test.js test/wahaWebhookApi.test.js
