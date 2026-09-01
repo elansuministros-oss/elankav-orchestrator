@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  canonicalizeWahaMediaUrl,
   classifyFolder,
   classifyTags,
   clearOwnerLibraryState,
@@ -155,6 +156,33 @@ test('clasifica videos de caja de luz y conserva señal de video', () => {
   assert.ok(tags.includes('video'));
 });
 
+
+test('normaliza URL loopback de WAHA hacia un host autorizado sin abrir SSRF', () => {
+  const rewritten = canonicalizeWahaMediaUrl(
+    'http://localhost:3000/api/files/media123.jpg?token=abc',
+    ['https://waha.elankav.com']
+  );
+  assert.equal(
+    rewritten,
+    'https://waha.elankav.com/api/files/media123.jpg?token=abc'
+  );
+
+  assert.throws(
+    () => canonicalizeWahaMediaUrl(
+      'http://169.254.169.254/latest/meta-data',
+      ['https://waha.elankav.com']
+    ),
+    (error) => error && error.code === 'WAHA_MEDIA_HOST_NOT_ALLOWED'
+  );
+
+  assert.throws(
+    () => canonicalizeWahaMediaUrl(
+      'http://localhost:3000/admin',
+      ['https://waha.elankav.com']
+    ),
+    (error) => error && error.code === 'WAHA_MEDIA_HOST_NOT_ALLOWED'
+  );
+});
 
 test('rechaza URLs multimedia fuera de los hosts WAHA autorizados', async () => {
   let fetched = false;
