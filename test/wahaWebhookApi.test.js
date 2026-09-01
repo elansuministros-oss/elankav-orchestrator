@@ -201,6 +201,88 @@ test('Owner guarda multimedia sin pasar por provider ni modelo', async () => {
   assert.equal(recorder.calls[0].payload.folder, 'rotulos_fachadas');
 });
 
+test('Owner pide una plantilla en lenguaje natural y recibe brief sin pasar por modelo', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'owner-creative-brief-01',
+      session: 'ELANKAV',
+      payload: {
+        from: '50588388940@c.us',
+        body: 'ELAN, creemos una plantilla para mensaje de prospectos de fachadas por WhatsApp, estilo premium.',
+        fromMe: false
+      }
+    }
+  });
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  const persisted = [];
+  let modelCalls = 0;
+  let providerCalls = 0;
+
+  await handleWahaWebhookApi({
+    req,
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async resolveRegisteredProvider() { providerCalls += 1; return null; },
+      async sendWahaText(input) { sent.push(input); return { id: 'brief-reply-1' }; },
+      async persistConversationEvent(input) { persisted.push(input); return { ok: true }; }
+    }
+  });
+
+  assert.equal(modelCalls, 0);
+  assert.equal(providerCalls, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /PROMPT TÉCNICO PARA CHATGPT/);
+  assert.match(sent[0].text, /1080 × 540 px/);
+  assert.match(sent[0].text, /fachadas y rotulación/);
+  assert.equal(persisted.length, 2);
+  assert.equal(recorder.calls[0].payload.ownerCreativeBrief, true);
+  assert.equal(recorder.calls[0].payload.ownerMode, true);
+});
+
+test('Owner puede pedir brief de video por nota transcrita en lenguaje natural', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'owner-video-brief-01',
+      session: 'ELANKAV',
+      payload: {
+        from: '50588388940@c.us',
+        type: 'ptt',
+        hasMedia: true,
+        media: { url: '/api/files/voice.ogg', mimetype: 'audio/ogg; codecs=opus', filename: 'voice.ogg' }
+      }
+    }
+  });
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  let modelCalls = 0;
+
+  await handleWahaWebhookApi({
+    req,
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async resolveRegisteredProvider() { return null; },
+      async downloadWahaMedia() { return { buffer: Buffer.from('audio'), mimeType: 'audio/ogg' }; },
+      async transcribeAudio() { return 'ELAN hagamos un video reel de fachadas de 20 segundos para prospectos'; },
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'video-brief-reply-1' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(modelCalls, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /BRIEF DE PRODUCCIÓN DE VIDEO/);
+  assert.match(sent[0].text, /1080 × 1920 px/);
+  assert.match(sent[0].text, /20 segundos/);
+  assert.equal(recorder.calls[0].payload.ownerCreativeBrief, true);
+});
+
 test('GET /webhook/inbound reports READY', async () => {
   const req = createRequest({ method: 'GET', body: null });
   const res = createResponse();

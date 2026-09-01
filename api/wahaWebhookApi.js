@@ -14,6 +14,7 @@ const {
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const { isLibraryMediaSaveRequest, librarySavedReply, saveOwnerWhatsappMedia } = require('../services/prospectingMediaLibraryService');
+const { buildCreativeBrief, isCreativeBriefRequest } = require('../services/ownerCreativeBriefService');
 const {
   publishConversationEventSafely,
   requestConversationDecision
@@ -454,7 +455,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-09' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-10' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -472,6 +473,8 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const ingestProviderTextImpl = dependencies.ingestProviderText || ingestProviderText;
   const ingestProviderDocumentImpl = dependencies.ingestProviderDocument || ingestProviderDocument;
   const saveOwnerWhatsappMediaImpl = dependencies.saveOwnerWhatsappMedia || saveOwnerWhatsappMedia;
+  const buildCreativeBriefImpl = dependencies.buildCreativeBrief || buildCreativeBrief;
+  const isCreativeBriefRequestImpl = dependencies.isCreativeBriefRequest || isCreativeBriefRequest;
   let incoming = null;
   let ownerIdentity = null;
   let welcomeAudioSent = false;
@@ -560,6 +563,52 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     if (incoming.messageType === 'audio') logVoiceEvent('VOICE_INBOUND_RECEIVED', { ...incoming, mimeType: incoming.media?.mimeType || null });
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
+
+    if (ownerIdentity.isOwner && isCreativeBriefRequestImpl(resolvedMessage)) {
+      const reply = buildCreativeBriefImpl(resolvedMessage);
+      const sent = await sendWahaTextImpl({
+        session: incoming.session,
+        chatId: incoming.chatId,
+        text: reply
+      });
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'inbound',
+        text: resolvedMessage,
+        externalMessageId: incoming.messageId || null,
+        actorType: 'owner',
+        actorName: 'Owner',
+        metadata: {
+          originalText: incoming.text || null,
+          transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
+          media: incoming.media || null,
+          ownerCreativeBrief: true
+        }
+      }));
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: reply,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: {
+          replyType: 'text',
+          ownerMode: true,
+          ownerCreativeBrief: true,
+          creativeKind: /\\b(video|reel|story|estado|spot|animacion|audiovisual)\\b/i.test(resolvedMessage) ? 'video' : 'html'
+        }
+      }));
+      sendJson(res, 200, {
+        ok: true,
+        processed: true,
+        replySent: true,
+        replyType: 'text',
+        ownerMode: true,
+        ownerCreativeBrief: true
+      });
+      return true;
+    }
 
     let providerTextResult = null;
     if (registeredProvider && incoming.messageType === 'text') {
