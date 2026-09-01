@@ -557,9 +557,22 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 
     const platform = process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL';
     const decisionResolver = dependencies.requestConversationDecision || (!dependencies.processMessage ? requestConversationDecision : null);
-    const decision = decisionResolver
-      ? await decisionResolver({ identity: incoming.senderRaw || incoming.chatId, platform, message: registeredProvider ? `[PROVEEDOR REGISTRADO: ${registeredProvider.tradeName}] ${resolvedMessage}` : resolvedMessage, ownerMode: ownerIdentity.isOwner })
-      : { action: 'RESPOND', welcome: { send: false, text: '' } };
+    // Owner traffic must never be blocked by customer automation/takeover gates.
+    // Owner identity is resolved locally from the canonical WhatsApp alias map,
+    // so an unavailable/incompatible CONNECT conversation decision endpoint
+    // cannot silence Owner Ops or normal Owner conversation.
+    const decision = ownerIdentity.isOwner
+      ? {
+          ok: true,
+          action: 'RESPOND',
+          reason: 'owner_bypass_customer_conversation_gate',
+          platform: { platformId: platform },
+          welcome: { send: false, text: '' },
+          history: []
+        }
+      : decisionResolver
+        ? await decisionResolver({ identity: incoming.senderRaw || incoming.chatId, platform, message: registeredProvider ? `[PROVEEDOR REGISTRADO: ${registeredProvider.tradeName}] ${resolvedMessage}` : resolvedMessage, ownerMode: false })
+        : { action: 'RESPOND', welcome: { send: false, text: '' } };
     if (decision.action === 'PAUSED') {
       sendJson(res, 200, { ok: true, processed: true, replySent: false, suppressed: true, reason: 'automation_disabled', platform }); return true;
     }
