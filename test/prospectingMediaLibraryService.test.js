@@ -12,6 +12,7 @@ const {
   enableLibraryCapture,
   hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
+  isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
   isLibraryMediaSaveRequest,
   rememberPendingOwnerMedia,
@@ -36,6 +37,16 @@ test('detecta orden natural de guardar recurso multimedia', () => {
   );
 });
 
+
+test('distingue activar Biblioteca multimedia de agregar imagen a cotización', () => {
+  assert.equal(isLibraryCaptureStartRequest('Activa modo biblioteca'), true);
+  assert.equal(isLibraryCaptureStartRequest('ELAN, activa la biblioteca para que te mande fotos'), true);
+  assert.equal(isLibraryCaptureStartRequest('Vamos a cargar unas imágenes a la biblioteca'), true);
+
+  assert.equal(isLibraryCaptureStartRequest('Agregá esta imagen a la cotización'), false);
+  assert.equal(isLibraryMediaSaveRequest('Agregá esta imagen a la cotización'), false);
+  assert.equal(isLibraryMediaSaveRequest('Mandale esta imagen al cliente'), false);
+});
 
 test('activa una sesión natural para recibir varias imágenes y conserva el contexto', () => {
   const owner = { session: 'ELANKAV', chatId: '50588388940@c.us' };
