@@ -1,0 +1,37 @@
+name: Provider Autonomous Investigation CI
+
+on:
+  push:
+    branches:
+      - feat/PROVIDER-AUTONOMOUS-INVESTIGATION-01
+  pull_request:
+    branches:
+      - stable/ORCHESTRATOR-WHATSAPP-CORE
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NPM_CONFIG_CACHE: /tmp/provider-autonomous-orchestrator-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check services/ownerProviderRecruitmentMessagePatch.js
+          node --check services/providerRecruitmentFollowupWorkerService.js
+      - name: Autonomous provider flow
+        run: |
+          node --test             test/providerAutonomousInvestigation.test.js             test/ownerProviderRecruitmentMessagePatch.test.js             test/providerRecruitmentFollowupWorkerService.test.js
+      - name: Protected Owner Prospecting
+        run: |
+          node --test             test/ownerProspectingCommandService.test.js             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js
+      - name: Protected WhatsApp core
+        run: |
+          node --test             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js             test/ownerOpsSupervisor.test.js
