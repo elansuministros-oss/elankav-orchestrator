@@ -22,12 +22,23 @@ function normalize(value) {
     .replace(/\s+/g, ' ');
 }
 
+function hasEmail(text) {
+  return /\b(correo|correos|email|emails)\b/.test(text);
+}
+
+function hasWhatsapp(text) {
+  return /\b(whatsapp|whatsap|wasap|wqasap|guasap|mensaje|mensajes)\b/.test(text);
+}
+
 function strategyFromText(normalized) {
-  if (/\bsolo\s+(?:correo|email)\b/.test(normalized)) return 'email_only';
-  if (/\bsolo\s+(?:whatsapp|wasap)\b/.test(normalized)) return 'whatsapp_only';
-  if (/\b(?:whatsapp|wasap)\s+(?:primero|antes)\b/.test(normalized)) return 'whatsapp_first';
-  if (/\b(?:correo|email)\s+(?:primero|antes)\b/.test(normalized)) return 'email_first';
-  if (/\bprimero\s+(?:por\s+)?(?:whatsapp|wasap)\b/.test(normalized)) return 'whatsapp_first';
+  const email = hasEmail(normalized);
+  const whatsapp = hasWhatsapp(normalized);
+  if (/\bsolo\s+(?:por\s+)?(?:correo|correos|email|emails)\b/.test(normalized)) return 'email_only';
+  if (/\bsolo\s+(?:por\s+)?(?:whatsapp|whatsap|wasap|wqasap|guasap|mensaje|mensajes)\b/.test(normalized)) return 'whatsapp_only';
+  if (whatsapp && !email) return 'whatsapp_only';
+  if (email && !whatsapp) return 'email_only';
+  if (/\b(?:whatsapp|whatsap|wasap|wqasap|guasap|mensaje|mensajes)\s+(?:primero|antes)\b/.test(normalized)) return 'whatsapp_first';
+  if (/\bprimero\s+(?:por\s+)?(?:whatsapp|whatsap|wasap|wqasap|guasap)\b/.test(normalized)) return 'whatsapp_first';
   return 'email_first';
 }
 
@@ -36,31 +47,37 @@ function detectOwnerProspectingOutreachCommand(message) {
   const normalized = normalize(raw);
   if (!raw) return null;
 
-  const outreachIntent =
-    /\b(contacta|contactar|envia|enviar|escribe|escribir|manda|mandar)\b/.test(normalized);
-  const prospectScope =
-    /\b(mision|prospectos?|empresas\s+encontradas|empresas\s+de\s+la\s+mision)\b/.test(normalized);
-  const channelIntent =
-    /\b(correo|email|whatsapp|wasap|mensajes?)\b/.test(normalized);
+  const pauseIntent = /\b(pausa|pausar|deten|detener|detene|parar|suspende|suspender|frena|frenar)\b/.test(normalized);
+  const startIntent = /\b(contacta|contactar|envia|enviar|escribe|escribir|manda|mandar|comenza|comenzar|empieza|empezar|inicia|iniciar|activa|activar|segui|seguir|continua|continuar|reanuda|reanudar)\b/.test(normalized);
+  const prospectScope = /\b(mision|prospectos?|empresas?|negocios?|lista|listas|encontrad[oa]s?|investigacion|investigadas?|contactos?|decisores?)\b/.test(normalized);
+  const readyScope = /\b(?:las|los|a\s+las|a\s+los)\s+que\s+(?:ya\s+)?(?:esten|estan|quedaron)\s+listas?\b/.test(normalized);
+  const channelIntent = hasEmail(normalized) || hasWhatsapp(normalized);
 
-  if (!outreachIntent || !prospectScope || !channelIntent) return null;
+  if (pauseIntent && (prospectScope || channelIntent || /\b(campana|envios|outreach)\b/.test(normalized))) {
+    return { type: COMMAND_TYPE, input: { action: 'pause', raw } };
+  }
+
+  if (!startIntent || !channelIntent || !(prospectScope || readyScope)) return null;
 
   const missionIdMatch = raw.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i);
   const missionTargetMatch =
     normalized.match(/\bmision\s+(?:de\s+)?(\d{1,3})\s+(?:prospectos?|empresas)?\b/) ||
     normalized.match(/\bmision\b[^.]{0,80}\b(\d{1,3})\s+(?:prospectos?|empresas)\b/);
   const maxTargetsMatch =
-    normalized.match(/\b(?:contacta|contactar|envia|enviar)\s+(?:a\s+)?(\d{1,3})\s+(?:empresas|prospectos)\b/);
+    normalized.match(/\b(?:contacta|contactar|envia|enviar|escribe|escribir|manda|mandar)\s+(?:a\s+)?(\d{1,3})\s+(?:empresas|prospectos|contactos)\b/) ||
+    normalized.match(/\b(?:solo|solamente|maximo|hasta)\s+(\d{1,3})\s+(?:empresas|prospectos|contactos)?\b/) ||
+    normalized.match(/\b(\d{1,3})\s+(?:empresas|prospectos|contactos)\s+(?:hoy|por\s+ahora)\b/);
 
   const missionTarget = missionTargetMatch ? Number(missionTargetMatch[1]) : null;
   const maxTargets = maxTargetsMatch ? Number(maxTargetsMatch[1]) : null;
-  const minPriority = /\bsolo\s+alta\s+prioridad\b/.test(normalized)
+  const minPriority = /\b(solo\s+)?alta\s+prioridad\b/.test(normalized)
     ? 'ALTA PRIORIDAD'
     : 'MEDIA PRIORIDAD';
 
   return {
     type: COMMAND_TYPE,
     input: {
+      action: /\b(reanuda|reanudar|continua|continuar|segui|seguir)\b/.test(normalized) ? 'resume' : 'start',
       ...(missionIdMatch ? { missionId: missionIdMatch[0] } : {}),
       ...(Number.isInteger(missionTarget) ? { missionTarget } : {}),
       ...(Number.isInteger(maxTargets) ? { maxTargets } : {}),
@@ -82,13 +99,13 @@ function assertControls(control, strategy) {
   if (control?.outreachEnabled !== true) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_OUTREACH_DISABLED',
-      'Outreach general está apagado. No creé ni activé campaña.'
+      'El envío comercial está apagado. No activé ninguna campaña.'
     );
   }
   if (control?.outreachAutopilotEnabled !== true) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_OUTREACH_AUTOPILOT_DISABLED',
-      'Outreach Autopilot está apagado. No creé ni activé campaña.'
+      'La ejecución automática está apagada. No activé ninguna campaña.'
     );
   }
 
@@ -96,13 +113,13 @@ function assertControls(control, strategy) {
   if (channels.includes('email') && control?.emailOutreachEnabled !== true) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_EMAIL_OUTREACH_DISABLED',
-      'Email Outreach está apagado. No creé ni activé campaña.'
+      'El envío por correo está apagado. No activé ninguna campaña.'
     );
   }
   if (channels.includes('whatsapp') && control?.whatsappOutreachEnabled !== true) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_WHATSAPP_OUTREACH_DISABLED',
-      'WhatsApp Outreach está apagado. No creé ni activé campaña.'
+      'El envío por WhatsApp está apagado. No activé ninguna campaña.'
     );
   }
 }
@@ -121,27 +138,38 @@ function chooseMission(missions, input) {
   }
 
   return rows.find(row =>
-    ['draft','running','partial','completed'].includes(String(row?.status || ''))
-  ) || null;
+    ['running','partial','draft'].includes(String(row?.status || ''))
+  ) || rows.find(row => String(row?.status || '') === 'completed') || null;
 }
 
 function formatCampaign(campaign, mission, control) {
+  const channels = requestedChannels(campaign?.strategy || 'email_first');
+  const channelText = channels.length === 2
+    ? (campaign?.strategy === 'whatsapp_first' ? 'WhatsApp primero y luego correo' : 'correo primero y luego WhatsApp')
+    : channels[0] === 'whatsapp' ? 'solo WhatsApp' : 'solo correo';
   return [
-    '✅ Outreach Autopilot activado.',
-    '',
-    'Misión: ' + (mission?.id || campaign?.missionId || 'sin id'),
-    'Objetivo de investigación: ' + Number(mission?.targetCompanies || 0) + ' empresas',
-    'Máximo de campaña: ' + Number(campaign?.maxTargets || 0) + ' prospectos',
-    'Estrategia: ' + String(campaign?.strategy || 'email_first'),
-    'Prioridad mínima: ' + String(campaign?.minPriority || 'MEDIA PRIORIDAD'),
-    'Estado: ' + String(campaign?.status || 'active'),
-    '',
-    'Email: ' + (control?.emailOutreachEnabled === true ? 'ON' : 'OFF'),
-    'WhatsApp: ' + (control?.whatsappOutreachEnabled === true ? 'ON' : 'OFF'),
-    'Outreach general: ' + (control?.outreachEnabled === true ? 'ON' : 'OFF'),
-    '',
-    'ELAN administrará la cola, dedupe, límites y seguimiento sin contacto manual empresa por empresa.'
+    '✅ Ya dejé activa la campaña comercial.',
+    `Voy a trabajar con las empresas listas de la investigación de ${Number(mission?.targetCompanies || 0)} empresas.`,
+    `Máximo de esta campaña: ${Number(campaign?.maxTargets || 0)} empresas.`,
+    `Canal: ${channelText}.`,
+    'Solo usaré decisores verificados, respetaré dedupe, límites, horario comercial y no contactaré registros bloqueados.',
+    control?.outreachAutopilotEnabled === true ? 'La cola quedó activa.' : 'La cola no quedó activa.'
   ].join('\n');
+}
+
+async function pauseActiveCampaigns(requestImpl) {
+  const active = await requestImpl(
+    '/api/v1/prospecting/outreach-campaigns?businessUnit=ELANVISUAL&status=active&limit=100',
+    { method: 'GET' }
+  );
+  const rows = Array.isArray(active) ? active : [];
+  for (const campaign of rows) {
+    await requestImpl(
+      '/api/v1/prospecting/outreach-campaigns/' + encodeURIComponent(campaign.id) + '/pause',
+      { method: 'PATCH' }
+    );
+  }
+  return rows;
 }
 
 async function executeOwnerProspectingOutreachCommand(
@@ -153,6 +181,17 @@ async function executeOwnerProspectingOutreachCommand(
   }
 
   const input = command.input || {};
+  if (input.action === 'pause') {
+    const paused = await pauseActiveCampaigns(requestImpl);
+    return {
+      handled: true,
+      outputText: paused.length
+        ? `Pausé ${paused.length} campaña(s) activa(s). No saldrán nuevos envíos mientras estén pausadas.`
+        : 'No había ninguna campaña comercial activa. No hice cambios adicionales.',
+      result: { action: 'pause', paused }
+    };
+  }
+
   const control = await requestImpl(
     '/api/v1/prospecting/control-status',
     { method: 'GET' }
@@ -167,7 +206,7 @@ async function executeOwnerProspectingOutreachCommand(
   if (!mission) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_MISSION_NOT_FOUND',
-      'No encontré una misión Prospecting que coincida con la orden.',
+      'No encontré una investigación comercial que coincida con tu orden.',
       404
     );
   }
@@ -206,7 +245,7 @@ async function executeOwnerProspectingOutreachCommand(
   return {
     handled: true,
     outputText: formatCampaign(active, mission, control),
-    result: { campaign: active, mission, control }
+    result: { action: input.action || 'start', campaign: active, mission, control }
   };
 }
 
@@ -218,6 +257,9 @@ module.exports = {
   detectOwnerProspectingOutreachCommand,
   executeOwnerProspectingOutreachCommand,
   formatCampaign,
+  hasEmail,
+  hasWhatsapp,
+  pauseActiveCampaigns,
   requestedChannels,
   strategyFromText
 };
