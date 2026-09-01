@@ -13,6 +13,7 @@ const {
   resolveRegisteredProvider
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
+const { isLibraryMediaSaveRequest, librarySavedReply, saveOwnerWhatsappMedia } = require('../services/prospectingMediaLibraryService');
 const {
   publishConversationEventSafely,
   requestConversationDecision
@@ -274,9 +275,11 @@ function extractMessageType(payload = {}) {
   const explicit = String(payload.type || payload.messageType || payload._data?.type || '').toLowerCase();
   if (['ptt', 'audio', 'voice'].includes(explicit)) return 'audio';
   if (['image', 'photo'].includes(explicit)) return 'image';
+  if (explicit === 'video') return 'video';
   if (['document', 'file'].includes(explicit)) return 'document';
   if (payload.message?.audioMessage) return 'audio';
   if (payload.message?.imageMessage) return 'image';
+  if (payload.message?.videoMessage) return 'video';
   if (payload.message?.documentMessage) return 'document';
   const media = payload.media || payload._data?.media || null;
   const mimeType = String(
@@ -286,7 +289,8 @@ function extractMessageType(payload = {}) {
   ).toLowerCase();
   if (mimeType.startsWith('audio/')) return 'audio';
   if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType && !mimeType.startsWith('video/')) return 'document';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType) return 'document';
   if (extractText(payload)) return 'text';
   return 'unknown';
 }
@@ -302,12 +306,14 @@ function extractMedia(payload = {}) {
     url,
     mimeType: String(
       payload.mimetype || payload.mimeType || payload.message?.mimetype || payload.message?.mimeType ||
+      payload.message?.imageMessage?.mimetype || payload.message?.videoMessage?.mimetype ||
       payload._data?.mimetype || payload._data?.mimeType ||
       (media && typeof media === 'object' ? media.mimetype || media.mimeType : '') ||
       'application/octet-stream'
     ),
     filename: String(
-      payload.filename || payload.message?.filename || payload.message?.documentMessage?.fileName ||
+      payload.filename || payload.message?.filename || payload.message?.imageMessage?.fileName ||
+      payload.message?.videoMessage?.fileName || payload.message?.documentMessage?.fileName ||
       (media && typeof media === 'object' ? media.filename : '') || 'attachment'
     )
   };
@@ -406,7 +412,7 @@ async function sendWahaVoice({ session, chatId, data, mimeType, fetchImpl = fetc
 }
 
 async function resolveIncomingMessage(incoming, dependencies = {}) {
-  if (incoming.messageType === 'image' || incoming.messageType === 'document') {
+  if (incoming.messageType === 'image' || incoming.messageType === 'video' || incoming.messageType === 'document') {
     return incoming.text || `[Archivo recibido: ${incoming.media?.filename || 'adjunto'}]`;
   }
   if (incoming.messageType !== 'audio') return incoming.text;
@@ -448,7 +454,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-08' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-09' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -465,6 +471,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const resolveProviderImpl = dependencies.resolveRegisteredProvider || resolveRegisteredProvider;
   const ingestProviderTextImpl = dependencies.ingestProviderText || ingestProviderText;
   const ingestProviderDocumentImpl = dependencies.ingestProviderDocument || ingestProviderDocument;
+  const saveOwnerWhatsappMediaImpl = dependencies.saveOwnerWhatsappMedia || saveOwnerWhatsappMedia;
   let incoming = null;
   let ownerIdentity = null;
   let welcomeAudioSent = false;
@@ -492,6 +499,33 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     }
 
     ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
+
+    if (ownerIdentity.isOwner && ['image', 'video'].includes(incoming.messageType) && incoming.media?.url && isLibraryMediaSaveRequest(incoming.text)) {
+      const saved = await saveOwnerWhatsappMediaImpl({ incoming });
+      const reply = librarySavedReply(saved);
+      const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'inbound',
+        text: incoming.text || `[${saved.mediaKind === 'video' ? 'Video' : 'Imagen'} guardado en biblioteca]`,
+        externalMessageId: incoming.messageId || null,
+        actorType: 'owner',
+        actorName: 'Owner',
+        metadata: { media: incoming.media || null, mediaLibrary: true, mediaKind: saved.mediaKind, folder: saved.folder, itemId: saved.item?.id || null }
+      }));
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: reply,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: { replyType: 'text', ownerMode: true, mediaLibrary: true, mediaKind: saved.mediaKind, folder: saved.folder, itemId: saved.item?.id || null }
+      }));
+      sendJson(res, 200, { ok: true, processed: true, replySent: true, replyType: 'text', ownerMode: true, mediaLibrary: true, mediaKind: saved.mediaKind, folder: saved.folder, itemId: saved.item?.id || null });
+      return true;
+    }
+
     const registeredProvider = !ownerIdentity.isOwner && incoming.phone
       ? await resolveProviderImpl({ phone: incoming.phone })
       : null;
