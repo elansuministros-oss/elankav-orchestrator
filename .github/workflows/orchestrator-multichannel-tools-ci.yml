@@ -44,7 +44,7 @@ jobs:
           node-version: 22
 
       - name: Install
-        run: npm ci
+        run: npm ci --package-lock-only=false
 
       - name: Syntax
         run: |
