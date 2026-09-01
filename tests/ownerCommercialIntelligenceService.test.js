@@ -188,6 +188,240 @@ test('tool calling natural consulta briefing y usa su resultado para la respuest
   assert.match(result.outputText, /2 correos pendientes/);
 });
 
+test('normaliza fechas del modelo y hace prevalecer el período natural del Owner', async () => {
+  const calls = [];
+  let round = 0;
+  const adapter = {
+    async getReport(filters) {
+      calls.push(filters);
+      return {
+        ok: true,
+        range: { from: filters.from, to: filters.to, timezone: 'America/Managua' },
+        summary: {
+          conversations: 2,
+          inboundMessages: 8,
+          outboundMessages: 7,
+          elanResponses: 7,
+          humanResponses: 0
+        }
+      };
+    },
+    async getBriefing() {
+      throw new Error('briefing no esperado');
+    }
+  };
+
+  const result = await answerOwnerCommercialQuery({
+    input: 'cómo va el rendimiento de esta semana',
+    now: new Date('2026-09-01T03:00:00.000Z'),
+    adapter,
+    createToolResponseImpl: async request => {
+      round += 1;
+      if (round === 1) {
+        return {
+          id: 'week-1',
+          model: 'test-model',
+          status: 'completed',
+          outputText: '',
+          output: [{
+            type: 'function_call',
+            call_id: 'week-call',
+            name: 'get_commercial_report',
+            arguments: JSON.stringify({
+              from: '2026-08-31T00:00:00-06:00',
+              to: '2026-09-01T03:00:00Z'
+            })
+          }],
+          usage: null
+        };
+      }
+
+      return {
+        id: 'week-2',
+        model: 'test-model',
+        status: 'completed',
+        outputText: 'Esta semana recibimos 8 mensajes.',
+        output: [],
+        usage: null
+      };
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].from, '2026-08-31T06:00:00.000Z');
+  assert.equal(calls[0].to, '2026-09-01T03:00:00.000Z');
+  assert.match(result.outputText, /8 mensajes/);
+});
+
+test('si briefing filtrado falla, deriva pendientes de email desde reporte real sin inventar', async () => {
+  let briefingCalls = 0;
+  let reportCalls = 0;
+  const adapter = {
+    async getBriefing(filters) {
+      briefingCalls += 1;
+      const error = new Error('No fue posible completar la operación.');
+      error.code = 'INTERNAL_ERROR';
+      error.status = 500;
+      error.filters = filters;
+      throw error;
+    },
+    async getReport(filters) {
+      reportCalls += 1;
+      assert.deepEqual(filters, {});
+      return {
+        ok: true,
+        range: {
+          from: '2026-08-26T00:00:00.000Z',
+          to: '2026-09-01T03:00:00.000Z',
+          timezone: 'America/Managua'
+        },
+        summary: {
+          conversations: 3,
+          inboundMessages: 10,
+          outboundMessages: 9
+        },
+        attention: {
+          awaitingUs: [
+            {
+              conversationId: 'email-1',
+              customer: 'Cliente Email',
+              channel: 'email',
+              businessUnit: 'ELANVISUAL',
+              priority: 'normal',
+              summary: 'Solicitó una cotización',
+              lastMessageAt: '2026-09-01T02:00:00.000Z'
+            },
+            {
+              conversationId: 'wa-1',
+              customer: 'Cliente WhatsApp',
+              channel: 'whatsapp',
+              businessUnit: 'ELANVISUAL',
+              priority: 'normal',
+              summary: 'Otro caso',
+              lastMessageAt: '2026-09-01T02:10:00.000Z'
+            }
+          ],
+          awaitingCustomer: [],
+          followUp: [],
+          ownerRecommended: [
+            {
+              conversationId: 'email-1',
+              customer: 'Cliente Email',
+              channel: 'email',
+              businessUnit: 'ELANVISUAL',
+              summary: 'Solicitó una cotización',
+              lastMessageAt: '2026-09-01T02:00:00.000Z'
+            }
+          ]
+        },
+        daily: []
+      };
+    }
+  };
+
+  const result = await answerOwnerCommercialQuery({
+    input: 'qué correos tengo pendientes y cuáles debería atender yo personalmente',
+    adapter,
+    createToolResponseImpl: async () => ({
+      id: 'email-tool',
+      model: 'test-model',
+      status: 'completed',
+      outputText: '',
+      output: [{
+        type: 'function_call',
+        call_id: 'email-call',
+        name: 'get_commercial_briefing',
+        arguments: JSON.stringify({ channel: 'email' })
+      }],
+      usage: null
+    })
+  });
+
+  assert.equal(briefingCalls, 2);
+  assert.equal(reportCalls, 1);
+  assert.equal(result.handled, true);
+  assert.equal(result.degraded, true);
+  assert.match(result.outputText, /1 correos\/conversaciones por email/);
+  assert.match(result.outputText, /Cliente Email/);
+  assert.doesNotMatch(result.outputText, /Cliente WhatsApp/);
+});
+
+test('si reporte semanal filtrado falla, proyecta el período desde daily del reporte real', async () => {
+  let filteredCalls = 0;
+  let fullCalls = 0;
+  const adapter = {
+    async getBriefing() {
+      throw new Error('briefing no esperado');
+    },
+    async getReport(filters) {
+      if (Object.keys(filters).length) {
+        filteredCalls += 1;
+        const error = new Error('No fue posible completar la operación.');
+        error.code = 'INTERNAL_ERROR';
+        error.status = 500;
+        throw error;
+      }
+
+      fullCalls += 1;
+      return {
+        ok: true,
+        range: {
+          from: '2026-08-26T00:00:00.000Z',
+          to: '2026-09-01T03:00:00.000Z',
+          timezone: 'America/Managua'
+        },
+        daily: [
+          {
+            date: '2026-08-30',
+            inboundMessages: 100,
+            outboundMessages: 100,
+            elanResponses: 100,
+            humanResponses: 0,
+            quotesCreated: 0,
+            quotesAccepted: 0,
+            quotesAcceptedValue: 0
+          },
+          {
+            date: '2026-08-31',
+            inboundMessages: 20,
+            outboundMessages: 18,
+            elanResponses: 18,
+            humanResponses: 0,
+            quotesCreated: 1,
+            quotesAccepted: 0,
+            quotesAcceptedValue: 0
+          }
+        ],
+        attention: {
+          awaitingUs: [],
+          followUp: [],
+          ownerRecommended: []
+        }
+      };
+    }
+  };
+
+  const result = await answerOwnerCommercialQuery({
+    input: 'cómo va el rendimiento de esta semana',
+    now: new Date('2026-09-01T03:00:00.000Z'),
+    adapter,
+    createToolResponseImpl: async () => ({
+      id: 'week-no-tool',
+      model: 'test-model',
+      status: 'completed',
+      outputText: '',
+      output: [],
+      usage: null
+    })
+  });
+
+  assert.equal(filteredCalls, 1);
+  assert.equal(fullCalls, 1);
+  assert.equal(result.degraded, true);
+  assert.match(result.outputText, /20 mensajes recibidos/);
+  assert.doesNotMatch(result.outputText, /100 mensajes recibidos/);
+});
+
 test('generateText intercepta la consulta Owner antes de la respuesta genérica', async () => {
   let calls = 0;
   const result = await generateText({
