@@ -525,7 +525,7 @@ test('Owner puede mandar primero la imagen y después decir cargar a la bibliote
   assert.equal(modelCalls, 1);
   assert.equal(savedInputs.length, 1);
   assert.equal(savedInputs[0].media.filename, 'pending.jpg');
-  assert.match(savedInputs[0].text, /Cargar a la biblioteca/);
+  assert.match(savedInputs[0].text, /Guardar en biblioteca/);
   assert.equal(recorder.calls[0].payload.pendingMediaSaved, true);
   assert.equal(recorder.calls[0].payload.mediaLibraryCapture, 'active');
 });
