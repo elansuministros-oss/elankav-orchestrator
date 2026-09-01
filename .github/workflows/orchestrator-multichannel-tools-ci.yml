@@ -44,7 +44,7 @@ jobs:
           node-version: 22
 
       - name: Install
-        run: npm ci --package-lock-only=false
+        run: npm ci --package-lock-only=false --cache="${RUNNER_TEMP}/npm-cache"
 
       - name: Syntax
         run: |
