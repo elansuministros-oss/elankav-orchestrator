@@ -436,6 +436,162 @@ test('Owner puede mandar primero la imagen y después decir cargar a la bibliote
   assert.equal(recorder.calls[0].payload.mediaLibraryCapture, 'active');
 });
 
+test('Owner en Modo Biblioteca recupera media URL faltante y guarda sin pasar por modelo', async () => {
+  const sent = [];
+  const persisted = [];
+  let modelCalls = 0;
+  let hydratedCalls = 0;
+  let savedCalls = 0;
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-library-mode-start-url-recovery',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'ELAN, te pasaré unas imágenes para cargar a la biblioteca',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: createSendJsonRecorder().sendJson,
+    dependencies: {
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'mode-start-reply' }; },
+      async persistConversationEvent(input) { persisted.push(input); return { ok: true }; }
+    }
+  });
+
+  const recorder = createSendJsonRecorder();
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-library-missing-media-url-01',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          type: 'image',
+          hasMedia: true,
+          caption: 'Fachada ACM negro con letras PVC',
+          media: {
+            url: null,
+            mimetype: 'image/jpeg',
+            filename: null
+          }
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async hydrateOwnerWhatsappMedia({ incoming }) {
+        hydratedCalls += 1;
+        return {
+          ...incoming,
+          media: {
+            ...(incoming.media || {}),
+            url: 'http://localhost:3000/api/files/recovered.jpg',
+            mimeType: 'image/jpeg',
+            filename: 'recovered.jpg'
+          }
+        };
+      },
+      async saveOwnerWhatsappMedia({ incoming }) {
+        savedCalls += 1;
+        assert.equal(incoming.media.url, 'http://localhost:3000/api/files/recovered.jpg');
+        return {
+          item: { id: 'media-recovered-1' },
+          folder: 'rotulos_fachadas',
+          folderLabel: 'Rótulos y fachadas',
+          tags: ['fachada','acm','pvc','image'],
+          mediaKind: 'image'
+        };
+      },
+      async sendWahaText(input) { sent.push(input); return { id: 'saved-recovered-reply' }; },
+      async persistConversationEvent(input) { persisted.push(input); return { ok: true }; }
+    }
+  });
+
+  assert.equal(modelCalls, 0);
+  assert.equal(hydratedCalls, 1);
+  assert.equal(savedCalls, 1);
+  assert.equal(recorder.calls[0].payload.mediaLibrary, true);
+  assert.equal(recorder.calls[0].payload.captureActive, true);
+  assert.match(sent.at(-1).text, /guardado en Biblioteca multimedia/);
+});
+
+test('Error al guardar multimedia responde código específico y no cae al fallback genérico', async () => {
+  const sent = [];
+  let modelCalls = 0;
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-library-mode-start-error-code',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'ELAN, te pasaré unas imágenes para cargar a la biblioteca',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: createSendJsonRecorder().sendJson,
+    dependencies: {
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'mode-start-error-reply' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  const recorder = createSendJsonRecorder();
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-library-save-error-01',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          type: 'image',
+          caption: 'Fachada ACM',
+          media: {
+            url: '/api/files/fachada-error.jpg',
+            mimetype: 'image/jpeg',
+            filename: 'fachada-error.jpg'
+          }
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async hydrateOwnerWhatsappMedia({ incoming }) { return incoming; },
+      async saveOwnerWhatsappMedia() {
+        const error = new Error('CONNECT media HTTP 401');
+        error.code = 'CONNECT_INTERNAL_UNAUTHORIZED';
+        error.status = 401;
+        throw error;
+      },
+      async sendWahaText(input) { sent.push(input); return { id: 'library-specific-error-reply' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(modelCalls, 0);
+  assert.equal(recorder.calls[0].payload.mediaLibraryError, 'CONNECT_INTERNAL_UNAUTHORIZED');
+  assert.match(sent.at(-1).text, /CONNECT_INTERNAL_UNAUTHORIZED/);
+  assert.doesNotMatch(sent.at(-1).text, /módulo interno falló/);
+});
+
 test('GET /webhook/inbound reports READY', async () => {
   const req = createRequest({ method: 'GET', body: null });
   const res = createResponse();

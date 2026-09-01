@@ -48,6 +48,12 @@ function normalizeText(value) {
 function isLibraryMediaSaveRequest(text) {
   const value = normalizeText(text);
   if (!value) return false;
+
+  const diagnosticOrControlIntent =
+    /\b(log|logs|error|errores|estado|status|salud|health|supervisor|deploy|despliegue|commit|rama|branch|servicio|systemctl|journal|solo lectura|read only|no reinicies|no despliegues|no toques|audita|auditar|revisa|revisar|diagnostica|diagnosticar|muestra|muestrame|mostrar)\b/.test(value);
+
+  if (diagnosticOrControlIntent) return false;
+
   const action = /\b(carga|cargar|cargalo|cargala|guarda|guardar|guardalo|guardala|agrega|agregar|agregalo|agregala|sube|subir|archiva|archivar|pasare|pasarte|mandare|mandarte|enviare|enviarte)\b/.test(value);
   const destination = /\b(biblioteca|recursos|recurso|muestras|portafolio)\b/.test(value);
   return action && destination;
@@ -108,7 +114,8 @@ function isLibraryCaptureActive(incoming) {
 }
 
 function rememberPendingOwnerMedia(incoming) {
-  if (!incoming?.media?.url || !['image', 'video'].includes(incoming.messageType)) return null;
+  if (!['image', 'video'].includes(incoming?.messageType)) return null;
+  if (!incoming?.media?.url && !incoming?.messageId) return null;
   pruneOwnerLibraryState();
   const key = ownerLibraryKey(incoming);
   const remembered = {
@@ -252,6 +259,77 @@ function connectInternalToken() {
     .digest('hex');
 }
 
+async function hydrateOwnerWhatsappMedia({ incoming, fetchImpl = fetch }) {
+  if (!incoming || !['image', 'video'].includes(incoming.messageType)) return incoming;
+  if (incoming.media?.url) return incoming;
+
+  const messageId = String(incoming.messageId || '').trim();
+  const chatId = String(incoming.chatId || incoming.senderRaw || '').trim();
+  const session = String(incoming.session || process.env.WAHA_SESSION || 'default').trim();
+
+  if (!messageId || !chatId) {
+    throw createError('WAHA_MEDIA_REFERENCE_REQUIRED', 400, 'No existe referencia suficiente para recuperar el archivo desde WAHA.');
+  }
+
+  const { baseUrl, internalBaseUrl, apiKey } = getWahaConfig();
+  const candidates = [...new Set([internalBaseUrl, baseUrl].filter(Boolean))];
+  let lastError = null;
+
+  for (const base of candidates) {
+    try {
+      const target = new URL(
+        `/api/${encodeURIComponent(session)}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+        `${String(base).replace(/\/+$/, '')}/`
+      );
+      target.searchParams.set('downloadMedia', 'true');
+
+      const headers = { Accept: 'application/json' };
+      if (apiKey) headers['X-Api-Key'] = apiKey;
+
+      const response = await fetchImpl(target.toString(), {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(Number(process.env.WAHA_MEDIA_LOOKUP_TIMEOUT_MS || 30_000))
+      });
+
+      if (!response.ok) {
+        lastError = createError('WAHA_MEDIA_LOOKUP_FAILED', response.status, `WAHA media lookup HTTP ${response.status}`);
+        continue;
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      const media = payload?.media && typeof payload.media === 'object' ? payload.media : {};
+      const url = String(media.url || payload.mediaUrl || payload.downloadUrl || '').trim();
+      if (!url) {
+        lastError = createError('WAHA_MEDIA_URL_UNAVAILABLE', 422, 'WAHA reconoce el archivo pero todavía no entregó una URL descargable.');
+        continue;
+      }
+
+      return {
+        ...incoming,
+        media: {
+          ...(incoming.media || {}),
+          url,
+          mimeType: String(
+            media.mimetype || media.mimeType ||
+            payload.mimetype || payload.mimeType ||
+            incoming.media?.mimeType || ''
+          ).trim() || 'application/octet-stream',
+          filename: String(
+            media.filename || payload.filename ||
+            incoming.media?.filename || 'attachment'
+          ).trim() || 'attachment'
+        }
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError?.code) throw lastError;
+  throw createError('WAHA_MEDIA_URL_UNAVAILABLE', 422, 'No fue posible recuperar el archivo desde WAHA.');
+}
+
 async function downloadMedia({ url, webhookMimeType, fetchImpl = fetch }) {
   const { baseUrl, internalBaseUrl, apiKey } = getWahaConfig();
   const authorized = [baseUrl, internalBaseUrl].filter(Boolean);
@@ -383,6 +461,7 @@ module.exports = {
   disableLibraryCapture,
   enableLibraryCapture,
   getLibraryCapture,
+  hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
   isLibraryCaptureStopRequest,
   isLibraryMediaSaveRequest,
