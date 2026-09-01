@@ -29,6 +29,12 @@ jobs:
       - name: Autonomous provider flow
         run: |
           node --test             test/providerAutonomousInvestigation.test.js             test/ownerProviderRecruitmentMessagePatch.test.js             test/providerRecruitmentFollowupWorkerService.test.js
+      - name: Protected component registry
+        run: |
+          node --test \
+            test/protectedComponentRegistry.test.js \
+            test/protectedConnectSourceContracts.test.js
+
       - name: Protected Owner Prospecting
         run: |
           node --test             test/ownerProspectingCommandService.test.js             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js
