@@ -48,6 +48,12 @@ function normalizeText(value) {
 function isLibraryMediaSaveRequest(text) {
   const value = normalizeText(text);
   if (!value) return false;
+
+  const diagnosticOrControlIntent =
+    /\b(log|logs|error|errores|estado|status|salud|health|supervisor|deploy|despliegue|commit|rama|branch|servicio|systemctl|journal|solo lectura|read only|no reinicies|no despliegues|no toques|audita|auditar|revisa|revisar|diagnostica|diagnosticar|muestra|muestrame|mostrar)\b/.test(value);
+
+  if (diagnosticOrControlIntent) return false;
+
   const action = /\b(carga|cargar|cargalo|cargala|guarda|guardar|guardalo|guardala|agrega|agregar|agregalo|agregala|sube|subir|archiva|archivar|pasare|pasarte|mandare|mandarte|enviare|enviarte)\b/.test(value);
   const destination = /\b(biblioteca|recursos|recurso|muestras|portafolio)\b/.test(value);
   return action && destination;
