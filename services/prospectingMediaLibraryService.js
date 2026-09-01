@@ -109,11 +109,44 @@ function pruneOwnerLibraryState(now = Date.now()) {
 function enableLibraryCapture(incoming, contextText = '') {
   pruneOwnerLibraryState();
   const key = ownerLibraryKey(incoming);
+  const previous = libraryCaptureSessions.get(key) || {};
   libraryCaptureSessions.set(key, {
-    contextText: String(contextText || '').trim(),
+    contextText: String(contextText || previous.contextText || '').trim(),
+    projectContext: String(previous.projectContext || '').trim(),
+    lastSavedItemId: previous.lastSavedItemId || null,
     expiresAt: Date.now() + LIBRARY_CAPTURE_TTL_MS
   });
   return { key, active: true };
+}
+
+function setLibraryProjectContext(incoming, contextText = '') {
+  pruneOwnerLibraryState();
+  const key = ownerLibraryKey(incoming);
+  const current = libraryCaptureSessions.get(key) || {
+    contextText: '',
+    lastSavedItemId: null
+  };
+  libraryCaptureSessions.set(key, {
+    ...current,
+    projectContext: String(contextText || '').trim(),
+    expiresAt: Date.now() + LIBRARY_CAPTURE_TTL_MS
+  });
+  return libraryCaptureSessions.get(key);
+}
+
+function setLibraryLastSavedItem(incoming, itemId) {
+  pruneOwnerLibraryState();
+  const key = ownerLibraryKey(incoming);
+  const current = libraryCaptureSessions.get(key) || {
+    contextText: '',
+    projectContext: ''
+  };
+  libraryCaptureSessions.set(key, {
+    ...current,
+    lastSavedItemId: String(itemId || '').trim() || null,
+    expiresAt: Date.now() + LIBRARY_CAPTURE_TTL_MS
+  });
+  return libraryCaptureSessions.get(key);
 }
 
 function disableLibraryCapture(incoming) {
@@ -165,11 +198,137 @@ function consumePendingOwnerMedia(incoming) {
   return value;
 }
 
+function hasUsefulLibraryDescription(text) {
+  const value = normalizeText(text);
+  if (!value) return false;
+  const cleaned = value
+    .replace(/\b(elan|modo|biblioteca|multimedia|activa|activar|carga|cargar|guardar|guarda|imagen|imagenes|foto|fotos|video|videos|archivo|archivos|te voy a pasar|voy a pasar|mandame|mandar|mismo proyecto|mismas fotos|varios angulos|varios ángulos)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned.length < 8) return false;
+
+  const folder = classifyFolder(text);
+  const tags = classifyTags(text, 'image').filter((tag) => tag !== 'image');
+  return folder !== 'otros' || tags.length > 0 || /\bproyecto\b/.test(value);
+}
+
+function resolveLibraryDescription(incoming) {
+  const direct = String(incoming?.text || '').trim();
+  if (hasUsefulLibraryDescription(direct)) return direct;
+  const capture = getLibraryCapture(incoming);
+  const project = String(capture?.projectContext || '').trim();
+  if (hasUsefulLibraryDescription(project)) return project;
+  return '';
+}
+
+function isSameProjectContextRequest(text) {
+  const value = normalizeText(text);
+  return /\b(mismo proyecto|misma obra|mismo trabajo|mismas fotos|varios angulos|varios ángulos|todas estas fotos|todas son del proyecto|son del mismo proyecto)\b/.test(value);
+}
+
+function isQuotationMediaRequest(text) {
+  const value = normalizeText(text);
+  if (!value) return false;
+  const quote = /\b(cotizacion|presupuesto|propuesta)\b/.test(value);
+  const action = /\b(agrega|agregar|agregalo|agregala|pone|poner|incluye|incluir|adjunta|adjuntar)\b/.test(value);
+  return quote && action;
+}
+
+function isLibraryMaintenanceRequest(text) {
+  const value = normalizeText(text);
+  if (!value) return false;
+  const target = /\b(ultima foto|ultima imagen|ultimo video|ultimo archivo|ultima que guarde|ultima guardada|esa foto|esa imagen)\b/.test(value);
+  const action = /\b(corrige|corregir|edita|editar|cambia|cambiar|actualiza|actualizar|mueve|mover|archiva|archivar|elimina|eliminar|borra|borrar)\b/.test(value);
+  return target && action;
+}
+
+function maintenanceDescription(text) {
+  const raw = String(text || '').trim();
+  const match = raw.match(/(?:descripcion|descripción|pon(?:le)?|cambia(?:la)? a|corrige(?:la)?(?: como)?|editar?(?:la)?(?: como)?)\s*[:=-]?\s*(.+)$/i);
+  return String(match?.[1] || '').trim();
+}
+
+function wantsArchiveMedia(text) {
+  return /\b(archiva|archivar|elimina|eliminar|borra|borrar)\b/.test(normalizeText(text));
+}
+
+async function listConnectMedia({ limit = 10, fetchImpl = fetch } = {}) {
+  const token = connectInternalToken();
+  if (!token) throw createError('CONNECT_INTERNAL_TOKEN_REQUIRED', 503);
+  const target = new URL('/api/v1/prospecting/media-library/items', connectBaseUrl() + '/');
+  target.searchParams.set('limit', String(Math.max(1, Math.min(100, limit))));
+  const response = await fetchImpl(target.toString(), {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(Number(process.env.CONNECT_MEDIA_UPLOAD_TIMEOUT_MS || 60_000))
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw createError(payload?.error?.code || 'CONNECT_MEDIA_LIST_FAILED', response.status);
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
+async function updateConnectMedia({ id, patch, fetchImpl = fetch }) {
+  const token = connectInternalToken();
+  if (!token) throw createError('CONNECT_INTERNAL_TOKEN_REQUIRED', 503);
+  const target = new URL(`/api/v1/prospecting/media-library/items/${encodeURIComponent(id)}`, connectBaseUrl() + '/');
+  const response = await fetchImpl(target.toString(), {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(patch || {}),
+    signal: AbortSignal.timeout(Number(process.env.CONNECT_MEDIA_UPLOAD_TIMEOUT_MS || 60_000))
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw createError(payload?.error?.code || 'CONNECT_MEDIA_UPDATE_FAILED', response.status);
+  return payload;
+}
+
+async function maintainLastLibraryMedia({ incoming, text, fetchImpl = fetch }) {
+  if (!isLibraryMaintenanceRequest(text)) return null;
+  const capture = getLibraryCapture(incoming);
+  let id = String(capture?.lastSavedItemId || '').trim();
+  let current = null;
+  if (!id) {
+    const items = await listConnectMedia({ limit: 10, fetchImpl });
+    current = items.find((item) => item?.mediaKind === 'image') || items[0] || null;
+    id = String(current?.id || '').trim();
+  }
+  if (!id) throw createError('PROSPECTING_MEDIA_NOT_FOUND', 404);
+
+  if (wantsArchiveMedia(text)) {
+    const item = await updateConnectMedia({ id, patch: { status: 'archived' }, fetchImpl });
+    return { action: 'archived', item };
+  }
+
+  const description = maintenanceDescription(text);
+  if (!description) {
+    return { action: 'needs_description', item: current || { id } };
+  }
+
+  const folder = classifyFolder(description);
+  const mediaKind = String(current?.mediaKind || 'image');
+  const tags = classifyTags(description, mediaKind);
+  const item = await updateConnectMedia({
+    id,
+    patch: {
+      description,
+      title: titleFromInstruction(description, folder, mediaKind),
+      folder,
+      tags
+    },
+    fetchImpl
+  });
+  return { action: 'updated', item, folder, tags };
+}
+
 function composeLibraryInstruction(incoming, extraText = '') {
   const capture = getLibraryCapture(incoming);
   return [
     'Guardar en biblioteca.',
-    capture?.contextText || '',
+    capture?.projectContext || '',
     incoming?.text || '',
     extraText || ''
   ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
@@ -514,15 +673,25 @@ module.exports = {
   disableLibraryCapture,
   enableLibraryCapture,
   getLibraryCapture,
+  hasUsefulLibraryDescription,
   hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
   isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
+  isLibraryMaintenanceRequest,
+  isQuotationMediaRequest,
+  isSameProjectContextRequest,
   isLibraryMediaSaveRequest,
   librarySavedReply,
+  listConnectMedia,
+  maintainLastLibraryMedia,
   peekPendingOwnerMedia,
   rememberPendingOwnerMedia,
+  resolveLibraryDescription,
   saveOwnerWhatsappMedia,
+  setLibraryLastSavedItem,
+  setLibraryProjectContext,
   titleFromInstruction,
+  updateConnectMedia,
   uploadToConnect
 };
