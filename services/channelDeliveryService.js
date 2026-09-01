@@ -182,6 +182,7 @@ function createChannelDeliveryService({
         to: input.to,
         subject: input.subject,
         text,
+        html: input.html,
         threadId: input.threadId,
         inReplyTo: input.inReplyTo,
         references: input.references,
