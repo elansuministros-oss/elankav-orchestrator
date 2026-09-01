@@ -59,6 +59,30 @@ function isLibraryMediaSaveRequest(text) {
   return action && destination;
 }
 
+function isLibraryCaptureStartRequest(text) {
+  const value = normalizeText(text);
+  if (!value) return false;
+
+  const diagnosticOrControlIntent =
+    /\b(log|logs|error|errores|estado|status|salud|health|supervisor|deploy|despliegue|commit|rama|branch|servicio|systemctl|journal|solo lectura|read only|no reinicies|no despliegues|no toques|audita|auditar|revisa|revisar|diagnostica|diagnosticar|muestra|muestrame|mostrar)\b/.test(value);
+
+  if (diagnosticOrControlIntent) return false;
+
+  const library = /\b(biblioteca|biblioteca multimedia|recursos|portafolio)\b/.test(value);
+  if (!library) return false;
+
+  const explicitMode =
+    /\b(modo biblioteca|modo de biblioteca|modo carga|modo de carga)\b/.test(value);
+
+  const startAction =
+    /\b(activa|activar|habilita|habilitar|abre|abrir|inicia|iniciar|empieza|empezar|comienza|comenzar|entra|entrar|pon|poner|vamos a cargar|voy a pasar|te voy a pasar|te pasare|te mandare|te enviare)\b/.test(value);
+
+  const mediaContext =
+    /\b(imagen|imagenes|foto|fotos|video|videos|archivo|archivos|media|multimedia)\b/.test(value);
+
+  return explicitMode || (startAction && (mediaContext || /\bcarga\b|\bcargar\b/.test(value)));
+}
+
 function isLibraryCaptureStopRequest(text) {
   const value = normalizeText(text);
   if (!value) return false;
@@ -492,6 +516,7 @@ module.exports = {
   getLibraryCapture,
   hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
+  isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
   isLibraryMediaSaveRequest,
   librarySavedReply,
