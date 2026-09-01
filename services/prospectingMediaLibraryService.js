@@ -93,6 +93,11 @@ function disableLibraryCapture(incoming) {
   return { key, active: false };
 }
 
+function clearOwnerLibraryState() {
+  libraryCaptureSessions.clear();
+  pendingOwnerMedia.clear();
+}
+
 function getLibraryCapture(incoming) {
   pruneOwnerLibraryState();
   return libraryCaptureSessions.get(ownerLibraryKey(incoming)) || null;
@@ -372,6 +377,7 @@ module.exports = {
   LIBRARY_CAPTURE_TTL_MS,
   classifyFolder,
   classifyTags,
+  clearOwnerLibraryState,
   composeLibraryInstruction,
   consumePendingOwnerMedia,
   disableLibraryCapture,
