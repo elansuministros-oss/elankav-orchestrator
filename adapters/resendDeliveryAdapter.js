@@ -162,6 +162,7 @@ function createResendDeliveryAdapter({
     to,
     subject,
     text,
+    html,
     inReplyTo,
     references,
     fromIdentity
@@ -190,6 +191,7 @@ function createResendDeliveryAdapter({
     );
     const safeSubject = headerValue(subject, 'subject');
     const bodyText = headerValue(text, 'text');
+    const bodyHtml = String(html || '').replace(/\u0000/g, '').trim();
     const sender = resolveSender(fromIdentity);
 
     const headers = {};
@@ -215,6 +217,7 @@ function createResendDeliveryAdapter({
           to: [recipient],
           subject: safeSubject,
           text: bodyText,
+          ...(bodyHtml ? { html: bodyHtml } : {}),
           ...(Object.keys(headers).length ? { headers } : {})
         })
       });
