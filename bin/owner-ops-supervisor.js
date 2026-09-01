@@ -614,6 +614,10 @@ async function cleanGeneratedConnectCatalog(config) {
   return backupPath;
 }
 
+function isRecoverableDetachedConnectBranch(target, currentBranch) {
+  return target === 'connect' && !String(currentBranch || '').trim();
+}
+
 async function deployRepository(target, parameters = {}) {
   const config = TARGETS[target];
   const expectedCommit = String(parameters.expectedCommit || '').trim().toLowerCase();
@@ -641,16 +645,39 @@ async function deployRepository(target, parameters = {}) {
     throw error;
   }
 
-  const currentBranch = await run('git', ['-C', config.repo, 'branch', '--show-current']);
+  await run('git', ['-C', config.repo, 'fetch', 'origin', branch], { timeout: 60_000 });
+  const remote = (await run('git', ['-C', config.repo, 'rev-parse', `origin/${branch}`])).stdout.toLowerCase();
+
+  let currentBranch = await run('git', ['-C', config.repo, 'branch', '--show-current']);
   if (currentBranch.stdout !== branch) {
-    const error = new Error('SUPERVISOR_BRANCH_MISMATCH');
-    error.code = 'SUPERVISOR_BRANCH_MISMATCH';
-    throw error;
+    const detachedHead = (await run('git', ['-C', config.repo, 'rev-parse', 'HEAD'])).stdout;
+
+    if (isRecoverableDetachedConnectBranch(target, currentBranch.stdout)) {
+      try {
+        await run('git', ['-C', config.repo, 'merge-base', '--is-ancestor', detachedHead, remote]);
+      } catch {
+        const error = new Error('SUPERVISOR_CONNECT_DETACHED_NON_FAST_FORWARD_DENIED');
+        error.code = 'SUPERVISOR_CONNECT_DETACHED_NON_FAST_FORWARD_DENIED';
+        throw error;
+      }
+
+      try {
+        await run('git', ['-C', config.repo, 'switch', branch], { timeout: 30_000 });
+      } catch {
+        await run('git', ['-C', config.repo, 'switch', '-c', branch, detachedHead], { timeout: 30_000 });
+      }
+
+      currentBranch = await run('git', ['-C', config.repo, 'branch', '--show-current']);
+    }
+
+    if (currentBranch.stdout !== branch) {
+      const error = new Error('SUPERVISOR_BRANCH_MISMATCH');
+      error.code = 'SUPERVISOR_BRANCH_MISMATCH';
+      throw error;
+    }
   }
 
   const before = (await run('git', ['-C', config.repo, 'rev-parse', 'HEAD'])).stdout;
-  await run('git', ['-C', config.repo, 'fetch', 'origin', branch], { timeout: 60_000 });
-  const remote = (await run('git', ['-C', config.repo, 'rev-parse', `origin/${branch}`])).stdout.toLowerCase();
 
   if (remote !== expectedCommit) {
     const error = new Error('SUPERVISOR_REMOTE_COMMIT_MISMATCH');
@@ -914,5 +941,6 @@ module.exports = {
   verifyWhatsappBridgeHealth,
   runWhatsappCoreContract,
   restoreOrchestratorBaseline,
+  isRecoverableDetachedConnectBranch,
   restoreConnectBaseline
 };

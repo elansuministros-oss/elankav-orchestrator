@@ -20,6 +20,7 @@ const {
   porcelainEntry,
   porcelainPath,
   readWhatsappCoreState,
+  isRecoverableDetachedConnectBranch,
   writeWhatsappCoreState,
   runWhatsappCoreContract,
   shouldRefreshSupervisorAfterRequest
@@ -32,6 +33,13 @@ test.after(async () => {
 test('supervisor allowlist contains only CONNECT and Orchestrator', () => {
   assert.deepEqual(Object.keys(TARGETS).sort(), ['connect', 'orchestrator']);
   assert.equal(TARGETS.orchestrator.service, 'elankav-orchestrator.service');
+});
+
+test('supervisor only auto-repairs CONNECT when HEAD is detached', () => {
+  assert.equal(isRecoverableDetachedConnectBranch('connect', ''), true);
+  assert.equal(isRecoverableDetachedConnectBranch('connect', 'main'), false);
+  assert.equal(isRecoverableDetachedConnectBranch('connect', 'feature/test'), false);
+  assert.equal(isRecoverableDetachedConnectBranch('orchestrator', ''), false);
 });
 
 test('supervisor rejects arbitrary shell capabilities and targets', () => {
