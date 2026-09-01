@@ -19,6 +19,8 @@ const {
   porcelainEntries,
   porcelainEntry,
   porcelainPath,
+  readWhatsappCoreState,
+  writeWhatsappCoreState,
   runWhatsappCoreContract
 } = require('../bin/owner-ops-supervisor');
 
@@ -96,4 +98,18 @@ test('porcelain parser marks rename entries so cleanup cannot treat them as the 
 test('supervisor embedded WhatsApp core contract passes on protected baseline', async () => {
   const result = await runWhatsappCoreContract(path.resolve(__dirname, '..'));
   assert.equal(result, 'WHATSAPP_CORE_CONTRACT_OK');
+});
+
+
+test('WhatsApp core last-good state is persisted atomically', async () => {
+  const saved = await writeWhatsappCoreState({
+    lastGoodSha: '76d30ab4886d61f3fc69aadf700de92dc0a11c5c',
+    branch: 'stable/ORCHESTRATOR-WHATSAPP-CORE',
+    source: 'test'
+  });
+  assert.equal(saved.lastGoodSha, '76d30ab4886d61f3fc69aadf700de92dc0a11c5c');
+  const loaded = await readWhatsappCoreState();
+  assert.equal(loaded.branch, 'stable/ORCHESTRATOR-WHATSAPP-CORE');
+  assert.equal(loaded.source, 'test');
+  assert.ok(loaded.updatedAt);
 });
