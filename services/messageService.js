@@ -330,6 +330,7 @@ async function processMessage({ message, platform, channel, externalUserId, phon
   }
 
   let resolvedContext = null;
+  const startedAt = Date.now();
 
   const response = await routeContext(
     {
@@ -496,6 +497,29 @@ async function processMessage({ message, platform, channel, externalUserId, phon
           code: error?.code || null,
           message: error?.message || String(error)
         });
+        commercialState = updateCommercialState({
+          previousState: commercialState,
+          message: normalizedMessage,
+          commercial,
+          platform: 'ELANVISUAL'
+        });
+        await savePersistentCommercialState(
+          context.commercial?.stateKey,
+          commercialState,
+          {
+            platform: 'ELANVISUAL',
+            channel: context.channel || channel || 'whatsapp',
+            externalUserId: context.externalUserId || externalUserId || null,
+            phone: context.phone || phone || null
+          }
+        );
+
+        if (commercial) {
+          commercial = Object.freeze({
+            ...commercial,
+            persistentState: commercialState
+          });
+        }
       }
 
       return generateText({
@@ -544,7 +568,10 @@ async function processMessage({ message, platform, channel, externalUserId, phon
       platform: resolvedContext?.platform || null,
       channel: resolvedContext?.channel || null,
       externalUserId: resolvedContext?.externalUserId || null,
-      ownerMode: Boolean(resolvedContext?.owner?.isOwner)
+      ownerMode: Boolean(resolvedContext?.owner?.isOwner),
+      commercialState: response.commercialState ||
+        resolvedContext?.commercial?.state ||
+        null
     },
     createdAt: new Date().toISOString()
   };

@@ -497,6 +497,9 @@ function detectSendDesignLinkCommand(message, normalizedMessage) {
 }
 
 function detectOwnerCommand(message) {
+  const ownerOpsDeployCommand = detectOwnerOpsDeployCommand(message);
+  if (ownerOpsDeployCommand) return ownerOpsDeployCommand;
+
   const normalized = normalizeCommand(message);
 
   const languageLearnCommand =
