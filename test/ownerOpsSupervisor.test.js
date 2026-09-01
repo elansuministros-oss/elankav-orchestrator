@@ -18,7 +18,8 @@ const {
   TARGETS,
   porcelainEntries,
   porcelainEntry,
-  porcelainPath
+  porcelainPath,
+  runWhatsappCoreContract
 } = require('../bin/owner-ops-supervisor');
 
 test.after(async () => {
@@ -89,4 +90,10 @@ test('porcelain parser marks rename entries so cleanup cannot treat them as the 
   assert.equal(entry.status, 'R ');
   assert.equal(entry.isRenameOrCopy, true);
   assert.equal(entry.path, 'old.tsv -> data/elanvisual-commercial-catalog-2026-08-16.tsv');
+});
+
+
+test('supervisor embedded WhatsApp core contract passes on protected baseline', async () => {
+  const result = await runWhatsappCoreContract(path.resolve(__dirname, '..'));
+  assert.equal(result, 'WHATSAPP_CORE_CONTRACT_OK');
 });
