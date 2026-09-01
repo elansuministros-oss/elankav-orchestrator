@@ -163,8 +163,14 @@ async function downloadMedia({ url, webhookMimeType, fetchImpl = fetch }) {
   const authorized = [baseUrl, internalBaseUrl].filter(Boolean);
   const primaryUrl = resolveMediaUrl(url, baseUrl);
   const primary = new URL(primaryUrl);
+  if (!isAuthorizedWahaHost(primaryUrl, authorized)) {
+    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'El recurso multimedia no pertenece a un host WAHA autorizado.');
+  }
 
   async function once(targetUrl) {
+    if (!isAuthorizedWahaHost(targetUrl, authorized)) {
+      throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'El recurso multimedia no pertenece a un host WAHA autorizado.');
+    }
     const headers = { Accept: 'image/*,video/*,application/octet-stream' };
     if (apiKey && isAuthorizedWahaHost(targetUrl, authorized)) headers['X-Api-Key'] = apiKey;
     const response = await fetchImpl(targetUrl, {
