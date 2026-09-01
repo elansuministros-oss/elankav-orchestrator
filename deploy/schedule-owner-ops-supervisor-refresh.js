@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const REFRESH_DELAY_SECONDS = Math.max(
   30,
@@ -12,26 +12,31 @@ const MAX_WAIT_SECONDS = Math.max(
   Number(process.env.OWNER_OPS_SUPERVISOR_REFRESH_MAX_WAIT_SECONDS) || 900
 );
 
+function buildRefreshShellCommand() {
+  return [
+    `sleep ${REFRESH_DELAY_SECONDS}`,
+    'waited=0',
+    `while find "${PROCESSING_DIR}" -maxdepth 1 -type f -name 'OPS-*.json' -print -quit 2>/dev/null | grep -q .; do`,
+    `  if [ "$waited" -ge ${MAX_WAIT_SECONDS} ]; then exit 0; fi`,
+    '  sleep 5',
+    '  waited=$((waited + 5))',
+    'done',
+    'sleep 2',
+    'systemctl restart elankav-owner-ops-supervisor.service >/dev/null 2>&1 || true'
+  ].join('\n');
+}
+
 function scheduleSupervisorRefresh() {
   if (process.platform !== 'linux') return false;
   if (typeof process.getuid !== 'function' || process.getuid() !== 0) return false;
 
+  const shellCommand = buildRefreshShellCommand();
+  const syntax = spawnSync('/bin/sh', ['-n', '-c', shellCommand], { stdio: 'ignore' });
+  if (syntax.status !== 0) return false;
+
   const child = spawn(
     '/bin/sh',
-    [
-      '-c',
-      [
-        `sleep ${REFRESH_DELAY_SECONDS}`,
-        'waited=0',
-        `while find "${PROCESSING_DIR}" -maxdepth 1 -type f -name 'OPS-*.json' -print -quit 2>/dev/null | grep -q .; do`,
-        `  if [ "$waited" -ge ${MAX_WAIT_SECONDS} ]; then exit 0; fi`,
-        '  sleep 5',
-        '  waited=$((waited + 5))',
-        'done',
-        'sleep 2',
-        'systemctl restart elankav-owner-ops-supervisor.service >/dev/null 2>&1 || true'
-      ].join('; ')
-    ],
+    ['-c', shellCommand],
     {
       detached: true,
       stdio: 'ignore'
@@ -52,5 +57,6 @@ module.exports = {
   REFRESH_DELAY_SECONDS,
   PROCESSING_DIR,
   MAX_WAIT_SECONDS,
+  buildRefreshShellCommand,
   scheduleSupervisorRefresh
 };
