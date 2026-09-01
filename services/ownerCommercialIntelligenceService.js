@@ -163,6 +163,32 @@ function filtersFromToolArguments(args = {}) {
   };
 }
 
+function normalizeDateFilter(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function mergeAuthoritativeFilters(input, toolFilters = {}, now = new Date()) {
+  const derived = deriveFallbackFilters(input, now);
+  const merged = {
+    ...toolFilters,
+    ...derived
+  };
+
+  const from = normalizeDateFilter(merged.from);
+  const to = normalizeDateFilter(merged.to);
+
+  if (from) merged.from = from;
+  else delete merged.from;
+
+  if (to) merged.to = to;
+  else delete merged.to;
+
+  return merged;
+}
+
 function safeJsonParse(value) {
   try {
     const parsed = JSON.parse(String(value || '{}'));
@@ -175,13 +201,20 @@ function safeJsonParse(value) {
 function formatReport(payload = {}) {
   const summary = payload.summary || {};
   const range = payload.range || {};
-  const pieces = [
-    `En el período consultado hay ${Number(summary.conversations || 0)} conversaciones`,
+  const pieces = [];
+
+  if (summary.conversations !== undefined && summary.conversations !== null) {
+    pieces.push(`En el período consultado hay ${Number(summary.conversations || 0)} conversaciones`);
+  } else {
+    pieces.push('Datos del período consultado');
+  }
+
+  pieces.push(
     `${Number(summary.inboundMessages || 0)} mensajes recibidos`,
     `${Number(summary.outboundMessages || 0)} mensajes enviados`,
     `${Number(summary.elanResponses || 0)} respuestas de ELAN`,
     `${Number(summary.humanResponses || 0)} respuestas humanas`
-  ];
+  );
 
   if (summary.awaitingUs !== undefined) pieces.push(`${Number(summary.awaitingUs || 0)} requieren respuesta nuestra`);
   if (summary.followUpDue !== undefined) pieces.push(`${Number(summary.followUpDue || 0)} seguimientos vencidos o para atender`);
@@ -208,6 +241,159 @@ function formatBriefing(payload = {}) {
   ].join(' ');
 }
 
+function rowMatchesFilters(row = {}, filters = {}) {
+  if (filters.channel && normalizeText(row.channel) !== normalizeText(filters.channel)) return false;
+  if (filters.businessUnit && normalizeText(row.businessUnit) !== normalizeText(filters.businessUnit)) return false;
+
+  if (filters.from || filters.to) {
+    const candidate = new Date(row.lastMessageAt || row.followUpAt || row.ownerTakeoverAt || 0);
+    if (!Number.isNaN(candidate.getTime())) {
+      if (filters.from && candidate.getTime() < new Date(filters.from).getTime()) return false;
+      if (filters.to && candidate.getTime() > new Date(filters.to).getTime()) return false;
+    }
+  }
+
+  return true;
+}
+
+function buildBriefingFromReport(report = {}, filters = {}) {
+  const attention = report.attention || {};
+  const awaitingUs = (attention.awaitingUs || []).filter(row => rowMatchesFilters(row, filters));
+  const awaitingCustomer = (attention.awaitingCustomer || []).filter(row => rowMatchesFilters(row, filters));
+  const followUp = (attention.followUp || []).filter(row => rowMatchesFilters(row, filters));
+  const ownerRecommended = (attention.ownerRecommended || []).filter(row => rowMatchesFilters(row, filters));
+
+  const top = [];
+  const seen = new Set();
+
+  for (const row of [...awaitingUs, ...ownerRecommended]) {
+    const id = String(row.conversationId || '');
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    top.push(row);
+    if (top.length >= 5) break;
+  }
+
+  const label = filters.channel === 'email' ? 'correos/conversaciones por email' : 'conversaciones';
+  const parts = [
+    `Tenés ${awaitingUs.length} ${label} que requieren respuesta nuestra.`
+  ];
+
+  if (awaitingCustomer.length) parts.push(`${awaitingCustomer.length} están esperando respuesta del cliente.`);
+  if (followUp.length) parts.push(`${followUp.length} tienen seguimiento pendiente.`);
+  if (ownerRecommended.length) parts.push(`${ownerRecommended.length} recomiendo que las atendás personalmente.`);
+
+  if (top.length) {
+    parts.push('Lo más importante:');
+    top.forEach((row, index) => {
+      const customer = String(row.customer || 'Contacto sin nombre').trim();
+      const summary = String(row.summary || row.lastMessage || 'Sin resumen disponible').trim();
+      const personal = ownerRecommended.some(item => item.conversationId === row.conversationId)
+        ? ' Recomiendo que la tomés vos.'
+        : '';
+      parts.push(`${index + 1}. ${customer}: ${summary}.${personal}`);
+    });
+  }
+
+  return {
+    ok: true,
+    range: report.range || null,
+    counts: {
+      total: new Set([
+        ...awaitingUs.map(row => row.conversationId),
+        ...awaitingCustomer.map(row => row.conversationId),
+        ...followUp.map(row => row.conversationId),
+        ...ownerRecommended.map(row => row.conversationId)
+      ].filter(Boolean)).size,
+      awaitingUs: awaitingUs.length,
+      awaitingCustomer: awaitingCustomer.length,
+      ownerRecommended: ownerRecommended.length,
+      highOrUrgent: awaitingUs.filter(row => ['high', 'urgent'].includes(normalizeText(row.priority))).length
+    },
+    items: top,
+    text: parts.join(' ')
+  };
+}
+
+function localDateKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: OWNER_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+}
+
+function projectReportFromDaily(report = {}, filters = {}) {
+  const daily = Array.isArray(report.daily) ? report.daily : [];
+  const fromKey = filters.from ? localDateKey(filters.from) : '';
+  const toKey = filters.to ? localDateKey(filters.to) : '';
+  const rows = daily.filter(row => {
+    const key = String(row.date || '');
+    if (fromKey && key < fromKey) return false;
+    if (toKey && key > toKey) return false;
+    return true;
+  });
+
+  const sum = key => rows.reduce((total, row) => total + Number(row?.[key] || 0), 0);
+  const attention = report.attention || {};
+  const awaitingUs = (attention.awaitingUs || []).filter(row => rowMatchesFilters(row, filters));
+  const followUp = (attention.followUp || []).filter(row => rowMatchesFilters(row, filters));
+  const ownerRecommended = (attention.ownerRecommended || []).filter(row => rowMatchesFilters(row, filters));
+
+  return {
+    ok: true,
+    range: {
+      from: filters.from || report.range?.from || null,
+      to: filters.to || report.range?.to || null,
+      timezone: OWNER_TIME_ZONE
+    },
+    summary: {
+      inboundMessages: sum('inboundMessages'),
+      outboundMessages: sum('outboundMessages'),
+      elanResponses: sum('elanResponses'),
+      humanResponses: sum('humanResponses'),
+      awaitingUs: awaitingUs.length,
+      followUpDue: followUp.length,
+      ownerRecommended: ownerRecommended.length,
+      quotesCreated: sum('quotesCreated'),
+      quotesAccepted: sum('quotesAccepted'),
+      quotesAcceptedValue: sum('quotesAcceptedValue')
+    },
+    daily: rows,
+    attention: {
+      awaitingUs,
+      followUp,
+      ownerRecommended
+    }
+  };
+}
+
+async function executeDeterministicQuery({ input, now = new Date(), adapter }) {
+  const filters = deriveFallbackFilters(input, now);
+  const resource = fallbackResourceForQuery(input);
+
+  try {
+    const payload = resource === 'briefing'
+      ? await adapter.getBriefing(filters)
+      : await adapter.getReport(filters);
+    return { resource, payload, degraded: false };
+  } catch (error) {
+    const report = await adapter.getReport({});
+    const payload = resource === 'briefing'
+      ? buildBriefingFromReport(report, filters)
+      : projectReportFromDaily(report, filters);
+    return {
+      resource,
+      payload,
+      degraded: true,
+      primaryError: error?.code || error?.message || 'CONNECT_FILTERED_QUERY_FAILED'
+    };
+  }
+}
+
 function fallbackResourceForQuery(value) {
   const text = normalizeText(value);
   return /\b(pendiente|pendientes|sin respuesta|seguimiento|atender|atencion|personalmente|urgente|prioridad|quien|quienes)\b/.test(text)
@@ -229,9 +415,10 @@ function toolInstructions({ now = new Date(), extra = '' } = {}) {
   ].filter(Boolean).join(' ');
 }
 
-async function executeToolCall(call, adapter) {
+async function executeToolCall(call, adapter, { input = '', now = new Date() } = {}) {
   const args = safeJsonParse(call?.arguments);
-  const filters = filtersFromToolArguments(args);
+  const toolFilters = filtersFromToolArguments(args);
+  const filters = mergeAuthoritativeFilters(input, toolFilters, now);
   const name = String(call?.name || '').trim();
 
   if (name === 'get_commercial_briefing') {
@@ -316,12 +503,29 @@ async function answerOwnerCommercialQuery({
 
     const outputs = [];
     for (const call of calls) {
-      lastExecution = await executeToolCall(call, adapter);
-      outputs.push({
-        type: 'function_call_output',
-        call_id: call.call_id,
-        output: JSON.stringify({ ok: true, result: lastExecution.payload })
-      });
+      try {
+        lastExecution = await executeToolCall(call, adapter, { input, now });
+        outputs.push({
+          type: 'function_call_output',
+          call_id: call.call_id,
+          output: JSON.stringify({ ok: true, result: lastExecution.payload })
+        });
+      } catch (error) {
+        const fallback = await executeDeterministicQuery({ input, now, adapter });
+        return {
+          handled: true,
+          outputText: fallback.resource === 'briefing'
+            ? formatBriefing(fallback.payload)
+            : formatReport(fallback.payload),
+          model: 'elankav-owner-commercial-intelligence-resilient',
+          id: null,
+          status: 'completed',
+          usage: null,
+          tool: fallback.resource === 'briefing' ? 'get_commercial_briefing' : 'get_commercial_report',
+          degraded: fallback.degraded,
+          primaryError: error?.code || error?.message || null
+        };
+      }
     }
 
     response = await createToolResponseImpl({
@@ -332,22 +536,25 @@ async function answerOwnerCommercialQuery({
     });
   }
 
-  // Fail-safe: si el modelo no llamó la herramienta, la consulta sigue siendo
-  // verificable y de solo lectura. Se ejecuta la ruta determinística mínima.
-  const filters = deriveFallbackFilters(input, now);
-  const resource = fallbackResourceForQuery(input);
-  const payload = resource === 'briefing'
-    ? await adapter.getBriefing(filters)
-    : await adapter.getReport(filters);
+  // Fail-safe: si el modelo no llamó la herramienta, o CONNECT rechaza un
+  // filtro específico, se conserva una consulta real de solo lectura y se
+  // proyecta localmente sobre el reporte auditable.
+  const fallback = await executeDeterministicQuery({ input, now, adapter });
 
   return {
     handled: true,
-    outputText: resource === 'briefing' ? formatBriefing(payload) : formatReport(payload),
-    model: 'elankav-owner-commercial-intelligence-fallback',
+    outputText: fallback.resource === 'briefing'
+      ? formatBriefing(fallback.payload)
+      : formatReport(fallback.payload),
+    model: fallback.degraded
+      ? 'elankav-owner-commercial-intelligence-resilient'
+      : 'elankav-owner-commercial-intelligence-fallback',
     id: null,
     status: 'completed',
     usage: null,
-    tool: resource === 'briefing' ? 'get_commercial_briefing' : 'get_commercial_report'
+    tool: fallback.resource === 'briefing' ? 'get_commercial_briefing' : 'get_commercial_report',
+    degraded: fallback.degraded,
+    primaryError: fallback.primaryError || null
   };
 }
 
@@ -361,12 +568,16 @@ module.exports = {
   conversationInput,
   datePartsInManagua,
   deriveFallbackFilters,
+  buildBriefingFromReport,
+  executeDeterministicQuery,
   executeToolCall,
   fallbackResourceForQuery,
   filtersFromToolArguments,
+  mergeAuthoritativeFilters,
   formatBriefing,
   formatReport,
   looksLikeCommercialIntelligenceQuery,
   normalizeText,
+  projectReportFromDaily,
   toolInstructions
 };
