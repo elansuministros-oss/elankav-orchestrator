@@ -54,6 +54,7 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
         researchEnabled: true,
         autopilotEnabled: true,
         outreachEnabled: true,
+        ownerAuthorizationRequired: true,
         outreachAutopilotEnabled: true,
         emailOutreachEnabled: true,
         whatsappOutreachEnabled: true
@@ -94,6 +95,7 @@ test('no crea campaña si WhatsApp Outreach está OFF para estrategia email_firs
           calls += 1;
           return {
             outreachEnabled: true,
+        ownerAuthorizationRequired: true,
             outreachAutopilotEnabled: true,
             emailOutreachEnabled: true,
             whatsappOutreachEnabled: false
@@ -191,6 +193,7 @@ test('reanuda la campaña pausada respetando sus canales', async () => {
       if (path === '/api/v1/prospecting/control-status') {
         return {
           outreachEnabled: true,
+        ownerAuthorizationRequired: true,
           outreachAutopilotEnabled: true,
           emailOutreachEnabled: true,
           whatsappOutreachEnabled: false
@@ -230,6 +233,7 @@ test('una orden explícita de correo no exige WhatsApp habilitado', async () => 
       if (path === '/api/v1/prospecting/control-status') {
         return {
           outreachEnabled: true,
+        ownerAuthorizationRequired: true,
           outreachAutopilotEnabled: true,
           emailOutreachEnabled: true,
           whatsappOutreachEnabled: false
