@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/ORCHESTRATOR-COMMERCIAL-INTELLIGENCE-SAFE-02
+      - fix/ORCHESTRATOR-COMMERCIAL-INTELLIGENCE-RUNTIME-03
     paths:
       - 'adapters/connectCommercialIntelligenceAdapter.js'
       - 'adapters/openaiAdapter.js'
