@@ -119,6 +119,18 @@ function assertControls(control, strategy) {
       'CONNECT no confirmó el gate de autorización del Owner. No creé ni activé campaña.'
     );
   }
+  if (control?.contactWindowEnabled !== true) {
+    throw new OwnerProspectingOutreachError(
+      'PROSPECTING_CONTACT_WINDOW_REQUIRED',
+      'CONNECT no confirmó la ventana horaria de contacto. No creé ni activé campaña.'
+    );
+  }
+  if (control?.followupsEnabled === true) {
+    throw new OwnerProspectingOutreachError(
+      'PROSPECTING_FOLLOWUPS_REQUIRE_ATTRIBUTION',
+      'Los seguimientos automáticos siguen bloqueados hasta completar la atribución de respuestas.'
+    );
+  }
   if (control?.outreachEnabled !== true) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_OUTREACH_DISABLED',
@@ -182,7 +194,13 @@ function formatCampaign(campaign, mission, control) {
     `Objetivo de investigación: ${Number(mission?.targetCompanies || 0)} empresas.`,
     `Estado: ${String(campaign?.status || 'active')}.`,
     control?.emailOutreachEnabled === true ? 'Correo habilitado.' : '',
-    control?.whatsappOutreachEnabled === true ? 'WhatsApp habilitado.' : ''
+    control?.whatsappOutreachEnabled === true ? 'WhatsApp habilitado.' : '',
+    control?.contactWindowEnabled === true
+      ? `Horario permitido: ${Number(control?.contactStartHour ?? 8)}:00–${Number(control?.contactEndHour ?? 18)}:00 (${String(control?.contactTimeZone || 'America/Managua')}).`
+      : '',
+    control?.followupsEnabled === true
+      ? 'Seguimientos automáticos habilitados.'
+      : 'Por ahora haré solo el primer contacto; los seguimientos automáticos siguen bloqueados hasta cerrar la atribución de respuestas.'
   ].filter(Boolean).join('\n');
 }
 

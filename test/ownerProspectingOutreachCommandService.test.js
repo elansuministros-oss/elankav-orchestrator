@@ -55,6 +55,11 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
         autopilotEnabled: true,
         outreachEnabled: true,
         ownerAuthorizationRequired: true,
+        contactWindowEnabled: true,
+        contactTimeZone: 'America/Managua',
+        contactStartHour: 8,
+        contactEndHour: 18,
+        followupsEnabled: false,
         outreachAutopilotEnabled: true,
         emailOutreachEnabled: true,
         whatsappOutreachEnabled: true
@@ -83,6 +88,8 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
   assert.match(result.outputText, /Ya empecé/);
   assert.match(result.outputText, /Correo habilitado/);
   assert.match(result.outputText, /WhatsApp habilitado/);
+  assert.match(result.outputText, /Horario permitido: 8:00–18:00/);
+  assert.match(result.outputText, /solo el primer contacto/);
 });
 
 test('no crea campaña si WhatsApp Outreach está OFF para estrategia email_first', async () => {
@@ -96,6 +103,11 @@ test('no crea campaña si WhatsApp Outreach está OFF para estrategia email_firs
           return {
             outreachEnabled: true,
         ownerAuthorizationRequired: true,
+        contactWindowEnabled: true,
+        contactTimeZone: 'America/Managua',
+        contactStartHour: 8,
+        contactEndHour: 18,
+        followupsEnabled: false,
             outreachAutopilotEnabled: true,
             emailOutreachEnabled: true,
             whatsappOutreachEnabled: false
@@ -194,6 +206,11 @@ test('reanuda la campaña pausada respetando sus canales', async () => {
         return {
           outreachEnabled: true,
         ownerAuthorizationRequired: true,
+        contactWindowEnabled: true,
+        contactTimeZone: 'America/Managua',
+        contactStartHour: 8,
+        contactEndHour: 18,
+        followupsEnabled: false,
           outreachAutopilotEnabled: true,
           emailOutreachEnabled: true,
           whatsappOutreachEnabled: false
@@ -234,6 +251,11 @@ test('una orden explícita de correo no exige WhatsApp habilitado', async () => 
         return {
           outreachEnabled: true,
         ownerAuthorizationRequired: true,
+        contactWindowEnabled: true,
+        contactTimeZone: 'America/Managua',
+        contactStartHour: 8,
+        contactEndHour: 18,
+        followupsEnabled: false,
           outreachAutopilotEnabled: true,
           emailOutreachEnabled: true,
           whatsappOutreachEnabled: false
@@ -251,4 +273,41 @@ test('una orden explícita de correo no exige WhatsApp habilitado', async () => 
   assert.equal(result.result.campaign.strategy, 'email_only');
   assert.equal(result.result.campaign.maxTargets, 5);
   assert.match(result.outputText, /como máximo 5 empresas/);
+});
+
+
+test('bloquea inicio si falta ventana horaria o si followups están activos sin atribución', async () => {
+  const command = detectOwnerProspectingOutreachCommand(
+    'ELAN empezá a enviar correos a las empresas listas'
+  );
+
+  await assert.rejects(
+    () => executeOwnerProspectingOutreachCommand(command, {
+      requestImpl: async () => ({
+        ownerAuthorizationRequired: true,
+        contactWindowEnabled: false,
+        followupsEnabled: false,
+        outreachEnabled: true,
+        outreachAutopilotEnabled: true,
+        emailOutreachEnabled: true,
+        whatsappOutreachEnabled: true
+      })
+    }),
+    error => error && error.code === 'PROSPECTING_CONTACT_WINDOW_REQUIRED'
+  );
+
+  await assert.rejects(
+    () => executeOwnerProspectingOutreachCommand(command, {
+      requestImpl: async () => ({
+        ownerAuthorizationRequired: true,
+        contactWindowEnabled: true,
+        followupsEnabled: true,
+        outreachEnabled: true,
+        outreachAutopilotEnabled: true,
+        emailOutreachEnabled: true,
+        whatsappOutreachEnabled: true
+      })
+    }),
+    error => error && error.code === 'PROSPECTING_FOLLOWUPS_REQUIRE_ATTRIBUTION'
+  );
 });
