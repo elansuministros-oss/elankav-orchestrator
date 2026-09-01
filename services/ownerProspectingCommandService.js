@@ -21,14 +21,14 @@ function normalize(value) {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
-    .replace(/\\s+/g, ' ');
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 function cleanMissionText(message) {
   return String(message || '')
     .trim()
-    .replace(/^elan[\\s,;:.-]+/i, '')
+    .replace(/^elan[\s,;:.-]+/i, '')
     .trim();
 }
 
@@ -37,10 +37,10 @@ function detectOwnerProspectingCommand(message) {
   const normalized = normalize(mission);
   if (!mission) return null;
 
-  const searchIntent = /^(?:buscar|busca|encontrar|encuentra|localizar|localiza|investigar|investiga)\\b/.test(normalized);
+  const searchIntent = /^(?:buscar|busca|encontrar|encuentra|localizar|localiza|investigar|investiga)\b/.test(normalized);
   if (!searchIntent) return null;
 
-  const targetMatch = normalized.match(/\\b(\\d{1,3})\\s+(?:empresas|negocios|prospectos)\\b/);
+  const targetMatch = normalized.match(/\b(\d{1,3})\s+(?:empresas|negocios|prospectos)\b/);
   if (!targetMatch) return null;
 
   const targetCompanies = Number(targetMatch[1]);
@@ -49,7 +49,7 @@ function detectOwnerProspectingCommand(message) {
   }
 
   const hasProspectingIntent =
-    /\\b(presencia fisica|prospect|decisor|mercadeo|marketing|compras|procurement|elanvisual|contactos? publicos?|empresas?)\\b/.test(normalized);
+    /\b(presencia fisica|prospect|decisor|mercadeo|marketing|compras|procurement|elanvisual|contactos? publicos?|empresas?)\b/.test(normalized);
   if (!hasProspectingIntent) return null;
 
   return {
@@ -85,8 +85,8 @@ function resolveInternalToken(env = process.env) {
 function config(env = process.env) {
   const baseUrl = String(env.CONNECT_BASE_URL || 'https://connect.elankav.com')
     .trim()
-    .replace(/\\/+$/, '');
-  if (!/^https?:\\/\\//i.test(baseUrl)) {
+    .replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(baseUrl)) {
     throw new OwnerProspectingError('CONNECT_BASE_URL_INVALID', 'CONNECT_BASE_URL no es válido.', 503);
   }
   return { baseUrl, token: resolveInternalToken(env) };
@@ -168,7 +168,7 @@ function formatMission(mission, control, reused = false) {
     'Outreach: ' + (control && control.outreachEnabled === true ? 'ON' : 'OFF'),
     '',
     'ELAN continuará trabajando por lotes. No necesitás ejecutar la búsqueda empresa por empresa.'
-  ].join('\\n');
+  ].join('\n');
 }
 
 async function executeOwnerProspectingCommand(command, { requestImpl = requestProspecting } = {}) {
