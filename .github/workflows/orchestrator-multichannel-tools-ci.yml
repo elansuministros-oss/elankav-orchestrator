@@ -5,6 +5,7 @@ on:
     branches:
       - orchestrator-next
       - feature/ELAN-OPENAI-MULTICHANNEL-TOOLS-01
+      - fix/ORCHESTRATOR-COMMERCIAL-INTELLIGENCE-PROD-RECOVERY-01
     paths:
       - 'services/ownerOpsDeployBridge.js'
       - 'test/ownerOpsDeployBridge.test.js'
