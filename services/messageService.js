@@ -172,7 +172,13 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     identity: externalUserId || context?.metadata?.senderRaw || context?.metadata?.chatId,
     platform: context.platform || platform || 'elanvisual',
     message: normalizedMessage,
-    ownerMode: Boolean(context?.owner?.isOwner)
+    ownerMode: Boolean(context?.owner?.isOwner),
+    phone: context.phone || phone || '',
+    channel: context.channel || channel || 'whatsapp',
+    externalMessageId: context?.metadata?.messageId || context?.metadata?.webhookMessageId || '',
+    source: context?.metadata?.source || '',
+    campaign: context?.metadata?.campaign || context?.metadata?.campaignName || '',
+    metadata: context?.metadata || {}
   });
   if (decision.action === 'PAUSED') {
     return {
@@ -304,6 +310,7 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       },
       officialKnowledge: knowledge,
       prospectMemory: decision.prospect || null,
+      contactOrigin: decision.attribution || null,
       workingMemory: unifiedMemory.workingState || {}
     }
   });

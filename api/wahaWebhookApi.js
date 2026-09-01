@@ -20,6 +20,7 @@ const {
 const {
   resolveCanonicalIdentity
 } = require('../services/context/identityResolver');
+const { extractWhatsappAttribution } = require('../services/whatsappAttributionMetadata');
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -332,6 +333,7 @@ function extractIncoming(body = {}) {
     text: extractText(payload),
     messageType: extractMessageType(payload),
     media: extractMedia(payload),
+    attribution: extractWhatsappAttribution(payload, body),
     fromMe,
     isGroup: chatId.includes('@g.us'),
     isBroadcast: chatId.includes('status@broadcast')
@@ -357,6 +359,7 @@ function buildConversationEvent({ incoming, direction, text, externalMessageId, 
       source: 'waha', session: incoming.session, webhookMessageId: incoming.messageId || null,
       chatId: incoming.chatId, senderRaw: incoming.senderRaw,
       identityCandidates: incoming.identityCandidates || [],
+      ...(incoming.attribution ? { attribution: incoming.attribution } : {}),
       ...metadata
     }
   };
@@ -591,7 +594,22 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
           history: []
         }
       : decisionResolver
-        ? await decisionResolver({ identity: incoming.senderRaw || incoming.chatId, platform, message: registeredProvider ? `[PROVEEDOR REGISTRADO: ${registeredProvider.tradeName}] ${resolvedMessage}` : resolvedMessage, ownerMode: false })
+        ? await decisionResolver({
+            identity: incoming.senderRaw || incoming.chatId,
+            platform,
+            message: registeredProvider ? `[PROVEEDOR REGISTRADO: ${registeredProvider.tradeName}] ${resolvedMessage}` : resolvedMessage,
+            ownerMode: false,
+            phone: incoming.phone,
+            channel: 'whatsapp',
+            externalMessageId: incoming.messageId || '',
+            source: incoming.attribution ? 'meta_referral' : 'waha',
+            campaign: incoming.attribution?.campaignName || '',
+            metadata: {
+              source: 'waha',
+              session: incoming.session,
+              ...(incoming.attribution ? { attribution: incoming.attribution } : {})
+            }
+          })
         : { action: 'RESPOND', welcome: { send: false, text: '' } };
     if (decision.action === 'PAUSED') {
       sendJson(res, 200, { ok: true, processed: true, replySent: false, suppressed: true, reason: 'automation_disabled', platform }); return true;
@@ -641,6 +659,8 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         messageType: incoming.messageType, originalText: incoming.text || null,
         media: incoming.media || null,
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
+        ...(incoming.attribution ? { attribution: incoming.attribution } : {}),
+        contactOrigin: decision?.attribution || null,
         connectDecision: decision,
         ...(registeredProvider ? { providerId: registeredProvider.id, providerName: registeredProvider.tradeName, providerRecognized: true } : {})
       }

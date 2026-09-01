@@ -1,0 +1,41 @@
+name: Contact Origin Attribution CI
+
+on:
+  push:
+    branches:
+      - feat/WHATSAPP-CONTACT-ATTRIBUTION-01
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-orchestrator-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --ignore-scripts
+
+      - name: Syntax
+        run: |
+          node --check api/wahaWebhookApi.js
+          node --check services/connectConversationClient.js
+          node --check services/messageService.js
+          node --check services/whatsappAttributionMetadata.js
+          node --check tests/contactOriginAttribution.test.js
+
+      - name: Attribution tests
+        run: node --test tests/contactOriginAttribution.test.js
+
+      - name: WhatsApp core regressions
+        run: |
+          node --test             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js             tests/connectConversationClient.test.js             tests/universalConversationMemory.test.js
+
+      - name: Owner Ops protection regression
+        run: node --test test/ownerOpsSupervisor.test.js
