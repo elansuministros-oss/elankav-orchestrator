@@ -195,7 +195,7 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
 });
 
 
-test('Owner recibido por @lid activa ownerMode mediante identidad canónica', async () => {
+test('Owner recibido por @lid responde aunque CONNECT conversation gate esté caído o pausado', async () => {
   const req = createRequest({
     body: {
       event: 'message',
@@ -211,25 +211,18 @@ test('Owner recibido por @lid activa ownerMode mediante identidad canónica', as
 
   const res = createResponse();
   const recorder = createSendJsonRecorder();
-  const decisions = [];
   const processed = [];
   const sent = [];
+  let decisionCalls = 0;
 
   await handleWahaWebhookApi({
     req,
     res,
     sendJson: recorder.sendJson,
     dependencies: {
-      async requestConversationDecision(input) {
-        decisions.push(input);
-
-        return {
-          action: 'RESPOND',
-          welcome: {
-            send: false,
-            text: ''
-          }
-        };
+      async requestConversationDecision() {
+        decisionCalls += 1;
+        throw new Error('Owner no debe depender del gate de conversaciones de clientes');
       },
 
       async processMessage(input) {
@@ -256,27 +249,13 @@ test('Owner recibido por @lid activa ownerMode mediante identidad canónica', as
     }
   });
 
-  assert.equal(decisions.length, 1);
-  assert.equal(decisions[0].identity, '215440458567779@lid');
-  assert.equal(decisions[0].ownerMode, true);
-
+  assert.equal(decisionCalls, 0);
   assert.equal(processed.length, 1);
-  assert.equal(
-    processed[0].externalUserId,
-    '215440458567779@lid'
-  );
-
-  assert.equal(
-    sent[0].chatId,
-    '215440458567779@lid'
-  );
-
-  assert.equal(
-    recorder.calls[0].payload.ownerMode,
-    true
-  );
+  assert.equal(processed[0].externalUserId, '215440458567779@lid');
+  assert.equal(sent[0].chatId, '215440458567779@lid');
+  assert.equal(recorder.calls[0].payload.ownerMode, true);
+  assert.equal(recorder.calls[0].payload.replySent, true);
 });
-
 test('procesa nota de voz, transcribe y responde con voz', async () => {
   const req = createRequest({
     body: {
