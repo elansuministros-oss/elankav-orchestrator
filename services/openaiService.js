@@ -5,6 +5,10 @@ const {
   getOpenAIConfigurationStatus
 } = require('../adapters/openaiAdapter');
 const ecosystemServices = require('../config/ecosystem.json');
+const {
+  answerOwnerCommercialQuery,
+  looksLikeCommercialIntelligenceQuery
+} = require('./ownerCommercialIntelligenceService');
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_MESSAGE_LENGTH = 4000;
@@ -279,7 +283,14 @@ function buildContextInstructions(context) {
   return lines.join(' ');
 }
 
-async function generateText({ input, instructions, context, history }) {
+async function generateText({
+  input,
+  instructions,
+  context,
+  history,
+  ownerCommercialResponder = answerOwnerCommercialQuery,
+  ownerCommercialDetector = looksLikeCommercialIntelligenceQuery
+}) {
   const verifiedActorResponse = buildVerifiedActorDirectResponse({ input, context });
 
   if (verifiedActorResponse) {
@@ -290,6 +301,48 @@ async function generateText({ input, instructions, context, history }) {
       status: 'completed',
       usage: null
     };
+  }
+
+  if (
+    context?.ownerMode === true &&
+    typeof ownerCommercialDetector === 'function' &&
+    ownerCommercialDetector(input)
+  ) {
+    try {
+      const commercial = await ownerCommercialResponder({
+        input,
+        history,
+        instructions
+      });
+
+      if (commercial?.handled && String(commercial.outputText || '').trim()) {
+        return {
+          outputText: String(commercial.outputText).trim(),
+          model: commercial.model || 'elankav-owner-commercial-intelligence',
+          id: commercial.id || null,
+          status: commercial.status || 'completed',
+          usage: commercial.usage || null,
+          commercialIntelligence: true,
+          commercialTool: commercial.tool || null
+        };
+      }
+    } catch (error) {
+      console.error('[OWNER_COMMERCIAL_INTELLIGENCE_FAILED]', {
+        code: error?.code || null,
+        status: error?.status || null,
+        message: error?.message || String(error)
+      });
+
+      return {
+        outputText: 'No pude consultar los datos operativos de CONNECT en este momento. No voy a inventar cifras ni pendientes.',
+        model: 'elankav-owner-commercial-intelligence-unavailable',
+        id: null,
+        status: 'completed',
+        usage: null,
+        commercialIntelligence: true,
+        commercialTool: null
+      };
+    }
   }
 
   const contextInstructions = buildContextInstructions(context);
