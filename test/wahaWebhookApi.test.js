@@ -409,7 +409,7 @@ test('Owner activa Biblioteca en lenguaje natural y las siguientes imágenes se 
   });
 
   assert.equal(modelCalls, 0);
-  assert.match(sent[0].text, /Modo Biblioteca activo/);
+  assert.match(sent[0].text, /Modo Biblioteca(?: multimedia)? activo/);
   assert.equal(recorder1.calls[0].payload.mediaLibraryCapture, 'active');
 
   const recorder2 = createSendJsonRecorder();
