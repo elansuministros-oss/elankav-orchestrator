@@ -1,0 +1,34 @@
+name: Owner Ops Supervisor Self Refresh CI
+
+on:
+  push:
+    branches:
+      - fix/OWNER-OPS-SUPERVISOR-SELF-REFRESH-01
+  pull_request:
+    branches:
+      - stable/ORCHESTRATOR-WHATSAPP-CORE
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NPM_CONFIG_CACHE: /tmp/owner-ops-self-refresh-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check bin/owner-ops-supervisor.js
+          node --check deploy/schedule-owner-ops-supervisor-refresh.js
+      - name: Supervisor regression
+        run: |
+          node --test             test/ownerOpsSupervisor.test.js             test/protectedComponentRegistry.test.js             test/protectedConnectSourceContracts.test.js
+      - name: Protected runtime regressions
+        run: |
+          node --test             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js             test/providerAutonomousInvestigation.test.js             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js

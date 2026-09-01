@@ -21,7 +21,8 @@ const {
   porcelainPath,
   readWhatsappCoreState,
   writeWhatsappCoreState,
-  runWhatsappCoreContract
+  runWhatsappCoreContract,
+  shouldRefreshSupervisorAfterRequest
 } = require('../bin/owner-ops-supervisor');
 
 test.after(async () => {
@@ -112,4 +113,22 @@ test('WhatsApp core last-good state is persisted atomically', async () => {
   assert.equal(loaded.branch, 'stable/ORCHESTRATOR-WHATSAPP-CORE');
   assert.equal(loaded.source, 'test');
   assert.ok(loaded.updatedAt);
+});
+
+
+test('supervisor refresh is scheduled only after successful Orchestrator repository deploys', () => {
+  assert.equal(shouldRefreshSupervisorAfterRequest({
+    capability: 'repository.deploy',
+    target: 'orchestrator'
+  }), true);
+
+  assert.equal(shouldRefreshSupervisorAfterRequest({
+    capability: 'repository.deploy',
+    target: 'connect'
+  }), false);
+
+  assert.equal(shouldRefreshSupervisorAfterRequest({
+    capability: 'service.restart',
+    target: 'orchestrator'
+  }), false);
 });
