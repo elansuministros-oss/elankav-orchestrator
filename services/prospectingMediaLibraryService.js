@@ -259,6 +259,36 @@ function connectInternalToken() {
     .digest('hex');
 }
 
+function canonicalizeWahaMediaUrl(url, authorizedBaseUrls = []) {
+  const raw = String(url || '').trim();
+  if (!raw) throw createError('WAHA_MEDIA_URL_REQUIRED', 400);
+
+  const parsed = new URL(raw);
+  if (isAuthorizedWahaHost(raw, authorizedBaseUrls)) return raw;
+
+  const hostname = String(parsed.hostname || '').toLowerCase();
+  const loopbackOrContainer = new Set(['localhost', '127.0.0.1', '::1', 'waha']);
+  const safeMediaPath = /^\/api\/(?:files|messages?\/)/i.test(parsed.pathname) || /^\/api\/.*\/messages\//i.test(parsed.pathname);
+
+  if (!loopbackOrContainer.has(hostname) || !safeMediaPath) {
+    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'El recurso multimedia no pertenece a un host WAHA autorizado.');
+  }
+
+  const preferredBase = authorizedBaseUrls.find(Boolean);
+  if (!preferredBase) {
+    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'No existe un host WAHA autorizado para normalizar el recurso multimedia.');
+  }
+
+  const base = new URL(preferredBase);
+  const rewritten = new URL(parsed.pathname + parsed.search, base.origin + '/').toString();
+
+  if (!isAuthorizedWahaHost(rewritten, authorizedBaseUrls)) {
+    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'No fue posible normalizar el host multimedia de WAHA.');
+  }
+
+  return rewritten;
+}
+
 async function hydrateOwnerWhatsappMedia({ incoming, fetchImpl = fetch }) {
   if (!incoming || !['image', 'video'].includes(incoming.messageType)) return incoming;
   if (incoming.media?.url) return incoming;
@@ -332,12 +362,10 @@ async function hydrateOwnerWhatsappMedia({ incoming, fetchImpl = fetch }) {
 
 async function downloadMedia({ url, webhookMimeType, fetchImpl = fetch }) {
   const { baseUrl, internalBaseUrl, apiKey } = getWahaConfig();
-  const authorized = [baseUrl, internalBaseUrl].filter(Boolean);
-  const primaryUrl = resolveMediaUrl(url, baseUrl);
+  const authorized = [internalBaseUrl, baseUrl].filter(Boolean);
+  const resolved = resolveMediaUrl(url, baseUrl);
+  const primaryUrl = canonicalizeWahaMediaUrl(resolved, authorized);
   const primary = new URL(primaryUrl);
-  if (!isAuthorizedWahaHost(primaryUrl, authorized)) {
-    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'El recurso multimedia no pertenece a un host WAHA autorizado.');
-  }
 
   async function once(targetUrl) {
     if (!isAuthorizedWahaHost(targetUrl, authorized)) {
@@ -453,6 +481,7 @@ module.exports = {
   FOLDER_LABELS,
   MAX_MEDIA_BYTES,
   LIBRARY_CAPTURE_TTL_MS,
+  canonicalizeWahaMediaUrl,
   classifyFolder,
   classifyTags,
   clearOwnerLibraryState,
