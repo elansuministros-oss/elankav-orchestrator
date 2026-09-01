@@ -106,14 +106,6 @@ async function runCodeJob(job) {
     throw new Error('QA no aprobado');
   }
 
-  if (job.type === JOB_TYPES.CODE_PREPARE) {
-    result.mode = 'prepare-only';
-    result.publishAllowed = false;
-    result.pullRequestAllowed = false;
-    result.finishedAt = new Date().toISOString();
-    return result;
-  }
-
   const publishResult = await publishJobChanges({
     job,
     workspace: workspaceResult,

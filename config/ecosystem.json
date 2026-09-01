@@ -22,7 +22,7 @@
   {
     "id": "elankav-connect",
     "name": "ELANKAV CONNECT",
-    "url": "https://connect.elankav.com/console",
+    "url": "https://elankav-connect.vercel.app/console",
     "category": "CRM maestro comercial"
   },
   {

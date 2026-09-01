@@ -3,48 +3,17 @@
 const { getConfig } = require('../../adapters/jobSupabaseAdapter');
 
 const COMMANDS = Object.freeze({
-  ACTIVE_PROJECTS: 'active_projects',
   PROJECTS_BY_CUSTOMER: 'projects_by_customer',
   PRODUCTION_BY_CUSTOMER: 'production_by_customer',
   QUOTATIONS_WITHOUT_FOLLOW_UP: 'quotations_without_follow_up',
   DEPOSITS_WITHOUT_WORK_ORDER: 'deposits_without_work_order',
-  PROJECTS_BLOCKED_BY_PURCHASES: 'projects_blocked_by_purchases',
-  OPEN_PURCHASE_ORDERS: 'open_purchase_orders',
-  PENDING_SUPPLIER_DELIVERIES: 'pending_supplier_deliveries',
-  SUPPLIER_DELIVERY_STATUS: 'supplier_delivery_status',
-  PENDING_SUPPLIER_PAYMENTS: 'pending_supplier_payments'
+  PROJECTS_BLOCKED_BY_PURCHASES: 'projects_blocked_by_purchases'
 });
 
 const ADMIN_ROLES = new Set(['admin', 'owner']);
 const EXECUTIVE_ROLES = new Set(['sales', 'ventas', 'executive', 'ejecutivo']);
 const ACTIVE_QUOTATION_STATUSES = new Set(['draft', 'quoted', 'sent', 'viewed', 'approved', 'awaiting_deposit']);
 const ACTIVE_PROJECT_STATUSES = new Set(['active', 'design', 'work_order_ready', 'production', 'installation']);
-const OPEN_PURCHASE_ORDER_STATUSES = new Set([
-  'draft',
-  'pending_approval',
-  'approved',
-  'ordered',
-  'partially_received'
-]);
-const SUPPLIER_DELIVERED_STATUSES = new Set([
-  'delivered',
-  'received',
-  'completed'
-]);
-const SUPPLIER_PROGRESS_STATUSES = new Set([
-  'ready',
-  'partial',
-  'partially_ready',
-  'partially_delivered',
-  'in_progress'
-]);
-const CLOSED_PAYMENT_STATUSES = new Set([
-  'paid',
-  'completed',
-  'cancelled',
-  'canceled',
-  'void'
-]);
 
 function normalize(value = '') {
   return String(value)
@@ -58,99 +27,6 @@ function resolveIntent(message = '') {
   const text = normalize(message);
   if (!text) return null;
 
-  const asksGlobalActiveProjects =
-    (
-      text.includes('proyectos activos') ||
-      text.includes('proyectos tengo activos') ||
-      text.includes('proyectos estan activos') ||
-      text.includes('trabajos activos') ||
-      text.includes('trabajos tengo activos') ||
-      text.includes('que tengo activo') ||
-      text.includes('que tengo abierto') ||
-      text.includes('que tengo andando') ||
-      text.includes('que tengo en marcha') ||
-      text.includes('que tenemos activo') ||
-      text.includes('que tenemos abierto') ||
-      text.includes('que tenemos andando') ||
-      text.includes('que tenemos en marcha') ||
-      text.includes('como van los trabajos') ||
-      text.includes('como van los proyectos') ||
-      text.includes('que trabajos siguen') ||
-      text.includes('que proyectos siguen') ||
-      text.includes('que hay activo') ||
-      text.includes('que hay abierto') ||
-      text.includes('que hay andando') ||
-      text.includes('que hay en marcha')
-    ) &&
-    !text.includes('cliente');
-
-  if (asksGlobalActiveProjects) {
-    return COMMANDS.ACTIVE_PROJECTS;
-  }
-
-  const asksOpenPurchaseOrders =
-    text.includes('compras pendientes') ||
-    text.includes('compras tengo pendientes') ||
-    text.includes('ordenes de compra abiertas') ||
-    text.includes('ordenes de compra pendientes') ||
-    text.includes('oc abiertas') ||
-    text.includes('oc pendientes') ||
-    text.includes('compras siguen abiertas') ||
-    text.includes('ordenes de compra siguen abiertas');
-
-  if (asksOpenPurchaseOrders) {
-    return COMMANDS.OPEN_PURCHASE_ORDERS;
-  }
-
-  const asksPendingDeliveries =
-    text.includes('entregas pendientes') ||
-    text.includes('entregas estan pendientes') ||
-    text.includes('entregas siguen pendientes') ||
-    text.includes('que entregas faltan') ||
-    text.includes('que falta entregar') ||
-    text.includes('que falta de proveedor') ||
-    text.includes('que materiales faltan') ||
-    text.includes('proveedor no ha entregado') ||
-    text.includes('proveedores no han entregado') ||
-    text.includes('proveedor falta entregar') ||
-    text.includes('proveedores faltan entregar') ||
-    text.includes('esperando material') ||
-    text.includes('material pendiente de proveedor') ||
-    text.includes('pendiente de entrega');
-
-  if (asksPendingDeliveries) {
-    return COMMANDS.PENDING_SUPPLIER_DELIVERIES;
-  }
-
-  const asksSupplierDeliveryStatus =
-    (
-      text.includes('ya entrego ') ||
-      text.includes('entrego el proveedor') ||
-      text.includes('entrego proveedor') ||
-      text.includes('como va la entrega de') ||
-      text.includes('estado de entrega de')
-    ) &&
-    (
-      text.includes('entrego') ||
-      text.includes('entrega')
-    );
-
-  if (asksSupplierDeliveryStatus) {
-    return COMMANDS.SUPPLIER_DELIVERY_STATUS;
-  }
-
-  const asksPendingSupplierPayments =
-    text.includes('pagarle a proveedores') ||
-    text.includes('pagar a proveedores') ||
-    text.includes('pagos pendientes a proveedores') ||
-    text.includes('pagos de proveedores pendientes') ||
-    text.includes('que debo pagar') ||
-    text.includes('que hay que pagar a proveedores');
-
-  if (asksPendingSupplierPayments) {
-    return COMMANDS.PENDING_SUPPLIER_PAYMENTS;
-  }
-
   if ((text.includes('produccion') || text.includes('en produccion')) &&
       (text.includes('cliente') || text.includes('de ') || text.includes('trabajo'))) {
     return COMMANDS.PRODUCTION_BY_CUSTOMER;
@@ -162,7 +38,7 @@ function resolveIntent(message = '') {
       (text.includes('sin ot') || text.includes('sin orden de trabajo') || text.includes('no tienen orden de trabajo'))) {
     return COMMANDS.DEPOSITS_WITHOUT_WORK_ORDER;
   }
-  if ((text.includes('bloqueado') || text.includes('bloqueando') || text.includes('detenido') || text.includes('parado')) &&
+  if ((text.includes('bloqueado') || text.includes('detenido') || text.includes('parado')) &&
       (text.includes('compra') || text.includes('proveedor') || text.includes('material'))) {
     return COMMANDS.PROJECTS_BLOCKED_BY_PURCHASES;
   }
@@ -183,27 +59,6 @@ function extractCustomer(message = '') {
     const match = text.match(pattern);
     if (match?.[1]) return match[1].trim();
   }
-  return '';
-}
-
-function extractSupplier(message = '') {
-  const original = String(message || '').trim();
-
-  const patterns = [
-    /(?:ya\s+)?entreg[oó]\s+(.+?)(?:\?|$)/i,
-    /(?:proveedor)\s+(.+?)(?:\?|$)/i,
-    /(?:entrega\s+de)\s+(.+?)(?:\?|$)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = original.match(pattern);
-    if (match?.[1]) {
-      return match[1]
-        .replace(/^(el|la)\s+/i, '')
-        .trim();
-    }
-  }
-
   return '';
 }
 
@@ -273,217 +128,14 @@ function quotationPublic(row) {
   };
 }
 
-function supplierMasterName(provider = {}) {
-  return (
-    provider.trade_name ||
-    provider.legal_name ||
-    ''
-  );
-}
-
-async function loadProvidersByIds(reader, ids = []) {
-  const uniqueIds = [
-    ...new Set(
-      ids
-        .map(value => String(value || '').trim())
-        .filter(Boolean)
-    )
-  ];
-
-  if (!uniqueIds.length) return new Map();
-
-  const rows = await reader.select(
-    'econ_providers',
-    `select=id,legal_name,trade_name,status,currency,tax_id,phone,whatsapp&id=in.(${uniqueIds.join(',')})`
-  );
-
-  return new Map(
-    rows.map(row => [String(row.id), row])
-  );
-}
-
-function purchaseOrderPublic(row, provider = null) {
-  return {
-    purchaseOrderId: row.id,
-    purchaseOrderNumber: row.purchase_order_number,
-    projectId: row.project_id,
-    workOrderId: row.work_order_id,
-    supplierId: row.supplier_id,
-    supplierName:
-      supplierMasterName(provider) ||
-      row.supplier_name_snapshot ||
-      '',
-    supplierSnapshotName:
-      row.supplier_name_snapshot || '',
-    supplierMasterStatus:
-      provider?.status || null,
-    status: row.status,
-    expectedAt: row.expected_at || null,
-    blocksProduction: Boolean(row.blocks_production),
-    currency: row.currency || '',
-    total: row.total ?? null
-  };
-}
-
-function summarizeDeliveryLines(lines = []) {
-  if (!lines.length) {
-    return {
-      supplierReport: 'sin reporte del proveedor',
-      supplierDelivered: false,
-      internalReceived: false,
-      internalConformity: false
-    };
-  }
-
-  const normalizedStatuses = lines.map(row => normalize(row.supplier_status));
-  const supplierDelivered =
-    normalizedStatuses.length > 0 &&
-    normalizedStatuses.every(status => SUPPLIER_DELIVERED_STATUSES.has(status));
-
-  const hasProgress =
-    lines.some(row =>
-      SUPPLIER_PROGRESS_STATUSES.has(normalize(row.supplier_status)) ||
-      Number(row.supplier_ready_qty || 0) > 0 ||
-      Number(row.supplier_delivered_qty || 0) > 0
-    );
-
-  const internalReceived =
-    lines.every(row =>
-      Boolean(row.internal_received_at) ||
-      Number(row.internal_received_qty || 0) > 0
-    );
-
-  const internalConformity =
-    lines.every(row => row.internal_conformity === true);
-
-  return {
-    supplierReport:
-      supplierDelivered
-        ? 'proveedor reporta entregado'
-        : hasProgress
-          ? 'proveedor reporta avance'
-          : 'pendiente de reporte del proveedor',
-    supplierDelivered,
-    internalReceived,
-    internalConformity
-  };
-}
-
-function deliveryPublic(order, lines = [], provider = null) {
-  const summary = summarizeDeliveryLines(lines);
-
-  return {
-    ...purchaseOrderPublic(order, provider),
-    deliveryLines: lines.length,
-    supplierReport: summary.supplierReport,
-    supplierDelivered: summary.supplierDelivered,
-    internalReceived: summary.internalReceived,
-    internalConformity: summary.internalConformity
-  };
-}
-
-function paymentOrderPublic(row, provider = null) {
-  return {
-    paymentOrderId: row.id,
-    paymentOrderNumber:
-      row.payment_order_number ||
-      row.supplier_payment_order_number ||
-      row.order_number ||
-      '',
-    purchaseOrderId: row.purchase_order_id || null,
-    supplierId: row.supplier_id || null,
-    supplierName:
-      supplierMasterName(provider) ||
-      row.supplier_name_snapshot ||
-      row.supplier_name ||
-      '',
-    supplierSnapshotName:
-      row.supplier_name_snapshot ||
-      row.supplier_name ||
-      '',
-    status: row.status || '',
-    currency: row.currency || '',
-    amount:
-      row.amount ??
-      row.total ??
-      row.total_amount ??
-      null,
-    createdAt: row.created_at || null
-  };
-}
-
 function queryParam(name, value) {
   return value ? `&${name}=eq.${encodeURIComponent(value)}` : '';
 }
 
-function format(command, rows, customerQuery = '', supplierQuery = '') {
+function format(command, rows, customerQuery = '') {
   const customer = customerQuery ? ` de ${customerQuery}` : '';
-  const supplier = supplierQuery ? ` de ${supplierQuery}` : '';
-
-  if (command === COMMANDS.OPEN_PURCHASE_ORDERS) {
-    if (!rows.length) return 'No encontré órdenes de compra abiertas.';
-    return [
-      `${rows.length} orden(es) de compra abierta(s):`,
-      ...rows.map((row, index) => {
-        const total =
-          row.total === null || row.total === undefined
-            ? ''
-            : ` · ${row.currency || ''} ${row.total}`.trimEnd();
-        return `${index + 1}. ${row.purchaseOrderNumber || 'OC'} — ${row.supplierName || 'Proveedor sin nombre'} · ${row.status}${total}`;
-      })
-    ].join('\n');
-  }
-
-  if (
-    command === COMMANDS.PENDING_SUPPLIER_DELIVERIES ||
-    command === COMMANDS.SUPPLIER_DELIVERY_STATUS
-  ) {
-    if (!rows.length) {
-      return command === COMMANDS.SUPPLIER_DELIVERY_STATUS
-        ? `No encontré órdenes de compra${supplier} para consultar la entrega.`
-        : 'No encontré entregas pendientes de proveedor.';
-    }
-
-    const header =
-      command === COMMANDS.SUPPLIER_DELIVERY_STATUS
-        ? `Estado de entrega${supplier}:`
-        : `${rows.length} entrega(s) pendiente(s) de proveedor:`;
-
-    return [
-      header,
-      ...rows.map((row, index) => {
-        const internal =
-          row.internalReceived
-            ? row.internalConformity
-              ? 'recibido internamente y conforme'
-              : 'recibido internamente, conformidad pendiente'
-            : 'recepción interna pendiente';
-
-        return `${index + 1}. ${row.purchaseOrderNumber || 'OC'} — ${row.supplierName || 'Proveedor sin nombre'} · ${row.supplierReport} · ${internal}`;
-      })
-    ].join('\n');
-  }
-
-  if (command === COMMANDS.PENDING_SUPPLIER_PAYMENTS) {
-    if (!rows.length) {
-      return 'No encontré órdenes de pago pendientes a proveedores.';
-    }
-
-    return [
-      `${rows.length} pago(s) pendiente(s) a proveedores:`,
-      ...rows.map((row, index) => {
-        const amount =
-          row.amount === null || row.amount === undefined
-            ? ''
-            : ` · ${row.currency || ''} ${row.amount}`.trimEnd();
-
-        return `${index + 1}. ${row.paymentOrderNumber || row.paymentOrderId || 'Pago'} — ${row.supplierName || 'Proveedor'} · ${row.status || 'pendiente'}${amount}`;
-      })
-    ].join('\n');
-  }
   if (!rows.length) {
     const empty = {
-      [COMMANDS.ACTIVE_PROJECTS]: 'No encontré proyectos activos.',
       [COMMANDS.PRODUCTION_BY_CUSTOMER]: `No encontré trabajos${customer} en producción.`,
       [COMMANDS.PROJECTS_BY_CUSTOMER]: `No encontré proyectos${customer}.`,
       [COMMANDS.QUOTATIONS_WITHOUT_FOLLOW_UP]: 'No encontré cotizaciones activas sin seguimiento.',
@@ -494,7 +146,6 @@ function format(command, rows, customerQuery = '', supplierQuery = '') {
   }
 
   const headers = {
-    [COMMANDS.ACTIVE_PROJECTS]: `${rows.length} proyecto(s) activo(s):`,
     [COMMANDS.PRODUCTION_BY_CUSTOMER]: `${rows.length} trabajo(s)${customer} en producción:`,
     [COMMANDS.PROJECTS_BY_CUSTOMER]: `${rows.length} proyecto(s)${customer}:`,
     [COMMANDS.QUOTATIONS_WITHOUT_FOLLOW_UP]: `${rows.length} cotización(es) requieren seguimiento:`,
@@ -512,134 +163,6 @@ function format(command, rows, customerQuery = '', supplierQuery = '') {
 
 async function executeQuery({ command, customerQuery, scope, reader, staleDays = 3 } = {}) {
   const executiveFilter = queryParam('executive_id', scope.executiveId);
-
-  if (command === COMMANDS.OPEN_PURCHASE_ORDERS) {
-    if (!ADMIN_ROLES.has(scope.role)) throw new Error('QUOTE_CORE_ADMIN_REQUIRED');
-
-    const rows = await reader.select(
-      'elankav_purchase_orders',
-      'select=*&order=created_at.desc&limit=100'
-    );
-
-    const openRows = rows
-      .filter(row => OPEN_PURCHASE_ORDER_STATUSES.has(normalize(row.status)));
-
-    const providers = await loadProvidersByIds(
-      reader,
-      openRows.map(row => row.supplier_id)
-    );
-
-    return openRows.map(row =>
-      purchaseOrderPublic(
-        row,
-        providers.get(String(row.supplier_id)) || null
-      )
-    );
-  }
-
-  if (
-    command === COMMANDS.PENDING_SUPPLIER_DELIVERIES ||
-    command === COMMANDS.SUPPLIER_DELIVERY_STATUS
-  ) {
-    if (!ADMIN_ROLES.has(scope.role)) throw new Error('QUOTE_CORE_ADMIN_REQUIRED');
-
-    const orders = await reader.select(
-      'elankav_purchase_orders',
-      'select=*&order=created_at.desc&limit=100'
-    );
-
-    const supplierNeedle = normalize(customerQuery);
-
-    const providers = await loadProvidersByIds(
-      reader,
-      orders.map(row => row.supplier_id)
-    );
-
-    const results = [];
-
-    for (const order of orders) {
-      const provider =
-        providers.get(String(order.supplier_id)) || null;
-      if (
-        command === COMMANDS.PENDING_SUPPLIER_DELIVERIES &&
-        !OPEN_PURCHASE_ORDER_STATUSES.has(normalize(order.status))
-      ) {
-        continue;
-      }
-
-      if (
-        command === COMMANDS.SUPPLIER_DELIVERY_STATUS &&
-        supplierNeedle &&
-        ![
-          provider?.trade_name,
-          provider?.legal_name,
-          order.supplier_name_snapshot,
-          order.supplier_id
-        ].some(value => normalize(value).includes(supplierNeedle))
-      ) {
-        continue;
-      }
-
-      const lines = await reader.select(
-        'elankav_purchase_order_delivery_lines',
-        `select=*&purchase_order_id=eq.${encodeURIComponent(order.id)}&order=created_at.asc&limit=500`
-      );
-
-      const item = deliveryPublic(
-        order,
-        lines,
-        provider
-      );
-
-      if (
-        command === COMMANDS.PENDING_SUPPLIER_DELIVERIES &&
-        item.supplierDelivered === true &&
-        item.internalReceived === true &&
-        item.internalConformity === true
-      ) {
-        continue;
-      }
-
-      results.push(item);
-    }
-
-    return results;
-  }
-
-  if (command === COMMANDS.PENDING_SUPPLIER_PAYMENTS) {
-    if (!ADMIN_ROLES.has(scope.role)) throw new Error('QUOTE_CORE_ADMIN_REQUIRED');
-
-    const rows = await reader.select(
-      'elankav_supplier_payment_orders',
-      'select=*&order=created_at.desc&limit=100'
-    );
-
-    const pendingRows = rows
-      .filter(row => !CLOSED_PAYMENT_STATUSES.has(normalize(row.status)));
-
-    const providers = await loadProvidersByIds(
-      reader,
-      pendingRows.map(row => row.supplier_id)
-    );
-
-    return pendingRows.map(row =>
-      paymentOrderPublic(
-        row,
-        providers.get(String(row.supplier_id)) || null
-      )
-    );
-  }
-
-  if (command === COMMANDS.ACTIVE_PROJECTS) {
-    const rows = await reader.select(
-      'elankav_projects',
-      `select=*&order=created_at.desc&limit=100${executiveFilter}`
-    );
-
-    return rows
-      .filter(row => ACTIVE_PROJECT_STATUSES.has(row.status))
-      .map(projectPublic);
-  }
 
   if (command === COMMANDS.PRODUCTION_BY_CUSTOMER || command === COMMANDS.PROJECTS_BY_CUSTOMER) {
     const statusFilter = command === COMMANDS.PRODUCTION_BY_CUSTOMER ? '&status=eq.production' : '';
@@ -732,27 +255,11 @@ async function processQuoteRuntimeCommand({
   try {
     const resolvedReader = reader || createRestReader({ env });
     const customerQuery = extractCustomer(message);
-    const supplierQuery =
-      command === COMMANDS.SUPPLIER_DELIVERY_STATUS
-        ? extractSupplier(message)
-        : '';
-
-    const queryContext =
-      command === COMMANDS.SUPPLIER_DELIVERY_STATUS
-        ? supplierQuery
-        : customerQuery;
-
-    const rows = await executeQuery({
-      command,
-      customerQuery: queryContext,
-      scope,
-      reader: resolvedReader
-    });
-
+    const rows = await executeQuery({ command, customerQuery, scope, reader: resolvedReader });
     return {
       handled: true,
       command,
-      outputText: format(command, rows, customerQuery, supplierQuery),
+      outputText: format(command, rows, customerQuery),
       rows,
       scope: ADMIN_ROLES.has(scope.role) ? 'global' : 'own'
     };
@@ -768,9 +275,7 @@ module.exports = {
   COMMANDS,
   createRestReader,
   executeQuery,
-  loadProvidersByIds,
   extractCustomer,
-  extractSupplier,
   format,
   processQuoteRuntimeCommand,
   resolveIntent,

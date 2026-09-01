@@ -1,327 +1,279 @@
-'use strict';
-
 const { generateText } = require('./openaiService');
 const { routeContext } = require('./context/index');
 const {
   detectOwnerCommand,
-  detectOwnerLanguageLearnCommand,
   executeOwnerCommand
 } = require('./ownerCommandService');
-const { normalizeOwnerLanguage } = require('./ownerLanguageProfileService');
-const { loadCrmContext } = require('./crmContextService');
-const { processCrmConversation } = require('./crmConversationService');
-const { processSellerRegistrationConversation } = require('./ownerSellerRegistrationService');
-const { loadEcosystemContext } = require('./ecosystemContextService');
-const { loadPlatformKnowledgeSafely } = require('./connectPlatformKnowledgeService');
 const {
-  publishConversationEventSafely,
-  requestConversationDecision
-} = require('./connectConversationClient');
-const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
-const { resolveAccessPolicy } = require('./accessPolicyService');
-const { isLiveModeRequest, requestLiveSession } = require('./connectLiveAccessService');
-const { loadConversationMemory } = require('./elanUnifiedRuntimeService');
+  loadCrmContext
+} = require('./crmContextService');
+const {
+  processCrmConversation
+} = require('./crmConversationService');
+const {
+  loadEcosystemContext
+} = require('./ecosystemContextService');
+const {
+  loadCommercialContext,
+  savePersistentCommercialState,
+  updateCommercialState
+} = require('./commercialContextService');
+const {
+  applyVerifiedCommercialReply
+} = require('./commercialReplyService');
+const {
+  buildDesignConversationPrompt,
+  detectConversationDesignIntent,
+  shouldRequestLogo
+} = require('./designIntentService');
+const {
+  processDesignRequest
+} = require('./designEngineService');
+const {
+  processDesignFollowup
+} = require('./designFollowupService');
+
+const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno/whatsapp';
+
+const CUSTOMER_INSTRUCTIONS = [
+  'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
+  'Respondé en español natural, amable, breve y profesional.',
+  'Atendé primero la solicitud concreta del cliente y no conviertas una explicación en un formulario.',
+  'Hacé como máximo una pregunta por respuesta y solo cuando sea indispensable para avanzar.',
+  'No repitas datos que el cliente ya proporcionó.',
+  'No exijas nombre, logotipo, fotografía ni archivo para brindar una orientación o precio autorizado.',
+  'Si el cliente ya indicó producto, medida y si es interior o exterior, no hagas preguntas adicionales innecesarias.',
+  'Si pregunta por precio, respondé con el precio únicamente cuando esté presente en el contexto verificado; nunca inventes precios.',
+  'Cuando falte un precio verificado, indicá que debe revisarse en el cotizador y continuá ayudando con la información disponible.',
+  'Cuando exista contexto comercial verificado, usá el nombre, las medidas, el precio y la modalidad exactos de ese contexto.',
+  'Usá únicamente sitios web y ubicaciones presentes en el contexto oficial verificado; nunca inventes, completes ni adivines dominios o ubicaciones.',
+  'No presentes la página principal como catálogo. Solo afirmes que existe un catálogo cuando el contexto incluya un enlace exacto y verificado al catálogo solicitado.',
+  'Si no existe un enlace exacto al catálogo, indicá que podés orientar con muestras verificadas sin inventar enlaces.',
+  'Decí “desde” únicamente cuando la oferta verificada sea starting-at y aclará que el precio es aproximado cuando así se indique.',
+  'Después de orientar el precio, hacé una sola pregunta útil para acercar al cliente a la cotización o al cierre.',
+  'No hables de Orchestrator, repositorios, herramientas internas, permisos técnicos ni programación con clientes.',
+  'No trates al cliente como proveedor ni inicies flujos CRM internos por una explicación general.',
+  'No prometas fabricación, instalación, entrega o disponibilidad sin datos confirmados.',
+  'Respondé únicamente al mensaje recibido y mantené el contexto de la plataforma indicada.'
+].join(' ');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
   'El remitente fue reconocido como Erick Cano, propietario del ecosistema ELANKAV.',
   'No lo trates como cliente, lead o prospecto.',
+  'Si pregunta quién es para el sistema, respondé que es Erick Cano, propietario del ecosistema ELANKAV.',
   'No inventes datos operativos.',
   'Consultá y respetá el contexto verificado del Orchestrator antes de afirmar que una fuente no existe o no está conectada.',
+  'Las órdenes técnicas autorizadas se procesan mediante el router owner y el pipeline seguro del Orchestrator.',
+  'Nunca afirmes que un cambio fue desplegado si solamente se creó un job, una rama o un Pull Request.',
+  'Cuando una respuesta requiera datos internos no incluidos en el contexto verificado, indicá claramente que esa fuente específica todavía no fue expuesta por el Orchestrator.',
   'Respondé en español, de forma directa y precisa.'
 ].join(' ');
 
 function normalizeMessage(value) {
-  return typeof value === 'string' ? value.trim() : '';
+  return typeof value === 'string'
+    ? value.trim()
+    : '';
 }
 
-function normalizeHistory(history, currentMessage) {
-  const normalized = Array.isArray(history)
-    ? history
-      .map(item => ({
-        role: item?.role === 'assistant' ? 'assistant' : item?.role === 'user' ? 'user' : null,
-        content: normalizeMessage(item?.content)
-      }))
-      .filter(item => item.role && item.content)
-    : [];
+function resolveMessageInstructions({
+  ownerMode,
+  customInstructions
+}) {
+  const normalizedCustom = normalizeMessage(customInstructions);
 
-  const current = normalizeMessage(currentMessage);
-  const last = normalized[normalized.length - 1];
-  if (last?.role === 'user' && current && last.content === current) normalized.pop();
-  return normalized;
-}
-
-function mergeConversationHistories(...histories) {
-  const merged = [];
-  const seen = new Set();
-  for (const history of histories) {
-    for (const item of Array.isArray(history) ? history : []) {
-      const role = item?.role === 'assistant' ? 'assistant' : item?.role === 'user' ? 'user' : null;
-      const content = normalizeMessage(item?.content);
-      if (!role || !content) continue;
-      const key = `${role}\u0000${content}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      merged.push({ role, content, createdAt: item?.createdAt || null });
-    }
-  }
-  return merged
-    .sort((a, b) => {
-      const left = Date.parse(a.createdAt || '');
-      const right = Date.parse(b.createdAt || '');
-      if (Number.isFinite(left) && Number.isFinite(right)) return left - right;
-      return 0;
-    })
-    .slice(-30)
-    .map(({ role, content }) => ({ role, content }));
-}
-
-function buildKnowledgeQuery(history, currentMessage) {
-  const recent = Array.isArray(history) ? history.slice(-8) : [];
-  return [
-    ...recent.map(item => item.content),
-    normalizeMessage(currentMessage)
-  ].filter(Boolean).join('\n').slice(-12000);
-}
-
-function actorInstructions(actor, policy) {
-  const role = String(actor?.role || policy?.role || 'prospect').toLowerCase();
-  const scopes = Array.isArray(policy?.scopes) ? policy.scopes.join(', ') : '';
-  const common = [
-    `Identidad comercial verificada por CONNECT: ${role}.`,
-    `Permisos efectivos: ${scopes || 'ninguno'}.`,
-    'No concedas capacidades fuera de esos permisos y no inventes registros, precios ni estados.'
-  ];
-
-  if (role === 'seller') {
-    common.push(
-      'Tratá al remitente como vendedor interno, no como cliente.',
-      'Puede operar solamente sus propios clientes, cotizaciones, trabajos y comisiones.',
-      'Las órdenes pueden expresarse naturalmente; no exijas sintaxis técnica.'
-    );
-  } else if (role === 'customer') {
-    common.push(
-      'Tratá al remitente como cliente formal identificado por su WhatsApp registrado.',
-      'Solo puede consultar/solicitar sus propios documentos y precios autorizados.',
-      'No puede editar, autorizar OT, validar pagos ni pedir enlaces privados de plataforma.'
-    );
-  } else if (role === 'provider') {
-    common.push(
-      'Tratá al remitente como proveedor registrado, no como cliente ni prospecto.',
-      'Solo puede consultar o aportar información correspondiente a su propia relación comercial y a sus permisos efectivos.',
-      'No le concedas permisos de vendedor, cliente u Owner y no expongas información comercial de otros proveedores.'
-    );
-  } else {
-    common.push(
-      'Tratá al remitente como prospecto/no registrado.',
-      'Puede recibir precios autorizados; una cotización formal requiere el flujo de autorización Owner salvo formalización por depósito.'
-    );
+  if (normalizedCustom) {
+    return normalizedCustom;
   }
 
-  return common.join(' ');
+  return ownerMode
+    ? OWNER_INSTRUCTIONS
+    : CUSTOMER_INSTRUCTIONS;
 }
 
-async function checkHumanTakeover({
-  normalizedMessage,
+function buildDesignPortalLink() {
+  return DESIGN_PORTAL_URL;
+}
+
+async function handleDesignIntent({
+  message,
+  context = {},
   platform,
   channel,
   externalUserId,
   phone,
-  metadata,
-  publishFn = publishConversationEventSafely
-}) {
-  if (String(channel || '').toLowerCase() !== 'whatsapp') return false;
-
-  const messageId = String(metadata?.messageId || '').trim();
-  const chatId = String(metadata?.chatId || externalUserId || '').trim();
-  if (!messageId || !chatId) return false;
-
-  const result = await publishFn({
-    platform: platform || 'ELANVISUAL',
-    channel: 'whatsapp',
-    externalUserId: externalUserId || null,
-    phone: phone || null,
-    chatId,
-    direction: 'inbound',
-    text: normalizedMessage,
-    messageType: metadata?.messageType || 'text',
-    externalMessageId: messageId,
-    actorType: 'customer',
-    actorName: 'WhatsApp',
-    occurredAt: new Date().toISOString(),
-    metadata: {
-      source: 'messageService-human-takeover-check',
-      session: metadata?.session || null,
-      webhookMessageId: messageId,
-      chatId
-    }
-  });
-
-  const assignment = String(result?.assignment || '').trim().toLowerCase();
-  if (assignment !== 'human') return false;
-
-  console.log('[HUMAN_TAKEOVER_ACTIVE]', {
-    platform: platform || 'ELANVISUAL',
-    chatId: chatId.length > 8 ? `${chatId.slice(0, 4)}***${chatId.slice(-8)}` : '***'
-  });
-  return true;
-}
-
-async function processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone }) {
-  const decision = context?.metadata?.connectDecision || await requestConversationDecision({
-    identity: externalUserId || context?.metadata?.senderRaw || context?.metadata?.chatId,
-    platform: context.platform || platform || 'elanvisual',
-    message: normalizedMessage,
-    ownerMode: Boolean(context?.owner?.isOwner)
-  });
-  if (decision.action === 'PAUSED') {
-    return {
-      outputText: '',
-      model: 'elankav-connect-runtime-disabled',
-      id: null,
-      status: 'automation_disabled',
-      usage: null,
-      suppressDelivery: true,
-      runtimeVersion: decision.runtimeVersion || null
-    };
-  }
-
-  const runtimePlatform = decision.platform || {};
-  const platformId = runtimePlatform.platformId || context.platform || platform || 'elanvisual';
-  const actor = await resolveCommercialActorSafely({
-    phone: context.phone || phone || null,
-    identity: context?.identity?.receivedId || externalUserId || null,
-    externalUserId: context.externalUserId || externalUserId || null,
-    chatId: context?.metadata?.chatId || null,
-    metadata: context?.metadata || {},
-    platform: platformId
-  });
-  const accessPolicy = resolveAccessPolicy({
-    actorRole: actor?.role,
-    actorScopes: actor?.scopes
-  });
-  let unifiedMemory = { history: [], workingState: {} };
-  try {
-    unifiedMemory = await loadConversationMemory({
-      actor: {
-        role: actor?.role || 'prospect',
-        actorId: actor?.actorId || actor?.sellerId || actor?.customerId || actor?.providerId || actor?.prospectId || context.externalUserId || externalUserId || null,
-        sellerId: actor?.sellerId || null,
-        sellerName: actor?.displayName || null,
-        registered: actor?.registered === true,
-        platformAllowed: actor?.platformAllowed !== false,
-        scopes: Array.isArray(actor?.scopes) ? actor.scopes : [],
-        authority: actor?.authority || null,
-        phone: actor?.canonicalPhone || context.phone || phone || null
-      },
-      platform: platformId,
-      limit: 30
-    });
-  } catch (error) {
-    console.error('[ELAN_UNIFIED_MEMORY_LOAD_FAILED]', {
-      role: actor?.role || 'prospect',
-      code: error?.code || null,
-      message: error?.message || String(error)
-    });
-  }
-
-  const history = normalizeHistory(
-    mergeConversationHistories(decision.history, unifiedMemory.history),
-    normalizedMessage
-  );
-  const knowledgeQuery = buildKnowledgeQuery(history, normalizedMessage);
-
-  console.log('[ELAN_AI_CONTEXT_LOADED]', {
-    platform: platformId,
-    actorRole: actor?.role || 'prospect',
-    actorAuthority: actor?.authority || null,
-    historyMessages: history.length,
-    knowledgeQueryLength: knowledgeQuery.length,
-    conversationId: decision.conversationId || null
-  });
-
-  const knowledge = await loadPlatformKnowledgeSafely({
-    platform: platformId,
-    query: knowledgeQuery || normalizedMessage
-  });
-
-  if (!knowledge?.available || !knowledge?.payload) {
-    console.error('[ELAN_AI_OFFICIAL_KNOWLEDGE_REQUIRED]', {
-      platform: platformId,
-      query: normalizedMessage,
-      error: knowledge?.error || 'OFFICIAL_KNOWLEDGE_UNAVAILABLE'
-    });
-
-    return {
-      outputText: [
-        'En este momento no pude consultar la información oficial de',
-        platformId.toUpperCase() + '.',
-        'Para no darte información incorrecta, dejaré tu consulta pendiente',
-        'hasta recuperar la conexión con la plataforma.'
-      ].join(' '),
-      model: 'elankav-official-knowledge-unavailable',
-      id: null,
-      status: 'knowledge_unavailable',
-      usage: null,
-      runtimeVersion: decision.runtimeVersion || null,
-      knowledgeAvailable: false,
-      actorRole: actor?.role || 'prospect'
-    };
-  }
-
-  const generated = await generateText({
-    input: normalizedMessage,
+  metadata
+} = {}) {
+  const history = Array.isArray(metadata?.conversationHistory)
+    ? metadata.conversationHistory
+    : [];
+  const references = Array.isArray(metadata?.references)
+    ? metadata.references
+    : [];
+  const brandAssets = Array.isArray(metadata?.brandAssets)
+    ? metadata.brandAssets
+    : [];
+  const detection = detectConversationDesignIntent({
+    message,
     history,
-    instructions: [decision.instructions || '', actorInstructions(actor, accessPolicy)].filter(Boolean).join(' '),
-    context: {
-      ownerMode: false,
-      customerMode: actor?.role === 'customer' || actor?.role === 'prospect',
-      sellerMode: actor?.role === 'seller',
-      providerMode: actor?.role === 'provider',
-      externalUserId: context.externalUserId || externalUserId || null,
-      phone: actor?.canonicalPhone || context.phone || phone || null,
-      platform: platformId,
-      channel: context.channel || channel || null,
-      actor: {
-        role: actor?.role || 'prospect',
-        actorId: actor?.actorId || null,
-        sellerId: actor?.sellerId || null,
-        customerId: actor?.customerId || null,
-        providerId: actor?.providerId || null,
-        prospectId: actor?.prospectId || null,
-        displayName: actor?.displayName || null,
-        registered: actor?.registered === true,
-        platformAllowed: actor?.platformAllowed !== false,
-        authority: actor?.authority || null,
-        matchedBy: actor?.matchedBy || null
-      },
-      accessPolicy,
-      runtime: {
-        schemaVersion: decision.schemaVersion || 'ELANKAV_AI_RUNTIME_V1',
-        version: decision.runtimeVersion || null,
-        publishedAt: decision.publishedAt || null,
-        initialMessage: runtimePlatform.initialMessage || ''
-      },
-      officialKnowledge: knowledge,
-      prospectMemory: decision.prospect || null,
-      workingMemory: unifiedMemory.workingState || {}
-    }
+    references,
+    brandAssets
   });
+
+  if (!detection.detected) {
+    return {
+      handled: false,
+      detection
+    };
+  }
+
+  const resolvedPlatform =
+    context.platform || platform || null;
+
+  if (!resolvedPlatform) {
+    return {
+      handled: false,
+      detection,
+      reason: 'DESIGN_PLATFORM_REQUIRED'
+    };
+  }
+
+  const resolvedChannel = context.channel || channel || null;
+  const usePortal =
+    String(resolvedChannel || '').toLowerCase() === 'whatsapp' &&
+    metadata?.designPortalBypass !== true;
+
+  if (usePortal) {
+    const link = buildDesignPortalLink({
+      message,
+      history,
+      phone: context.phone || phone || null,
+      externalUserId: context.externalUserId || externalUserId || null,
+      conversationRef: metadata?.conversationRef || metadata?.requestId || null
+    });
+
+    return {
+      outputText: `Completá tu solicitud de diseño en el sitio oficial de ELANVISUAL:\n${link}\n\nAl enviarla recibirás un código de seguimiento.`,
+      model: 'elankav-design-portal',
+      id: null,
+      status: 'needs_information',
+      usage: null,
+      designAction: true,
+      design: null,
+      handled: true,
+      detection,
+      designPortalUrl: link
+    };
+  }
+
+  if (shouldRequestLogo({ detection })) {
+    return {
+      outputText: 'Para preparar la propuesta visual, enviame el logo como imagen. Si no lo tenés, respondé “sin logo” y la genero con el nombre y los datos que ya me diste.',
+      model: 'elankav-design-intake',
+      id: null,
+      status: 'needs_information',
+      usage: null,
+      designAction: true,
+      design: null,
+      handled: true,
+      detection
+    };
+  }
+
+  const designMessage = buildDesignConversationPrompt({
+    message,
+    history,
+    noLogoReply: detection.noLogoReply
+  });
+
+  const designResponse = await processDesignRequest({
+    requestId:
+      context.requestId ||
+      metadata?.requestId ||
+      null,
+    identityId:
+      context.externalUserId ||
+      externalUserId ||
+      null,
+    phone:
+      context.phone ||
+      phone ||
+      null,
+    platform: resolvedPlatform,
+    channel:
+      context.channel ||
+      channel ||
+      null,
+    message: designMessage,
+    projectType: metadata?.projectType,
+    environment: metadata?.environment || null,
+    measurements: Array.isArray(metadata?.measurements)
+      ? metadata.measurements
+      : [],
+    measurementStatus: metadata?.measurementStatus || 'MISSING',
+    brandAssets,
+    references,
+    instructions: Array.isArray(metadata?.instructions)
+      ? metadata.instructions
+      : [],
+    materials: Array.isArray(metadata?.materials)
+      ? metadata.materials
+      : [],
+    lighting: metadata?.lighting || null
+  });
+
+  const designResult = designResponse.designResult;
+  const processed = designResponse.processed === true;
 
   return {
-    ...generated,
-    status: generated.status || 'completed',
-    runtimeVersion: decision.runtimeVersion || null,
-    knowledgeAvailable: Boolean(knowledge?.available),
-    historyMessages: history.length,
-    actorRole: actor?.role || 'prospect',
-    actorId: actor?.actorId || null,
-    accessScopes: accessPolicy.scopes
+    outputText: designResponse.outputText,
+    model: designResponse.connected
+      ? 'elankav-design-engine-http'
+      : 'elankav-design-engine-stub',
+    id:
+      designResult?.designId ||
+      designResponse.result?.requestId ||
+      null,
+    status: processed
+      ? 'processed'
+      : designResult?.status === 'NEEDS_INFORMATION'
+        ? 'needs_information'
+        : 'accepted',
+    usage: null,
+    designAction: true,
+    design: designResult
+      ? {
+          designId: designResult.designId || null,
+          status: designResult.status,
+          clientReady:
+            designResult.elanIaResult?.clientReady === true,
+          conversational:
+            designResult.elanIaResult?.conversational === true,
+          assets: Array.isArray(designResult.assets)
+            ? designResult.assets
+            : [],
+          qa: designResult.qa || null
+        }
+      : null,
+    handled: true
   };
 }
 
-async function processMessage({ message, platform, channel, externalUserId, phone, metadata }) {
-  const normalizedMessage = normalizeMessage(message);
+async function processMessage({
+  message,
+  instructions,
+  platform,
+  channel,
+  externalUserId,
+  phone,
+  metadata
+}) {
+  const hasDesignMedia =
+    (Array.isArray(metadata?.references) && metadata.references.length > 0) ||
+    (Array.isArray(metadata?.brandAssets) && metadata.brandAssets.length > 0);
+  const normalizedMessage =
+    normalizeMessage(message) ||
+    (hasDesignMedia ? 'Imagen enviada por el cliente' : '');
 
   if (!normalizedMessage) {
     const error = new Error('message es obligatorio');
@@ -329,7 +281,9 @@ async function processMessage({ message, platform, channel, externalUserId, phon
     throw error;
   }
 
+  const normalizedInstructions = normalizeMessage(instructions);
   let resolvedContext = null;
+  const startedAt = Date.now();
 
   const response = await routeContext(
     {
@@ -339,99 +293,25 @@ async function processMessage({ message, platform, channel, externalUserId, phon
       channel,
       externalUserId,
       phone,
-      metadata: metadata && typeof metadata === 'object' ? metadata : {}
+      metadata: {
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        instructions: normalizedInstructions || CUSTOMER_INSTRUCTIONS
+      }
     },
     async context => {
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
 
-      if (String(context.channel || channel || '').toLowerCase() === 'whatsapp' && isLiveModeRequest(normalizedMessage)) {
-        try {
-          const live = await requestLiveSession({
-            phone: context.phone || phone || null,
-            externalUserId: context.externalUserId || externalUserId || null,
-            platform: context.platform || platform || 'ELANVISUAL'
-          });
-          return {
-            outputText: `ELAN Copiloto listo. Abrí tu sesión segura:\n${live.url}\n\nLa sesión vence en 15 minutos.`,
-            model: 'elankav-connect-live-access',
-            id: null,
-            status: 'completed',
-            usage: null,
-            actorRole: live.actor?.role || (ownerMode ? 'owner' : null),
-            accessScopes: live.actor?.scopes || null
-          };
-        } catch (error) {
-          if (error.code === 'LIVE_ACCESS_DENIED') {
-            return {
-              outputText: 'Este número no tiene acceso autorizado a ELAN Copiloto.',
-              model: 'elankav-connect-live-access',
-              id: null,
-              status: 'denied',
-              usage: null
-            };
-          }
-          throw error;
-        }
-      }
+      const ownerCommand = ownerMode
+        ? detectOwnerCommand(normalizedMessage)
+        : null;
 
-      if (!ownerMode) {
-        const humanTakeover = metadata?.connectDecision ? false : await checkHumanTakeover({
-          normalizedMessage,
-          platform: context.platform || platform || 'ELANVISUAL',
-          channel: context.channel || channel,
-          externalUserId: context.externalUserId || externalUserId,
-          phone: context.phone || phone,
-          metadata
-        });
-
-        if (humanTakeover) {
-          return {
-            outputText: '',
-            model: 'elankav-human-takeover',
-            id: null,
-            status: 'human_takeover',
-            usage: null,
-            suppressDelivery: true
-          };
-        }
-
-        return processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone });
-      }
-
-      const sellerConversation = await processSellerRegistrationConversation({
-        message: normalizedMessage,
-        externalUserId: context.externalUserId || externalUserId || null,
-        phone: context.phone || phone || null,
-        metadata: metadata && typeof metadata === 'object' ? metadata : {}
-      });
-
-      if (sellerConversation.handled) {
-        console.log('[OWNER_SELLER_REGISTRATION]', {
-          platform: context.platform || platform || 'elanvisual',
-          completed: Boolean(sellerConversation.completed),
-          phone: 'OWNER_RECOGNIZED'
-        });
-        return {
-          outputText: sellerConversation.outputText,
-          model: 'elankav-seller-registration',
-          id: null,
-          status: sellerConversation.completed ? 'completed' : 'in_progress',
-          usage: null,
-          crmAction: true,
-          ownerCrmCommand: true
-        };
-      }
-
-      const ownerLanguageLearnCommand = detectOwnerLanguageLearnCommand(normalizedMessage);
-      const ownerLanguageMessage = ownerLanguageLearnCommand ? normalizedMessage : await normalizeOwnerLanguage(normalizedMessage);
-      const ownerCommand = ownerLanguageLearnCommand || detectOwnerCommand(ownerLanguageMessage);
       if (ownerCommand) {
         const commandResult = await executeOwnerCommand({
           command: ownerCommand,
-          platform: context.platform || platform || 'elankav',
-          ownerPhone: context.phone || phone || context?.identity?.canonicalId || null
+          platform: context.platform || platform || 'elankav'
         });
+
         return {
           outputText: commandResult.outputText,
           model: 'elankav-owner-command',
@@ -443,121 +323,198 @@ async function processMessage({ message, platform, channel, externalUserId, phon
         };
       }
 
-      const crmConversation = await processCrmConversation({
-        message: normalizedMessage,
-        externalUserId: context.externalUserId || externalUserId || null,
-        phone: context.phone || phone || null
-      });
-
-      if (crmConversation.handled) {
-        console.log('[OWNER_CRM_COMMAND]', {
-          platform: context.platform || platform || 'elanvisual',
-          completed: Boolean(crmConversation.completed),
-          phone: 'OWNER_RECOGNIZED'
+      if (ownerMode) {
+        const crmConversation = await processCrmConversation({
+          message: normalizedMessage,
+          externalUserId: context.externalUserId || externalUserId || null,
+          phone: context.phone || phone || null
         });
-        return {
-          outputText: crmConversation.outputText,
-          model: 'elankav-crm-conversation',
-          id: null,
-          status: crmConversation.completed ? 'completed' : 'in_progress',
-          usage: null,
-          crmAction: true,
-          ownerCrmCommand: true
-        };
+
+        if (crmConversation.handled) {
+          return {
+            outputText: crmConversation.outputText,
+            model: 'elankav-crm-conversation',
+            id: null,
+            status: crmConversation.completed ? 'completed' : 'in_progress',
+            usage: null,
+            crmAction: true
+          };
+        }
       }
 
-      console.log('[OWNER_GENERAL_QUERY]', {
-        platform: context.platform || platform || 'elanvisual',
-        channel: context.channel || channel || null,
-        phone: context.phone || phone ? 'OWNER_RECOGNIZED' : null
-      });
-
-      const [crm, ecosystem] = await Promise.all([
-        loadCrmContext(),
-        loadEcosystemContext({ platform: context.platform || platform || 'ELANVISUAL', query: normalizedMessage })
-      ]);
-
-      let ownerMemory = { history: [], workingState: {} };
-      try {
-        ownerMemory = await loadConversationMemory({
-          actor: {
-            role: 'owner',
-            actorId: 'owner',
-            authority: 'owner_identity',
-            phone: context.phone || phone || null,
-            scopes: ['*'],
-            platforms: ['*']
-          },
-          platform: context.platform || platform || 'ELANVISUAL',
-          limit: 30
+      if (!ownerMode) {
+        const designFollowup = await processDesignFollowup({
+          message: normalizedMessage,
+          phone: context.phone || phone || null,
+          externalUserId: context.externalUserId || externalUserId || null
         });
-      } catch (error) {
-        console.error('[OWNER_UNIFIED_MEMORY_LOAD_FAILED]', {
-          code: error?.code || null,
-          message: error?.message || String(error)
-        });
+
+        if (designFollowup.handled) {
+          return {
+            outputText: designFollowup.outputText,
+            model: 'elankav-design-followup',
+            id: null,
+            status: designFollowup.completed ? 'completed' : 'in_progress',
+            usage: null,
+            designAction: true
+          };
+        }
       }
 
-      return generateText({
+      const designConversation =
+        await handleDesignIntent({
+          message: normalizedMessage,
+          context,
+          platform,
+          channel,
+          externalUserId,
+          phone,
+          metadata
+        });
+
+      if (designConversation.handled) {
+        return designConversation;
+      }
+
+      let crm = null;
+      let ecosystem = null;
+      let commercial = null;
+      let commercialState = context.commercial?.state || null;
+
+      if (ownerMode) {
+        [crm, ecosystem] = await Promise.all([
+          loadCrmContext(),
+          loadEcosystemContext()
+        ]);
+      } else {
+        commercial = await loadCommercialContext({
+          message: normalizedMessage,
+          history: metadata?.conversationHistory,
+          platform: 'ELANVISUAL',
+          commercialState
+        });
+        commercialState = updateCommercialState({
+          previousState: commercialState,
+          message: normalizedMessage,
+          commercial,
+          platform: 'ELANVISUAL'
+        });
+        await savePersistentCommercialState(
+          context.commercial?.stateKey,
+          commercialState,
+          {
+            platform: 'ELANVISUAL',
+            channel: context.channel || channel || 'whatsapp',
+            externalUserId: context.externalUserId || externalUserId || null,
+            phone: context.phone || phone || null
+          }
+        );
+
+        if (commercial) {
+          commercial = Object.freeze({
+            ...commercial,
+            persistentState: commercialState
+          });
+        }
+      }
+
+      const generatedResponse = await generateText({
         input: normalizedMessage,
-        history: normalizeHistory(ownerMemory.history, normalizedMessage),
-        instructions: OWNER_INSTRUCTIONS,
+        history: ownerMode
+          ? []
+          : metadata?.conversationHistory,
+        instructions: resolveMessageInstructions({
+          ownerMode,
+          customInstructions: normalizedInstructions
+        }),
         context: {
-          ownerMode: true,
-          customerMode: false,
-          ownerName: 'Erick Cano',
+          ownerMode,
+          ownerName: ownerMode ? 'Erick Cano' : null,
           externalUserId: context.externalUserId || externalUserId || null,
           phone: context.phone || phone || null,
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
           crm,
           ecosystem,
-          workingMemory: ownerMemory.workingState || {}
+          commercial,
+          commercialState
         }
       });
+
+      const commercialResponse = applyVerifiedCommercialReply({
+        message: normalizedMessage,
+        history: metadata?.conversationHistory,
+        commercialState,
+        commercial,
+        response: generatedResponse
+      });
+
+      if (!ownerMode) {
+        const elapsedMs = Date.now() - startedAt;
+        console.info('[COMMERCIAL_TRACE]', {
+          requestId: context.requestId || metadata?.requestId || null,
+          elapsedMs,
+          platform: commercialState?.platform || context.platform || null,
+          product: commercialState?.product || commercial?.productName || null,
+          category: commercialState?.category || null,
+          sku: commercialState?.sku || commercial?.productId || null,
+          matchedAlias: commercial?.matchedAlias || null,
+          intent: commercialState?.intent || null,
+          documentUsed: commercialState?.documentUsed || null,
+          priceSource: commercial?.priceSource?.status || commercialState?.priceSource || null,
+          sourceDocument: commercial?.priceSource?.source || commercialState?.documentUsed || null,
+          approved: commercial?.priceSource?.approved === true,
+          fallbackUsed: commercial?.fallbackUsed === true,
+          priceFound: commercialState?.verifiedPrice || null,
+          formula: commercialState?.formula || null,
+          formulaType: commercialState?.formulaType || null,
+          calculatedPrice: commercialState?.calculatedPrice || null,
+          calculationBreakdown: commercialState?.calculationBreakdown || null,
+          conversationStatus: commercialState?.conversationStatus || null
+        });
+      }
+
+      return commercialResponse;
     }
   );
 
-  const suppressDelivery = response.suppressDelivery === true;
-
   return {
     message: normalizedMessage,
-    reply: suppressDelivery ? null : String(response.outputText || '').trim(),
-    provider: response.ownerCommand || response.crmAction ? 'elankav' : 'openai',
+    reply: response.outputText.trim(),
+    provider:
+      response.ownerCommand ||
+      response.crmAction ||
+      response.designAction ||
+      response.commercialAction
+        ? 'elankav'
+        : 'openai',
     model: response.model,
     responseId: response.id,
     status: response.status,
     usage: response.usage,
-    suppressDelivery,
+    design: response.design || null,
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
-    ownerCommercialQuery: response.ownerCommercialQuery === true,
-    ownerCrmCommand: response.ownerCrmCommand === true,
-    actorRole: response.actorRole || (resolvedContext?.owner?.isOwner ? 'owner' : null),
-    actorId: response.actorId || null,
-    accessScopes: response.accessScopes || null,
-    runtimeVersion: response.runtimeVersion || null,
-    knowledgeAvailable: response.knowledgeAvailable ?? null,
-    historyMessages: response.historyMessages ?? null,
     context: {
       version: resolvedContext?.version || null,
       platform: resolvedContext?.platform || null,
       channel: resolvedContext?.channel || null,
       externalUserId: resolvedContext?.externalUserId || null,
-      ownerMode: Boolean(resolvedContext?.owner?.isOwner)
+      ownerMode: Boolean(resolvedContext?.owner?.isOwner),
+      commercialState: response.commercialState ||
+        resolvedContext?.commercial?.state ||
+        null
     },
     createdAt: new Date().toISOString()
   };
 }
 
 module.exports = {
+  CUSTOMER_INSTRUCTIONS,
   OWNER_INSTRUCTIONS,
+  buildDesignPortalLink,
   normalizeMessage,
-  normalizeHistory,
-  mergeConversationHistories,
-  buildKnowledgeQuery,
-  actorInstructions,
-  checkHumanTakeover,
-  processCustomerMessage,
+  resolveMessageInstructions,
+  handleDesignIntent,
   processMessage
 };

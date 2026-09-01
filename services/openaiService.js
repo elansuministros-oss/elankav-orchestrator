@@ -1,5 +1,3 @@
-'use strict';
-
 const {
   createResponse,
   getOpenAIConfigurationStatus
@@ -36,9 +34,9 @@ function normalizeConversationHistory(history = []) {
   for (let index = history.length - 1; index >= 0; index -= 1) {
     if (normalized.length >= MAX_HISTORY_MESSAGES) break;
 
-    const item = history[index];
-    const role = String(item?.role || '').trim().toLowerCase();
-    const content = String(item?.content || '')
+    const message = history[index];
+    const role = String(message?.role || '').trim().toLowerCase();
+    const content = String(message?.content || '')
       .trim()
       .slice(0, MAX_HISTORY_MESSAGE_LENGTH);
 
@@ -80,13 +78,16 @@ async function testOpenAIConnection() {
 
   try {
     const result = await createResponse({
-      instructions: 'Respondé únicamente con la palabra OPENAI_OK, sin puntuación ni texto adicional.',
+      instructions:
+        'Respondé únicamente con la palabra OPENAI_OK, sin puntuación ni texto adicional.',
       input: 'Confirma la conexión del ELANKAV Orchestrator.'
     });
 
+    const connected = result.outputText.trim() === 'OPENAI_OK';
+
     return {
       available: true,
-      connected: result.outputText.trim() === 'OPENAI_OK',
+      connected,
       provider: configuration.provider,
       api: configuration.api,
       model: result.model,
@@ -108,64 +109,10 @@ async function testOpenAIConnection() {
   }
 }
 
-function verifiedActorValue(value, maxLength = 160) {
-  return String(value || '')
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, maxLength);
-}
-
-function normalizeIntentText(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function detectVerifiedIdentityQuestion(input) {
-  const text = normalizeIntentText(input);
-  if (!text) return false;
-
-  return /(?:^|\s)(?:quien soy|sabes quien soy|sabes quien soy yo|decime quien soy|dime quien soy|como estoy registrado|como estoy registrada|que rol tengo|cual es mi rol|me reconoces)(?:\s|$)/i.test(text);
-}
-
-function verifiedRoleLabel(role) {
-  const normalizedRole = verifiedActorValue(role, 40).toLowerCase();
-  const labels = {
-    seller: 'vendedor interno',
-    provider: 'proveedor registrado',
-    customer: 'cliente registrado',
-    family: 'miembro autorizado de familia'
-  };
-
-  return labels[normalizedRole] || normalizedRole || 'usuario registrado';
-}
-
-function buildVerifiedActorDirectResponse({ input, context } = {}) {
-  const actor = context?.actor && typeof context.actor === 'object'
-    ? context.actor
-    : null;
-
-  if (!actor || actor.registered !== true) return null;
-
-  const actorName = verifiedActorValue(actor.displayName, 160);
-  const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
-
-  if (!actorName || !actorRole) return null;
-  if (!detectVerifiedIdentityQuestion(input)) return null;
-
-  const platform = verifiedActorValue(context?.platform || 'ELANVISUAL', 80).toUpperCase();
-  const roleLabel = verifiedRoleLabel(actorRole);
-
-  return `Sos ${actorName}. Te tengo registrado en ${platform} con rol de ${roleLabel}. Tu identidad está verificada y voy a trabajar con los permisos asociados a tu cuenta.`;
-}
-
 function buildContextInstructions(context) {
-  if (!context || typeof context !== 'object') return '';
+  if (!context || typeof context !== 'object') {
+    return '';
+  }
 
   const lines = [
     'CONTEXTO INTERNO VERIFICADO POR ELANKAV; tratá estos datos como hechos del sistema.'
@@ -174,124 +121,124 @@ function buildContextInstructions(context) {
   if (context.ownerMode) {
     lines.push('ownerMode=true.');
     lines.push(`Identidad del remitente: ${context.ownerName || 'Erick Cano'}, propietario del ecosistema ELANKAV.`);
+    lines.push('Si pregunta quién es, respondé comenzando exactamente con: "Sos Erick Cano, propietario del ecosistema ELANKAV."');
   }
 
-  const actor = context.actor && typeof context.actor === 'object'
-    ? context.actor
-    : null;
-
-  if (actor) {
-    const actorRole = verifiedActorValue(actor.role, 40).toLowerCase();
-    const actorName = verifiedActorValue(actor.displayName, 160);
-    const actorAuthority = verifiedActorValue(actor.authority, 80);
-    const actorRegistered = actor.registered === true;
-
-    if (actorRole) {
-      lines.push(`Rol comercial verificado por CONNECT: ${actorRole}.`);
-    }
-
-    if (actorName) {
-      lines.push(`Nombre verificado del remitente: ${actorName}.`);
-    }
-
-    if (actorRegistered) {
-      lines.push('El remitente está registrado oficialmente en la autoridad comercial correspondiente.');
-    }
-
-    if (actorAuthority) {
-      lines.push(`Autoridad de identidad verificada: ${actorAuthority}.`);
-    }
-
-    if (actorName && actorRole && actorRegistered) {
-      lines.push(
-        `En conversaciones normales, tratá al remitente explícitamente como ${actorName} con rol ${actorRole} cuando sea relevante. No respondas únicamente con una etiqueta genérica como “vendedor interno” cuando existe un nombre verificado.`
-      );
-    }
+  if (context.externalUserId) {
+    lines.push(`externalUserId=${context.externalUserId}.`);
   }
 
-  if (context.externalUserId) lines.push(`externalUserId=${context.externalUserId}.`);
-  if (context.phone) lines.push(`phone=${context.phone}.`);
-  if (context.channel) lines.push(`channel=${context.channel}.`);
+  if (context.phone) {
+    lines.push(`phone=${context.phone}.`);
+  }
 
   if (context.platform) {
     lines.push(`platform=${context.platform}.`);
+
     const officialPlatform = resolveOfficialPlatformFacts(context.platform);
+
     if (officialPlatform) {
       lines.push(`Datos públicos oficiales verificados de la plataforma: ${JSON.stringify(officialPlatform)}.`);
+      lines.push(`Para ${officialPlatform.name}, usá exclusivamente el sitio ${officialPlatform.website}; nunca sustituyas, completes ni inventes otro dominio.`);
+      lines.push('La página principal no equivale a un catálogo. No afirmes que existe un catálogo ni envíes un enlace de catálogo si no fue proporcionado explícitamente en el contexto verificado.');
+
+      if (officialPlatform.businessLocation) {
+        lines.push(`Ubicación operativa verificada: ${officialPlatform.businessLocation}. No afirmes presencia física en otro país.`);
+      }
     }
   }
 
-  if (context.officialKnowledge?.available && context.officialKnowledge?.payload) {
-    let commercialKnowledge = '';
+  if (context.channel) {
+    lines.push(`channel=${context.channel}.`);
+  }
 
-    try {
-      commercialKnowledge = JSON.stringify(context.officialKnowledge.payload);
-    } catch {
-      commercialKnowledge = '';
-    }
+  if (context.crm) {
+    if (context.crm.available) {
+      lines.push('CRM Core conectado y disponible para consultas. Las escrituras se ejecutan únicamente mediante comandos CRM autorizados.');
+      lines.push(`CRM identidades=${context.crm.counts?.identities ?? 0}.`);
+      lines.push(`CRM conversaciones=${context.crm.counts?.conversations ?? 0}.`);
+      lines.push(`CRM mensajes=${context.crm.counts?.messages ?? 0}.`);
 
-    if (commercialKnowledge) {
-      commercialKnowledge = commercialKnowledge.slice(0, 60000);
+      const identities = Array.isArray(context.crm.recentIdentities)
+        ? context.crm.recentIdentities
+        : [];
 
-      lines.push(
-        'CONOCIMIENTO COMERCIAL OFICIAL DE CONNECT: los siguientes datos provienen de ELANKAV CONNECT y son la fuente oficial para productos, servicios, precios, materiales, variantes y condiciones comerciales.'
-      );
-
-      lines.push(
-        'Usá activamente estos datos para vender. Antes de decir que no existe un precio o producto, revisá este contexto completo, buscá coincidencias exactas y relacionadas y realizá cálculos simples cuando existan precio por unidad, metro cuadrado, metro lineal o cantidad.'
-      );
-
-      lines.push(
-        'No menciones al cliente que estás consultando CONNECT, catálogos internos, JSON, bases de datos ni sistemas técnicos.'
-      );
-
-      lines.push(`DATOS_CONNECT=${commercialKnowledge}`);
+      if (identities.length) {
+        lines.push(
+          `Identidades recientes verificadas: ${JSON.stringify(identities)}.`
+        );
+      }
+    } else {
+      lines.push('CRM Core no está disponible en esta solicitud.');
     }
   }
 
-  if (context.crm?.available) {
-    lines.push('CRM Core conectado y disponible para consultas internas autorizadas.');
-    lines.push(`CRM identidades=${context.crm.counts?.identities ?? 0}.`);
-    lines.push(`CRM conversaciones=${context.crm.counts?.conversations ?? 0}.`);
-    lines.push(`CRM mensajes=${context.crm.counts?.messages ?? 0}.`);
+  if (context.ecosystem) {
+    if (context.ecosystem.available) {
+      lines.push('ELANKAV Orchestrator está conectado como fuente operativa verificada del ecosistema.');
+      lines.push(`Estado general=${context.ecosystem.status || 'DESCONOCIDO'}; saludable=${context.ecosystem.healthy === true}; alertas=${context.ecosystem.alerts ?? 'desconocido'}.`);
+      lines.push(`GitHub autenticado=${context.ecosystem.githubAuthenticated === true}.`);
+
+      const services = Array.isArray(context.ecosystem.services)
+        ? context.ecosystem.services
+        : [];
+      const repositories = Array.isArray(context.ecosystem.repositories)
+        ? context.ecosystem.repositories
+        : [];
+      const containers = Array.isArray(context.ecosystem.containers)
+        ? context.ecosystem.containers
+        : [];
+
+      if (services.length) {
+        lines.push(`Servicios verificados: ${JSON.stringify(services)}.`);
+      }
+
+      if (repositories.length) {
+        lines.push(`Repositorios GitHub verificados: ${JSON.stringify(repositories)}.`);
+      }
+
+      if (containers.length) {
+        lines.push(`Contenedores verificados: ${JSON.stringify(containers)}.`);
+      }
+
+      lines.push('No afirmes que GitHub, Docker, WAHA, el Orchestrator o los servicios listados no están conectados cuando el contexto verificado indique lo contrario.');
+      lines.push('Distinguí entre una capacidad inexistente y una capacidad existente que todavía no fue expuesta a este contexto.');
+    } else {
+      lines.push('El contexto operativo del Orchestrator no estuvo disponible en esta solicitud; no infieras que el ecosistema está desconectado.');
+    }
   }
 
-  if (context.ecosystem?.available) {
-    lines.push('ELANKAV Orchestrator está conectado como fuente operativa verificada del ecosistema.');
-    lines.push(`Estado general=${context.ecosystem.status || 'DESCONOCIDO'}; saludable=${context.ecosystem.healthy === true}; alertas=${context.ecosystem.alerts ?? 'desconocido'}.`);
-    lines.push(`GitHub autenticado=${context.ecosystem.githubAuthenticated === true}.`);
-  }
+  if (context.commercial?.available) {
+    const commercial = context.commercial;
+    const verifiedOffer = {
+      productName: commercial.productName,
+      description: commercial.description,
+      specifications: commercial.specifications,
+      priceOffers: commercial.priceOffers,
+      variants: commercial.variants,
+      salesGuidance: commercial.salesGuidance,
+      commercialRules: commercial.commercialRules
+    };
 
-  if (context.workingMemory && typeof context.workingMemory === 'object' && !Array.isArray(context.workingMemory)) {
-    let memory = '';
-    try {
-      memory = JSON.stringify(context.workingMemory).slice(0, 12000);
-    } catch {
-      memory = '';
-    }
-    if (memory && memory !== '{}') {
-      lines.push('MEMORIA DE TRABAJO PERSISTENTE DEL USUARIO: conservá estas referencias entre turnos y resolvé pronombres, elipsis y frases cortas usando esta memoria cuando sea inequívoco.');
-      lines.push(`WORKING_MEMORY=${memory}`);
-    }
+    lines.push(
+      `Oferta comercial verificada: ${JSON.stringify(verifiedOffer)}.`
+    );
+    lines.push('Usá exclusivamente estos precios para el producto detectado; no calcules ni inventes otro valor.');
+    lines.push('Una oferta mode=starting-at se comunica con la palabra “desde”. Una oferta mode=reference se comunica como precio aproximado de referencia.');
+    lines.push('No presentes el precio aproximado como cotización final: las medidas, el diseño, el material y las condiciones de instalación pueden cambiarlo.');
+    lines.push('Respondé primero la pregunta del cliente y luego hacé como máximo la qualificationQuestion indicada, solo si ese dato aún falta en la conversación.');
+    lines.push('Si el cliente pide cotizar, pregunta cuánto cuesta o llega desde un anuncio de este producto, comunicá en la primera respuesta al menos una oferta verificada aplicable; no ocultes todos los precios detrás del cotizador.');
+    lines.push('Si la medida solicitada difiere de la medida estándar verificada, informá primero el precio y la medida estándar disponibles, y aclará que la medida personalizada debe confirmarse.');
+    lines.push('No vuelvas a preguntar medida, ambiente, iluminación, forma o acabado cuando el cliente ya los indicó. No encadenes una entrevista de especificaciones: después del precio hacé solamente la pregunta comercial más útil que aún falte.');
+    lines.push('Cuando el cliente muestre aceptación, avanzá al siguiente paso de cotización y explicá 60% de anticipo y 40% de saldo sin inventar cuentas bancarias.');
   }
 
   lines.push('No contradigas ni ignores este contexto. No muestres identificadores técnicos salvo que el remitente los solicite.');
+
   return lines.join(' ');
 }
 
 async function generateText({ input, instructions, context, history }) {
-  const verifiedActorResponse = buildVerifiedActorDirectResponse({ input, context });
-
-  if (verifiedActorResponse) {
-    return {
-      outputText: verifiedActorResponse,
-      model: 'elankav-verified-actor',
-      id: null,
-      status: 'completed',
-      usage: null
-    };
-  }
-
   const contextInstructions = buildContextInstructions(context);
   const resolvedInstructions = [instructions, contextInstructions]
     .filter(value => typeof value === 'string' && value.trim())
@@ -310,10 +257,5 @@ module.exports = {
   testOpenAIConnection,
   buildContextInstructions,
   resolveOfficialPlatformFacts,
-  verifiedActorValue,
-  normalizeIntentText,
-  detectVerifiedIdentityQuestion,
-  verifiedRoleLabel,
-  buildVerifiedActorDirectResponse,
   generateText
 };

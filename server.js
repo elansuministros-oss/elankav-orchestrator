@@ -11,9 +11,7 @@ const { handleJobApi } = require('./api/jobApi');
 const { handlePullRequestDecisionApi } = require('./api/pullRequestDecisionApi');
 const { handleMessageApi } = require('./api/messageApi');
 const { handleWahaWebhookApi } = require('./api/wahaWebhookApi');
-const { createMetaWebhookApi } = require('./api/metaWebhookApi');
 const { createChannelDeliveryApi } = require('./api/channelDeliveryApi');
-const { handleConnectConversationApi } = require('./api/connectConversationApi');
 const {
   getJobPersistenceState,
   initializeJobQueue
@@ -22,15 +20,6 @@ const {
   getDesignPortalWorkerState,
   startDesignPortalWorker
 } = require('./services/designPortalWorkerService');
-const { startElanSelfAuditMonitor } = require('./services/elanSelfAuditMonitorService');
-const { startProviderRecruitmentFollowupWorker } = require('./services/providerRecruitmentFollowupWorkerService');
-const {
-  getElanMarketplaceBrokerWorkerState,
-  startElanMarketplaceBrokerWorker
-} = require('./services/elanMarketplaceBrokerWorkerService');
-const {
-  getElanGoControl
-} = require('./services/ownerBusinessConnectClient');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -38,7 +27,6 @@ const VERSION = '0.4.0';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const handleChannelDeliveryApi = createChannelDeliveryApi();
-const handleMetaWebhookApi = createMetaWebhookApi();
 
 function sendFile(res, filename, contentType) {
   const filePath = path.join(PUBLIC_DIR, filename);
@@ -61,14 +49,6 @@ function sendFile(res, filename, contentType) {
 }
 
 const projects = [
-  {
-    name: 'ELAN GO',
-    service: 'elan-go-web',
-    url: 'https://go.elankav.com',
-    branch: 'CONNECT main',
-    status: 'Operativo',
-    type: 'Broker Comercial'
-  },
   {
     name: 'ELANVISUAL',
     service: 'elanvisual-platform',
@@ -407,7 +387,6 @@ function renderDashboard() {
       background: rgba(201, 162, 39, 0.1);
     }
 
-
     footer {
       padding-top: 34px;
       color: var(--muted);
@@ -501,22 +480,11 @@ function renderDashboard() {
       ELANKAV Orchestrator ${VERSION} · VPS ELANKAV · Memoria Maestra Viva
     </footer>
   </main>
-
 </body>
 </html>`;
 }
 
 const server = http.createServer(async (req, res) => {
-  const metaWebhookHandled = await handleMetaWebhookApi({
-    req,
-    res,
-    sendJson
-  });
-
-  if (metaWebhookHandled) {
-    return;
-  }
-
   const channelDeliveryHandled = await handleChannelDeliveryApi({
     req,
     res,
@@ -534,16 +502,6 @@ const server = http.createServer(async (req, res) => {
   });
 
   if (wahaWebhookHandled) {
-    return;
-  }
-
-  const connectConversationHandled = await handleConnectConversationApi({
-    req,
-    res,
-    sendJson
-  });
-
-  if (connectConversationHandled) {
     return;
   }
 
@@ -576,37 +534,6 @@ const server = http.createServer(async (req, res) => {
   });
 
   if (jobApiHandled) {
-    return;
-  }
-
-  if (req.url === '/api/elan-go/status') {
-    try {
-      const control = await getElanGoControl();
-      sendJson(res, 200, {
-        id: 'elan_go',
-        enabled: control?.enabled === true,
-        spendEnabled: control?.spendEnabled === true,
-        outreachEnabled: control?.outreachEnabled === true,
-        paymentConfigured: Boolean(control?.paymentUrl),
-        heartbeatAt: control?.heartbeatAt || null,
-        lastCycleAt: control?.lastCycleAt || null,
-        lastSuccessAt: control?.lastSuccessAt || null,
-        hasError: Boolean(control?.lastError)
-      });
-    } catch {
-      sendJson(res, 503, {
-        id: 'elan_go',
-        enabled: false,
-        spendEnabled: false,
-        outreachEnabled: false,
-        paymentConfigured: false,
-        heartbeatAt: null,
-        lastCycleAt: null,
-        lastSuccessAt: null,
-        hasError: true,
-        error: { code: 'ELAN_GO_STATUS_UNAVAILABLE' }
-      });
-    }
     return;
   }
 
@@ -694,7 +621,6 @@ if (req.url === '/api/github') {
       node: process.version,
       job_persistence: jobPersistence,
       design_pipeline: getDesignPortalWorkerState(),
-      marketplace_broker: getElanMarketplaceBrokerWorkerState(),
       timestamp: new Date().toISOString()
     });
     return;
@@ -741,9 +667,6 @@ async function startServer() {
   }
 
   startDesignPortalWorker();
-  startElanSelfAuditMonitor();
-  startElanMarketplaceBrokerWorker();
-  startProviderRecruitmentFollowupWorker();
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);

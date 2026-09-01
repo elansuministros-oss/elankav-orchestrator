@@ -18,14 +18,16 @@ async function createJob({ platform, task, type = JOB_TYPES.CODE }) {
   }
 
   const id = `JOB-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-  const needsBranch = type === JOB_TYPES.CODE || type === JOB_TYPES.CODE_PREPARE;
 
   const job = {
     id,
     type,
     platform,
     task,
-    branch: needsBranch ? `job/${id.toLowerCase()}` : null,
+    branch:
+      type === JOB_TYPES.CODE
+        ? `job/${id.toLowerCase()}`
+        : null,
     status: JOB_STATUS.PENDING,
     steps: getJobSteps(type),
     createdAt: new Date().toISOString(),

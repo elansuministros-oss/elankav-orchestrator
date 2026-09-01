@@ -47,8 +47,7 @@ async function createRepositoryWorkspace({
   owner,
   repo,
   baseBranch,
-  jobBranch,
-  publishBranch = true
+  jobBranch
 }) {
   assertSafeJobId(jobId);
   assertSafeBranch(jobBranch);
@@ -103,19 +102,17 @@ async function createRepositoryWorkspace({
     }
   );
 
-  if (publishBranch) {
-    await runGit(
-      [
-        'push',
-        '--set-upstream',
-        'origin',
-        jobBranch
-      ],
-      {
-        cwd: workspacePath
-      }
-    );
-  }
+  await runGit(
+    [
+      'push',
+      '--set-upstream',
+      'origin',
+      jobBranch
+    ],
+    {
+      cwd: workspacePath
+    }
+  );
 
   const currentBranch = (
     await runGit(
@@ -159,7 +156,6 @@ async function createRepositoryWorkspace({
     baseSha,
     workspacePath,
     clean: true,
-    published: Boolean(publishBranch),
     createdAt: new Date().toISOString()
   };
 }

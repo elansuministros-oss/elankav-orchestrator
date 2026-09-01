@@ -28,17 +28,5 @@
     "owner": "elansuministros-oss",
     "repo": "elan-ai",
     "branch": "main"
-  },
-  {
-    "id": "orchestrator",
-    "owner": "elansuministros-oss",
-    "repo": "elankav-orchestrator",
-    "branch": "fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01"
-  },
-  {
-    "id": "connect",
-    "owner": "elansuministros-oss",
-    "repo": "elankav-connect",
-    "branch": "main"
   }
 ]

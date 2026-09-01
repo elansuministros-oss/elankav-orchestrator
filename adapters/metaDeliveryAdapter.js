@@ -1,13 +1,10 @@
 'use strict';
 
 class MetaDeliveryError extends Error {
-  constructor(code, message, status = 502, details = {}) {
+  constructor(code, message, status = 502) {
     super(message);
     this.code = code;
     this.status = status;
-    this.metaCode = details.metaCode ?? null;
-    this.metaSubcode = details.metaSubcode ?? null;
-    this.metaType = details.metaType ?? null;
   }
 }
 
@@ -91,18 +88,7 @@ function createMetaDeliveryAdapter({
       throw new MetaDeliveryError(
         'META_API_FAILED',
         clean(payload?.error?.message) || `Meta HTTP ${response.status}`,
-        response.status,
-        {
-          metaCode:
-            Number.isFinite(Number(payload?.error?.code))
-              ? Number(payload.error.code)
-              : null,
-          metaSubcode:
-            Number.isFinite(Number(payload?.error?.error_subcode))
-              ? Number(payload.error.error_subcode)
-              : null,
-          metaType: clean(payload?.error?.type) || null
-        }
+        response.status
       );
     }
 

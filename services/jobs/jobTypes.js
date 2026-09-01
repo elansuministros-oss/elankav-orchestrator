@@ -1,6 +1,5 @@
 const JOB_TYPES = Object.freeze({
   CODE: 'code',
-  CODE_PREPARE: 'code_prepare',
   CONTEXT_SYNC: 'context_sync',
 });
 
@@ -22,15 +21,6 @@ const CODE_JOB_STEPS = Object.freeze([
   'pr',
 ]);
 
-const CODE_PREPARE_STEPS = Object.freeze([
-  'github',
-  'workspace',
-  'openai',
-  'codex',
-  'changes',
-  'qa',
-]);
-
 const CONTEXT_SYNC_STEPS = Object.freeze([
   'documentation',
   'git',
@@ -38,9 +28,9 @@ const CONTEXT_SYNC_STEPS = Object.freeze([
 ]);
 
 function getJobSteps(type) {
-  if (type === JOB_TYPES.CONTEXT_SYNC) return [...CONTEXT_SYNC_STEPS];
-  if (type === JOB_TYPES.CODE_PREPARE) return [...CODE_PREPARE_STEPS];
-  return [...CODE_JOB_STEPS];
+  return type === JOB_TYPES.CONTEXT_SYNC
+    ? [...CONTEXT_SYNC_STEPS]
+    : [...CODE_JOB_STEPS];
 }
 
 module.exports = {
@@ -48,7 +38,6 @@ module.exports = {
   JOB_STATUS,
   JOB_STEPS: CODE_JOB_STEPS,
   CODE_JOB_STEPS,
-  CODE_PREPARE_STEPS,
   CONTEXT_SYNC_STEPS,
   getJobSteps,
 };

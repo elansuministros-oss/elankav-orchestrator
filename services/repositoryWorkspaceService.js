@@ -1,5 +1,4 @@
 const repositories = require('../config/github.json');
-const { JOB_TYPES } = require('./jobs/jobTypes');
 
 const {
   createRepositoryWorkspace
@@ -37,15 +36,13 @@ async function prepareJobWorkspace(job) {
   }
 
   const repository = resolveRepository(job.platform);
-  const publishBranch = job.type !== JOB_TYPES.CODE_PREPARE;
 
   return createRepositoryWorkspace({
     jobId: job.id,
     owner: repository.owner,
     repo: repository.repo,
     baseBranch: repository.branch,
-    jobBranch: job.branch,
-    publishBranch
+    jobBranch: job.branch
   });
 }
 

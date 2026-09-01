@@ -1,4 +1,4 @@
-const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
+const DEFAULT_CONNECT_URL = 'https://elankav-connect.vercel.app';
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
