@@ -82,6 +82,17 @@ test('recuerda el último archivo para aceptar después la orden cargar a la bib
   assert.match(pending.text, /Fachada ACM/);
 });
 
+test('no confunde una solicitud de logs con una orden de cargar a Biblioteca', () => {
+  assert.equal(
+    isLibraryMediaSaveRequest('ELAN, muéstrame los últimos 100 logs de Orchestrator relacionados con el error que acaba de ocurrir al cargar imágenes a la Biblioteca. Solo lectura. No reinicies nada, no despliegues nada y no toques WAHA.'),
+    false
+  );
+  assert.equal(
+    isLibraryMediaSaveRequest('Revisa el error de cargar imágenes a la biblioteca y dime el estado del servicio'),
+    false
+  );
+});
+
 test('clasifica fachada ACM + PVC en la carpeta funcional correcta', () => {
   const text = 'Carga esta imagen a la biblioteca. Es una fachada en ACM con letras en PVC, exterior.';
   assert.equal(classifyFolder(text), 'rotulos_fachadas');
