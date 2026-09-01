@@ -16,6 +16,9 @@ const BACKUP_DIR = path.join(BASE_DIR, 'backups');
 const POLL_MS = Math.max(250, Number(process.env.OWNER_OPS_SUPERVISOR_POLL_MS) || 750);
 const GENERATED_CONNECT_CATALOG = 'data/elanvisual-commercial-catalog-2026-08-16.tsv';
 const WHATSAPP_CORE_PROTECTED = String(process.env.WHATSAPP_CORE_PROTECTED || 'true').trim().toLowerCase() !== 'false';
+const WHATSAPP_CORE_WATCHDOG_MS = Math.max(15_000, Number(process.env.WHATSAPP_CORE_WATCHDOG_MS) || 60_000);
+const WHATSAPP_CORE_STATE_PATH = path.join(BASE_DIR, 'whatsapp-core-state.json');
+let nextWhatsappCoreWatchdogAt = 0;
 const WHATSAPP_CORE_CONTRACT_LINES = Object.freeze(["const assert=require('node:assert/strict');","const {EventEmitter}=require('node:events');","const api=require('./api/wahaWebhookApi');","function req(body){const r=new EventEmitter();r.method='POST';r.url='/webhook/inbound';r.headers={host:'localhost'};r.destroy=()=>{};process.nextTick(()=>{r.emit('data',Buffer.from(JSON.stringify(body)));r.emit('end')});return r}","function res(){return{setHeader(){}}}","async function runCase(body,mode){api.clearWahaInboundDedupe();const json=[];const sent=[];let decisions=0,processes=0;await api.handleWahaWebhookApi({req:req(body),res:res(),sendJson(_r,status,payload){json.push({status,payload})},dependencies:{async requestConversationDecision(){decisions++;if(mode==='customer')return{action:'NO_REPLY',reason:'contract_customer_gate'};throw new Error('OWNER_MUST_NOT_USE_CUSTOMER_GATE')},async processMessage(){processes++;if(mode==='owner-failure'){const e=new Error('SIMULATED_OWNER_RUNTIME_FAILURE');e.code='SIMULATED_OWNER_RUNTIME_FAILURE';throw e}if(mode==='customer')throw new Error('CUSTOMER_GATE_MUST_SUPPRESS_PROCESSING');return{reply:'WHATSAPP_CORE_CONTRACT_REPLY',model:'contract',context:{ownerMode:true,platform:'elanvisual'}}},async sendWahaText(input){sent.push(input);return{id:'contract-message'}},async persistConversationEvent(){return{ok:true}}}});assert.equal(json.length,1);return{response:json[0],sent,decisions,processes}}","(async()=>{","let x=await runCase({event:'message',id:'contract-owner-phone',session:'ELANKAV',payload:{from:'50588388940@c.us',body:'HOLA',fromMe:false}},'owner');assert.equal(x.response.payload.replySent,true);assert.equal(x.response.payload.ownerMode,true);assert.equal(x.decisions,0);assert.equal(x.processes,1);","x=await runCase({event:'message',id:'contract-owner-web',session:'ELANKAV',payload:{from:'215440458567779@lid',body:'HOLA DESDE WEB',fromMe:false,key:{remoteJidAlt:'50512345678@c.us'}}},'owner');assert.equal(x.response.payload.replySent,true);assert.equal(x.response.payload.ownerMode,true);assert.equal(x.decisions,0);assert.equal(x.processes,1);assert.equal(x.sent[0].chatId,'215440458567779@lid');","x=await runCase({event:'message',id:'contract-owner-fallback',session:'ELANKAV',payload:{from:'215440458567779@lid',body:'FALLA',fromMe:false,key:{remoteJidAlt:'50512345678@c.us'}}},'owner-failure');assert.equal(x.response.payload.replySent,true);assert.equal(x.response.payload.fallbackSent,true);assert.equal(x.response.payload.ownerMode,true);","x=await runCase({event:'message',id:'contract-customer',session:'ELANKAV',payload:{from:'50577777777@c.us',body:'HOLA',fromMe:false}},'customer');assert.equal(x.decisions,1);assert.equal(x.processes,0);assert.equal(x.response.payload.replySent,false);assert.equal(x.response.payload.suppressed,true);","process.stdout.write('WHATSAPP_CORE_CONTRACT_OK\\n')","})().catch(e=>{console.error('WHATSAPP_CORE_CONTRACT_FAILED',e&&e.stack||e);process.exit(1)});"]);
 
 const TARGETS = Object.freeze({
@@ -130,6 +133,187 @@ async function restoreOrchestratorBaseline(config, before) {
   await verifyOrchestratorHttpHealth();
   await verifyWhatsappBridgeHealth();
   return before;
+}
+
+async function readWhatsappCoreState() {
+  try {
+    const raw = await fs.readFile(WHATSAPP_CORE_STATE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function writeWhatsappCoreState(state) {
+  await ensureDirs();
+  const payload = {
+    version: 1,
+    ...state,
+    updatedAt: new Date().toISOString()
+  };
+  const tempPath = `${WHATSAPP_CORE_STATE_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  await fs.rename(tempPath, WHATSAPP_CORE_STATE_PATH);
+  return payload;
+}
+
+async function readOrchestratorRepoState() {
+  const config = TARGETS.orchestrator;
+  const [sha, branch, status] = await Promise.all([
+    run('git', ['-C', config.repo, 'rev-parse', 'HEAD']),
+    run('git', ['-C', config.repo, 'branch', '--show-current']),
+    run('git', ['-C', config.repo, 'status', '--porcelain', '--untracked-files=no'])
+  ]);
+  return {
+    sha: sha.stdout,
+    branch: branch.stdout,
+    dirty: porcelainEntries(status.stdoutRaw).length > 0,
+    status: status.stdoutRaw
+  };
+}
+
+async function captureWhatsappCoreDrift(repoState, baseline, reason) {
+  await ensureDirs();
+  const stamp = Date.now();
+  let diffStat = '';
+  try {
+    diffStat = (await run('git', ['-C', TARGETS.orchestrator.repo, 'diff', '--stat'], { timeout: 15_000 })).stdout;
+  } catch (_) {}
+  const evidence = {
+    detectedAt: new Date().toISOString(),
+    reason: String(reason || 'WHATSAPP_CORE_DRIFT'),
+    current: repoState,
+    baseline,
+    diffStat
+  };
+  const filePath = path.join(BACKUP_DIR, `whatsapp-core-drift-${stamp}.json`);
+  await fs.writeFile(filePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+  return filePath;
+}
+
+async function markWhatsappCoreGood({ source = 'supervisor' } = {}) {
+  const repoState = await readOrchestratorRepoState();
+  if (repoState.branch !== TARGETS.orchestrator.branch || repoState.dirty) {
+    const error = new Error('WHATSAPP_CORE_BASELINE_NOT_CLEAN');
+    error.code = 'WHATSAPP_CORE_BASELINE_NOT_CLEAN';
+    throw error;
+  }
+  return writeWhatsappCoreState({
+    lastGoodSha: repoState.sha,
+    branch: repoState.branch,
+    source,
+    contract: 'WHATSAPP_CORE_CONTRACT_OK',
+    health: 'OK',
+    bridge: 'READY'
+  });
+}
+
+async function restoreWhatsappCoreLastGood(reason = 'WHATSAPP_CORE_DRIFT') {
+  const config = TARGETS.orchestrator;
+  const baseline = await readWhatsappCoreState();
+  if (!baseline || !/^[0-9a-f]{40}$/i.test(String(baseline.lastGoodSha || ''))) {
+    const error = new Error('WHATSAPP_CORE_LAST_GOOD_MISSING');
+    error.code = 'WHATSAPP_CORE_LAST_GOOD_MISSING';
+    throw error;
+  }
+
+  const repoState = await readOrchestratorRepoState();
+  const evidencePath = await captureWhatsappCoreDrift(repoState, baseline, reason);
+  const backupBranch = `backup/whatsapp-core-watchdog-${Date.now()}`;
+
+  try {
+    await run('git', ['-C', config.repo, 'branch', backupBranch, repoState.sha], { timeout: 30_000 });
+  } catch (_) {}
+
+  await run('git', ['-C', config.repo, 'reset', '--hard'], { timeout: 30_000 });
+  await run('git', ['-C', config.repo, 'switch', '-C', config.branch, baseline.lastGoodSha], { timeout: 60_000 });
+  await installDependencies(config);
+  await runWhatsappCoreContract(config.repo);
+  await restartService('orchestrator');
+  const healthEndpoint = await verifyOrchestratorHttpHealth();
+  const bridgeEndpoint = await verifyWhatsappBridgeHealth();
+
+  await writeWhatsappCoreState({
+    ...baseline,
+    lastRecoveryAt: new Date().toISOString(),
+    lastRecoveryReason: String(reason || 'WHATSAPP_CORE_DRIFT'),
+    lastRecoveryEvidence: evidencePath,
+    healthEndpoint,
+    bridgeEndpoint,
+    source: 'watchdog_recovery'
+  });
+
+  console.error('[WHATSAPP_CORE_AUTO_ROLLBACK]', {
+    reason: String(reason || 'WHATSAPP_CORE_DRIFT'),
+    restoredSha: baseline.lastGoodSha,
+    evidencePath
+  });
+
+  return {
+    status: 'rolled_back',
+    restoredSha: baseline.lastGoodSha,
+    evidencePath,
+    healthEndpoint,
+    bridgeEndpoint
+  };
+}
+
+async function runWhatsappCoreWatchdog({ force = false, allowBootstrap = false } = {}) {
+  if (!WHATSAPP_CORE_PROTECTED) return { status: 'disabled' };
+
+  const now = Date.now();
+  if (!force && now < nextWhatsappCoreWatchdogAt) return { status: 'not_due' };
+  nextWhatsappCoreWatchdogAt = now + WHATSAPP_CORE_WATCHDOG_MS;
+
+  const repoState = await readOrchestratorRepoState();
+  const baseline = await readWhatsappCoreState();
+
+  if (!baseline) {
+    if (!allowBootstrap) {
+      const error = new Error('WHATSAPP_CORE_BASELINE_NOT_INITIALIZED');
+      error.code = 'WHATSAPP_CORE_BASELINE_NOT_INITIALIZED';
+      throw error;
+    }
+    if (repoState.branch !== TARGETS.orchestrator.branch || repoState.dirty) {
+      const error = new Error('WHATSAPP_CORE_BOOTSTRAP_REPOSITORY_INVALID');
+      error.code = 'WHATSAPP_CORE_BOOTSTRAP_REPOSITORY_INVALID';
+      throw error;
+    }
+    await runWhatsappCoreContract(TARGETS.orchestrator.repo);
+    const healthEndpoint = await verifyOrchestratorHttpHealth();
+    const bridgeEndpoint = await verifyWhatsappBridgeHealth();
+    const stored = await writeWhatsappCoreState({
+      lastGoodSha: repoState.sha,
+      branch: repoState.branch,
+      source: 'watchdog_bootstrap',
+      contract: 'WHATSAPP_CORE_CONTRACT_OK',
+      health: 'OK',
+      bridge: 'READY',
+      healthEndpoint,
+      bridgeEndpoint
+    });
+    return { status: 'bootstrapped', state: stored };
+  }
+
+  const drift =
+    repoState.branch !== TARGETS.orchestrator.branch ||
+    repoState.sha !== baseline.lastGoodSha ||
+    repoState.dirty;
+
+  if (drift) {
+    return restoreWhatsappCoreLastGood('WHATSAPP_CORE_UNAUTHORIZED_DRIFT');
+  }
+
+  try {
+    await runWhatsappCoreContract(TARGETS.orchestrator.repo);
+    const healthEndpoint = await verifyOrchestratorHttpHealth();
+    const bridgeEndpoint = await verifyWhatsappBridgeHealth();
+    return { status: 'healthy', sha: repoState.sha, healthEndpoint, bridgeEndpoint };
+  } catch (error) {
+    return restoreWhatsappCoreLastGood(error?.code || error?.message || 'WHATSAPP_CORE_HEALTH_FAILURE');
+  }
 }
 
 async function ensureDirs() {
@@ -396,6 +580,10 @@ async function deployRepository(target, parameters = {}) {
     const serviceStatus = restart?.status || await verifyService(target);
     const listening = restart?.listening || await verifyPort(config.port);
 
+    if (target === 'orchestrator' && WHATSAPP_CORE_PROTECTED) {
+      await markWhatsappCoreGood({ source: 'supervisor_deploy' });
+    }
+
     return {
       capability: 'repository.deploy',
       target,
@@ -493,10 +681,26 @@ async function tick() {
 async function main() {
   await ensureDirs();
   const recovered = await recoverInterruptedOperations();
-  console.log(`[OWNER_OPS_SUPERVISOR] READY recovered=${recovered}`);
+
+  let whatsappCore = { status: WHATSAPP_CORE_PROTECTED ? 'pending' : 'disabled' };
+  if (WHATSAPP_CORE_PROTECTED) {
+    try {
+      whatsappCore = await runWhatsappCoreWatchdog({ force: true, allowBootstrap: true });
+    } catch (error) {
+      whatsappCore = { status: 'bootstrap_failed', error: error?.code || error?.message || 'WHATSAPP_CORE_BOOTSTRAP_FAILED' };
+      console.error('[WHATSAPP_CORE_BOOTSTRAP_FAILED]', whatsappCore.error);
+    }
+  }
+
+  console.log(`[OWNER_OPS_SUPERVISOR] READY recovered=${recovered} whatsappCore=${whatsappCore.status}`);
+
   for (;;) {
     try {
       await tick();
+      const watchdog = await runWhatsappCoreWatchdog();
+      if (watchdog?.status === 'rolled_back') {
+        console.error('[WHATSAPP_CORE_WATCHDOG_RECOVERED]', watchdog.restoredSha);
+      }
     } catch (error) {
       console.error('[OWNER_OPS_SUPERVISOR_ERROR]', error.code || error.message);
     }
@@ -523,6 +727,12 @@ module.exports = {
   porcelainEntry,
   porcelainPath,
   recoverInterruptedOperations,
+  readWhatsappCoreState,
+  writeWhatsappCoreState,
+  readOrchestratorRepoState,
+  markWhatsappCoreGood,
+  restoreWhatsappCoreLastGood,
+  runWhatsappCoreWatchdog,
   restartService,
   sanitizeTechnicalError,
   verifyOrchestratorHttpHealth,
