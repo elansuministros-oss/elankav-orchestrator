@@ -25,8 +25,68 @@ const {
   handleOwnerEntityCreateContinuity,
   clearPendingEntityCreate
 } = require('./ownerEntityCreateContinuityService');
+const ownerCommands = require('./ownerCommandService');
 
 const INSTALL_MARK = Symbol.for('elankav.elanUnifiedRuntimeMessagePatch.installed');
+
+function detectPriorityOwnerOpsCommand(message) {
+  const command = ownerCommands.detectOwnerCommand(message);
+  if (!command) return null;
+
+  const type = String(command.type || '');
+  const commands = ownerCommands.OWNER_COMMANDS;
+
+  if (
+    type === commands.OWNER_OPS_PREPARE_SENSITIVE &&
+    ['repository.deploy', 'service.restart'].includes(String(command.capability || ''))
+  ) return command;
+
+  if (
+    type === commands.OWNER_OPS_CONFIRM ||
+    type === commands.OPS_STATUS ||
+    type === 'owner_ops_supervisor_status'
+  ) return command;
+
+  return null;
+}
+
+async function executePriorityOwnerOpsCommand({ command, context, args }) {
+  const commandResult = await ownerCommands.executeOwnerCommand({
+    command,
+    platform: context?.platform || args?.platform || 'elankav',
+    ownerPhone: context?.phone || args?.phone || context?.identity?.canonicalId || null
+  });
+
+  return {
+    message: String(args?.message || '').trim(),
+    reply: String(commandResult?.outputText || '').trim(),
+    provider: 'elankav',
+    model: 'elankav-owner-command',
+    responseId: commandResult?.job?.id || null,
+    status: commandResult?.job?.status || 'completed',
+    usage: null,
+    suppressDelivery: false,
+    command: commandResult?.command || command?.type || null,
+    jobId: commandResult?.job?.id || null,
+    ownerCommercialQuery: false,
+    ownerCrmCommand: false,
+    actorRole: 'owner',
+    actorId: 'owner',
+    accessScopes: ['*'],
+    runtimeVersion: null,
+    knowledgeAvailable: true,
+    historyMessages: null,
+    context: {
+      version: context?.version || null,
+      platform: context?.platform || args?.platform || 'ELANVISUAL',
+      channel: context?.channel || args?.channel || 'whatsapp',
+      externalUserId: context?.externalUserId || args?.externalUserId || null,
+      ownerMode: true,
+      runtime: 'OWNER_OPS_PRIORITY',
+      authority: 'ORCHESTRATOR'
+    }
+  };
+}
 
 function normalized(value){return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ')}
 function detectAuthorizedPriceLookup(message){
@@ -171,6 +231,19 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   const originalProcessMessage=messageService.processMessage;
   messageService.processMessage=async function processMessageWithUnifiedRuntime(args={}){
     const context=buildContext({message:args.message,source:'elan-unified-runtime-whatsapp',platform:args.platform,channel:args.channel,externalUserId:args.externalUserId,phone:args.phone,metadata:args.metadata&&typeof args.metadata==='object'?args.metadata:{}});const isOwner=Boolean(context?.owner?.isOwner);
+
+    if(isOwner){
+      const priorityOwnerOps=detectPriorityOwnerOpsCommand(args.message);
+      if(priorityOwnerOps){
+        console.log('[OWNER_OPS_PRIORITY_ROUTE]',{
+          type:priorityOwnerOps.type||null,
+          capability:priorityOwnerOps.capability||null,
+          target:priorityOwnerOps.target||null
+        });
+        return executePriorityOwnerOpsCommand({command:priorityOwnerOps,context,args});
+      }
+    }
+
     const actor=await resolveRuntimeActor(context,args);
     await persistRuntimeTurn({actor,context,args,direction:'inbound',text:String(args.message||'').trim(),externalMessageId:args?.metadata?.messageId||null});
     if(!isOwner){
@@ -260,4 +333,4 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete',entityCreateContinuity:true});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch,resolveRuntimeActor,persistRuntimeTurn};
+module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,detectPriorityOwnerOpsCommand,executePriorityOwnerOpsCommand,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch,resolveRuntimeActor,persistRuntimeTurn};
