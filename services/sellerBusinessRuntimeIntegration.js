@@ -3,6 +3,7 @@
 const messageService = require('./messageService');
 const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
 const { handleSellerConversationMessage } = require('./sellerConversationRuntimeService');
+const { buildContext } = require('./context/contextBuilder');
 
 const INSTALL_MARK = Symbol.for('elankav.sellerBusinessRuntimeIntegration.installed');
 
@@ -39,7 +40,14 @@ function resultFromSeller(args, actor, outcome) {
   };
 }
 
-function installSellerBusinessRuntimeIntegration(service = messageService) {
+function installSellerBusinessRuntimeIntegration(
+  service = messageService,
+  {
+    resolveActorImpl = resolveCommercialActorSafely,
+    handleSellerImpl = handleSellerConversationMessage,
+    buildContextImpl = buildContext
+  } = {}
+) {
   if (!service || typeof service.processMessage !== 'function') {
     throw new TypeError('messageService.processMessage no está disponible');
   }
@@ -50,8 +58,25 @@ function installSellerBusinessRuntimeIntegration(service = messageService) {
     const channel = String(args?.channel || '').toLowerCase();
     if (channel !== 'whatsapp') return original(args);
 
+    const ownerContext = buildContextImpl({
+      message: args?.message,
+      platform: args?.platform,
+      channel: args?.channel,
+      externalUserId: args?.externalUserId,
+      phone: args?.phone,
+      metadata: args?.metadata && typeof args.metadata === 'object' ? args.metadata : {}
+    });
+
+    if (ownerContext?.owner?.isOwner) {
+      console.log('[SELLER_BUSINESS_RUNTIME_OWNER_BYPASS]', {
+        platform: ownerContext.platform || args?.platform || 'ELANVISUAL',
+        channel: ownerContext.channel || channel
+      });
+      return original(args);
+    }
+
     try {
-      const actor = await resolveCommercialActorSafely({
+      const actor = await resolveActorImpl({
         phone: args?.phone || null,
         identity: args?.externalUserId || args?.metadata?.senderRaw || args?.metadata?.chatId || null,
         externalUserId: args?.externalUserId || null,
@@ -61,7 +86,7 @@ function installSellerBusinessRuntimeIntegration(service = messageService) {
       });
 
       if (String(actor?.role || '').toLowerCase() === 'seller') {
-        const outcome = await handleSellerConversationMessage(args?.message, actor);
+        const outcome = await handleSellerImpl(args?.message, actor);
         if (outcome?.handled) {
           console.log('[SELLER_BUSINESS_RUNTIME_HANDLED]', {
             sellerId: actor?.sellerId || actor?.actorId || null,
