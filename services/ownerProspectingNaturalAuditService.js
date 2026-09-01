@@ -29,7 +29,7 @@ function detectOwnerProspectingNaturalAudit(message) {
     /\b(cuantos?\s+(?:correos?|emails?)|a\s+cuantos?\s+.*(?:correo|email)|(?:enviaste|mandaste|escribiste)\s+.*(?:correo|email)|por\s+(?:correo|email)\s+a\s+cuantos?)\b/.test(text);
 
   const asksWhatsapp =
-    /\b(cuantos?\s+(?:whatsapp|wasap|mensajes?\s+de\s+whatsapp)|a\s+cuantos?\s+.*(?:whatsapp|wasap)|(?:enviaste|mandaste|escribiste)\s+.*(?:whatsapp|wasap)|por\s+(?:whatsapp|wasap)\s+a\s+cuantos?)\b/.test(text);
+    /\b(cuantos?\s+(?:whatsapp|wasap|mensajes?\s+de\s+whatsapp)|a\s+cuantos?\s+.*(?:whatsapp|whatsap|wasap|wqasap|guasap)|(?:enviaste|mandaste|escribiste)\s+.*(?:whatsapp|whatsap|wasap|wqasap|guasap)|por\s+(?:whatsapp|whatsap|wasap|wqasap|guasap)\s+a\s+cuantos?)\b/.test(text);
 
   const asksResponses =
     /\b(que\s+te\s+han\s+dicho|que\s+respondieron|quien(?:es)?\s+respondio|quien(?:es)?\s+respondieron|hay\s+alguna\s+respuesta|hay\s+respuestas|alguno\s+respondio|alguien\s+respondio|te\s+respondieron|han\s+respondido)\b/.test(text);
