@@ -30,7 +30,7 @@ const TARGETS = Object.freeze({
   orchestrator: Object.freeze({
     service: 'elankav-orchestrator.service',
     repo: '/opt/elankav/orchestrator',
-    branch: 'fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01',
+    branch: 'stable/ORCHESTRATOR-WHATSAPP-CORE',
     installMode: 'install',
     build: false,
     port: null
