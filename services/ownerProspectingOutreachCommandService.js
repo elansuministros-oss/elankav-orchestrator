@@ -57,7 +57,7 @@ function detectOwnerProspectingOutreachCommand(message) {
     /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|campana|empresas?)\b/.test(normalized);
 
   const startIntent =
-    /\b(contacta|contactar|envia|enviar|escribe|escribir|manda|mandar|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized) &&
+    /\b(contacta|contactar|contactale|contactales|envia|enviar|enviale|enviales|escribe|escribir|escribile|escribiles|manda|mandar|mandale|mandales|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized) &&
     channelIntent;
 
   if (pauseIntent && !otherBusinessScope) {
