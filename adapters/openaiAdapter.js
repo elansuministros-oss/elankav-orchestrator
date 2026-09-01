@@ -79,6 +79,60 @@ async function createResponse({
   };
 }
 
+async function createToolResponse({
+  input,
+  instructions,
+  tools,
+  previousResponseId,
+  model = process.env.OPENAI_MODEL || openaiConfig.model,
+  reasoningEffort = openaiConfig.reasoningEffort
+}) {
+  if (!input || (Array.isArray(input) && input.length === 0)) {
+    const error = new TypeError('input es obligatorio para la respuesta con herramientas');
+    error.code = 'OPENAI_INVALID_TOOL_INPUT';
+    throw error;
+  }
+
+  if (!Array.isArray(tools) || tools.length === 0) {
+    const error = new TypeError('tools debe contener al menos una herramienta');
+    error.code = 'OPENAI_TOOLS_REQUIRED';
+    throw error;
+  }
+
+  const request = {
+    model,
+    input,
+    tools,
+    tool_choice: 'auto',
+    parallel_tool_calls: false
+  };
+
+  if (typeof instructions === 'string' && instructions.trim()) {
+    request.instructions = instructions.trim();
+  }
+
+  if (typeof previousResponseId === 'string' && previousResponseId.trim()) {
+    request.previous_response_id = previousResponseId.trim();
+  }
+
+  if (reasoningEffort) {
+    request.reasoning = {
+      effort: reasoningEffort
+    };
+  }
+
+  const response = await getOpenAIClient().responses.create(request);
+
+  return {
+    id: response.id,
+    model: response.model || model,
+    status: response.status || 'completed',
+    outputText: response.output_text || '',
+    output: Array.isArray(response.output) ? response.output : [],
+    usage: response.usage || null
+  };
+}
+
 function getOpenAIConfigurationStatus() {
   return {
     configured: Boolean(process.env.OPENAI_API_KEY),
@@ -90,6 +144,7 @@ function getOpenAIConfigurationStatus() {
 
 module.exports = {
   createResponse,
+  createToolResponse,
   getOpenAIConfigurationStatus,
   normalizeResponseInput
 };
