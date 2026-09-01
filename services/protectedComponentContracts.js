@@ -12,6 +12,7 @@ const CONTRACT_SPECS = Object.freeze({
     label: 'OWNER_PROSPECTING_BRIDGE',
     files: Object.freeze([
       'test/ownerProspectingCommandService.test.js',
+      'test/ownerProspectingOutreachCommandService.test.js',
       'test/ownerProspectingNaturalAuditService.test.js',
       'test/runtimeBootstrapPreloads.test.js',
       'test/sellerBusinessRuntimeOwnerBypass.test.js'
