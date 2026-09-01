@@ -1,0 +1,41 @@
+name: Protected Components CI
+
+on:
+  push:
+    branches:
+      - feat/PROTECTED-COMPONENT-REGISTRY-01
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-orchestrator-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --ignore-scripts
+
+      - name: Syntax
+        run: |
+          node --check bin/owner-ops-supervisor.js
+          node --check services/protectedComponentRegistry.js
+          node --check services/protectedComponentContracts.js
+          node --check scripts/verify-protected-connect-source-contracts.js
+
+      - name: Protection framework
+        run: |
+          node --test             test/protectedComponentRegistry.test.js             test/protectedConnectSourceContracts.test.js
+
+      - name: Protected Orchestrator contracts
+        run: |
+          node --test             test/ownerProspectingCommandService.test.js             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js             test/ownerProviderRecruitmentMessagePatch.test.js             test/providerRecruitmentFollowupWorkerService.test.js             tests/ownerProviderMessageRegression.test.js             tests/ownerProviderStructuredContinuity.test.js
+
+      - name: WhatsApp and Owner Ops regressions
+        run: |
+          node --test             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js             test/ownerOpsSupervisor.test.js             tests/connectConversationClient.test.js             tests/universalConversationMemory.test.js
