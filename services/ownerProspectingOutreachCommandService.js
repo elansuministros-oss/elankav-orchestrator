@@ -24,7 +24,7 @@ function normalize(value) {
 
 function strategyFromText(normalized) {
   const hasEmail = /\b(?:correo|correos|email|emails)\b/.test(normalized);
-  const hasWhatsapp = /\b(?:whatsapp|whatsap|wasap|wqasap|guasap|mensajes?\s+por\s+whatsapp)\b/.test(normalized);
+  const hasWhatsapp = /\b(?:whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?)\b/.test(normalized);
 
   if (/\bsolo\s+(?:correo|correos|email|emails)\b/.test(normalized)) return 'email_only';
   if (/\bsolo\s+(?:whatsapp|whatsap|wasap|wqasap|guasap)\b/.test(normalized)) return 'whatsapp_only';
@@ -42,7 +42,7 @@ function detectOwnerProspectingOutreachCommand(message) {
   if (!raw) return null;
 
   const channelIntent =
-    /\b(correo|correos|email|emails|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?)\b/.test(normalized);
+    /\b(correo|correos|email|emails|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?)\b/.test(normalized);
   const prospectScope =
     /\b(mision|prospectos?|empresas?|negocios?|investigacion|busqueda|encontradas?|listas?|decisores?|mercadeo|marketing|compras)\b/.test(normalized);
   const otherBusinessScope =
@@ -50,11 +50,11 @@ function detectOwnerProspectingOutreachCommand(message) {
 
   const pauseIntent =
     /\b(pausa|pausar|detene|detener|suspende|suspender|frena|frenar)\b/.test(normalized) &&
-    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|campana)\b/.test(normalized);
+    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|campana)\b/.test(normalized);
 
   const resumeIntent =
     /\b(reanuda|reanudar|continua|continuar|segui|seguir|retoma|retomar)\b/.test(normalized) &&
-    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|campana|empresas?)\b/.test(normalized);
+    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|campana|empresas?)\b/.test(normalized);
 
   const startIntent =
     /\b(contacta|contactar|envia|enviar|escribe|escribir|manda|mandar|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized) &&
@@ -229,7 +229,6 @@ async function executeOwnerProspectingOutreachCommand(
   );
 
   if (action === 'resume') {
-    assertControls(control, 'email_first');
     const paused = await requestImpl(
       '/api/v1/prospecting/outreach-campaigns?businessUnit=ELANVISUAL&status=paused&limit=500',
       { method: 'GET' }
