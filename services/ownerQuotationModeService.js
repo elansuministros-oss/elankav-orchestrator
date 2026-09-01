@@ -5,7 +5,9 @@ const path = require('node:path');
 
 const {
   createCustomer,
-  searchCustomers
+  getProspectTimeline,
+  searchCustomers,
+  searchProspects
 } = require('./ownerBusinessConnectClient');
 const { updateContext } = require('./ownerBusinessContextService');
 const {
@@ -13,6 +15,7 @@ const {
   prepareAndCreateQuotation
 } = require('./ownerQuotationService');
 const ownerQuotationMediaService = require('./ownerQuotationMediaService');
+const { extractQuotationIntakeFromImage } = require('./ownerQuotationImageExtractionService');
 
 const DEFAULT_STORE_PATH = '/var/lib/elankav/orchestrator/owner-quotation-mode.json';
 const QUOTATION_MODE_TTL_MS = Number(process.env.OWNER_QUOTATION_MODE_TTL_MS || 60 * 60 * 1000);
@@ -56,13 +59,17 @@ function stateKey({ externalUserId, phone, chatId } = {}) {
 function freshState(now = Date.now()) {
   return {
     active: true,
-    step: 'phone',
+    step: 'party',
     data: {
-      phone: '',
+      sourceType: '',
+      sourceId: '',
       customerName: '',
+      companyName: '',
+      phone: '',
+      email: '',
+      address: '',
       description: '',
       paymentTerms: null,
-      address: '',
       priceMode: '',
       explicitPriceUsd: null,
       imageProvided: false
@@ -179,13 +186,18 @@ function isUsefulText(text) {
 
 function nextQuestion(step) {
   const questions = {
-    phone: 'Modo cotización activo. Empecemos por el cliente. ¿Cuál es el número de teléfono o WhatsApp?',
-    customerName: '¿Cuál es el nombre del cliente o razón social?',
+    party: [
+      '✅ Modo cotización activo.',
+      '¿Para quién es la cotización?',
+      'Podés decirme el nombre del cliente/negocio, el teléfono, o mandarme una captura con los datos. Primero buscaré si ya existe como cliente o prospecto.'
+    ].join('\n'),
+    phone: '¿Cuál es el número de teléfono o WhatsApp del cliente?',
+    customerName: '¿Cuál es el nombre del cliente o del negocio?',
     description: 'Describime el trabajo que vamos a cotizar. Incluí medidas, cantidad y materiales si ya los tenés.',
     paymentTerms: '¿Cuáles son las condiciones de pago? Por ejemplo 60/40 o anticipo 60%.',
     address: '¿Cuál es la dirección del cliente o del proyecto?',
     price: '¿Cuál es el precio final autorizado en USD? También podés decirme “usar precio de biblioteca”.',
-    image: '¿Hay imagen de referencia? Si la hay, enviala ahora. Si no, decime “sin imagen”.'
+    image: '¿Hay imagen de referencia para la cotización? Si la hay, enviala ahora. Si no, decime “sin imagen”.'
   };
   return questions[step] || 'Continuemos con la cotización.';
 }
@@ -199,7 +211,9 @@ function summaryForState(state) {
       : 'pendiente';
   return [
     'Datos de la cotización:',
+    `Origen: ${state.data.sourceType || 'nuevo'}`,
     `Cliente: ${state.data.customerName || 'pendiente'}`,
+    `Negocio: ${state.data.companyName || 'pendiente'}`,
     `Teléfono: ${state.data.phone || 'pendiente'}`,
     `Trabajo: ${state.data.description || 'pendiente'}`,
     `Pago: ${terms.depositPercent ? `${terms.depositPercent}/${terms.balancePercent}` : 'pendiente'}`,
@@ -210,26 +224,222 @@ function summaryForState(state) {
 }
 
 function customerPhone(customer) {
-  return String(customer?.phone || customer?.whatsapp || customer?.mobile || '').replace(/\D/g, '').replace(/^505(?=\d{8}$)/, '');
+  return String(customer?.phone || customer?.whatsapp || customer?.mobile || '')
+    .replace(/\D/g, '')
+    .replace(/^505(?=\d{8}$)/, '');
+}
+
+function customerNames(customer) {
+  return [customer?.name, customer?.companyName, customer?.displayName]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function chooseCustomer(rows, reference) {
+  const candidates = (Array.isArray(rows) ? rows : [])
+    .map(row => row?.customer || row)
+    .filter(Boolean);
+  if (!candidates.length) return { status: 'not_found', candidates: [] };
+
+  const wanted = normalize(reference);
+  const phone = extractPhone(reference);
+  const exact = candidates.filter(customer => {
+    if (phone && customerPhone(customer) === phone) return true;
+    return customerNames(customer).some(name => normalize(name) === wanted);
+  });
+
+  if (exact.length === 1) return { status: 'selected', customer: exact[0], candidates };
+  if (exact.length > 1) return { status: 'ambiguous', candidates: exact };
+  if (candidates.length === 1) return { status: 'selected', customer: candidates[0], candidates };
+  return { status: 'ambiguous', candidates };
+}
+
+function prospectRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.prospects)) return payload.prospects;
+  return [];
+}
+
+function chooseProspect(payload, reference) {
+  const rows = prospectRows(payload);
+  if (!rows.length) return { status: 'not_found', candidates: [] };
+  const wanted = normalize(reference);
+  const exact = rows.filter(row => normalize(row?.companyName) === wanted);
+  if (exact.length === 1) return { status: 'selected', prospect: exact[0], candidates: rows };
+  if (exact.length > 1) return { status: 'ambiguous', candidates: exact };
+  if (rows.length === 1) return { status: 'selected', prospect: rows[0], candidates: rows };
+  return { status: 'ambiguous', candidates: rows };
+}
+
+function preferredProspectContact(timeline = {}) {
+  const contacts = Array.isArray(timeline?.contacts) ? timeline.contacts : [];
+  const preferred = ['whatsapp', 'phone', 'email'];
+  for (const channel of preferred) {
+    const match = contacts.find(contact =>
+      String(contact?.channel || '').toLowerCase() === channel &&
+      String(contact?.value || '').trim()
+    );
+    if (match) return match;
+  }
+  return contacts.find(contact => String(contact?.value || '').trim()) || null;
+}
+
+function applyResolvedParty(state, resolved = {}) {
+  const next = JSON.parse(JSON.stringify(state));
+  const companyName = String(resolved.companyName || '').trim();
+  const customerName = String(resolved.customerName || '').trim() || companyName;
+  next.data.sourceType = resolved.sourceType || next.data.sourceType || 'new';
+  next.data.sourceId = String(resolved.sourceId || next.data.sourceId || '').trim();
+  next.data.companyName = companyName || customerName || next.data.companyName;
+  next.data.customerName = customerName || next.data.customerName;
+  next.data.phone = String(resolved.phone || next.data.phone || '').replace(/\D/g, '').replace(/^505(?=\d{8}$)/, '');
+  next.data.email = String(resolved.email || next.data.email || '').trim();
+  next.data.address = String(resolved.address || next.data.address || '').trim();
+  if (resolved.description) next.data.description = String(resolved.description).trim();
+  return next;
+}
+
+function nextMissingStep(data) {
+  if (!data.phone) return 'phone';
+  if (!data.customerName && !data.companyName) return 'customerName';
+  if (!data.description) return 'description';
+  if (!data.paymentTerms) return 'paymentTerms';
+  if (!data.address) return 'address';
+  if (!data.priceMode) return 'price';
+  return 'image';
+}
+
+async function resolvePartyReference(reference, dependencies = {}) {
+  const query = String(reference || '').trim();
+  if (!query) return { status: 'not_found' };
+
+  const searchCustomersImpl = dependencies.searchCustomers || searchCustomers;
+  const searchProspectsImpl = dependencies.searchProspects || searchProspects;
+  const getProspectTimelineImpl = dependencies.getProspectTimeline || getProspectTimeline;
+
+  const customerSearch = await searchCustomersImpl(query);
+  const customerChoice = chooseCustomer(customerSearch?.data?.results || customerSearch?.results || [], query);
+  if (customerChoice.status === 'selected') {
+    const customer = customerChoice.customer;
+    const companyName = String(customer.companyName || '').trim();
+    const customerName = String(customer.name || customer.displayName || companyName).trim();
+    return {
+      status: 'selected',
+      sourceType: 'customer',
+      sourceId: customer.customerId || customer.id || '',
+      customerName: customerName || companyName,
+      companyName: companyName || customerName,
+      phone: customerPhone(customer),
+      email: customer.email || '',
+      address: customer.address || '',
+      customer
+    };
+  }
+  if (customerChoice.status === 'ambiguous') {
+    return {
+      status: 'ambiguous_customer',
+      candidates: customerChoice.candidates
+    };
+  }
+
+  const prospectSearch = await searchProspectsImpl(query);
+  const prospectChoice = chooseProspect(prospectSearch, query);
+  if (prospectChoice.status === 'selected') {
+    const prospect = prospectChoice.prospect;
+    let timeline = {};
+    try {
+      timeline = await getProspectTimelineImpl(prospect.id);
+    } catch {
+      timeline = {};
+    }
+    const contact = preferredProspectContact(timeline);
+    const companyName = String(prospect.companyName || '').trim();
+    const contactName = String(contact?.contactName || '').trim();
+    const channel = String(contact?.channel || '').toLowerCase();
+    const value = String(contact?.value || '').trim();
+    return {
+      status: 'selected',
+      sourceType: 'prospect',
+      sourceId: prospect.id || '',
+      customerName: contactName || companyName,
+      companyName,
+      phone: ['whatsapp', 'phone'].includes(channel) ? extractPhone(value) || value.replace(/\D/g, '') : '',
+      email: channel === 'email' ? value : '',
+      address: prospect.address || '',
+      prospect,
+      contact
+    };
+  }
+  if (prospectChoice.status === 'ambiguous') {
+    return {
+      status: 'ambiguous_prospect',
+      candidates: prospectChoice.candidates
+    };
+  }
+
+  const phone = extractPhone(query);
+  if (phone) {
+    return {
+      status: 'new',
+      sourceType: 'new',
+      phone
+    };
+  }
+
+  return {
+    status: 'new',
+    sourceType: 'new',
+    customerName: query,
+    companyName: query
+  };
+}
+
+function formatAmbiguousParty(result) {
+  const rows = Array.isArray(result?.candidates) ? result.candidates.slice(0, 5) : [];
+  const names = rows.map(row =>
+    row?.companyName ||
+    row?.name ||
+    row?.displayName ||
+    row?.customer?.companyName ||
+    row?.customer?.name ||
+    ''
+  ).filter(Boolean);
+  return names.length
+    ? `Encontré varias coincidencias: ${names.join(', ')}. Decime cuál corresponde.`
+    : 'Encontré varias coincidencias. Dame un dato más específico del cliente o negocio.';
 }
 
 async function resolveOrCreateCustomer(data, dependencies = {}) {
   const searchCustomersImpl = dependencies.searchCustomers || searchCustomers;
   const createCustomerImpl = dependencies.createCustomer || createCustomer;
 
-  const search = await searchCustomersImpl(data.phone);
-  const rows = search?.data?.results || [];
-  const candidates = rows.map(row => row?.customer || row).filter(Boolean);
-  const exact = candidates.find(customer => customerPhone(customer) === data.phone);
+  if (data.sourceType === 'customer' && data.sourceId) {
+    const search = await searchCustomersImpl(data.sourceId);
+    const rows = search?.data?.results || [];
+    const exact = rows.map(row => row?.customer || row).find(customer =>
+      String(customer?.customerId || customer?.id || '') === String(data.sourceId)
+    );
+    if (exact) return { customer: exact, created: false };
+  }
 
-  if (exact) return { customer: exact, created: false };
+  if (data.phone) {
+    const search = await searchCustomersImpl(data.phone);
+    const rows = search?.data?.results || [];
+    const candidates = rows.map(row => row?.customer || row).filter(Boolean);
+    const exact = candidates.find(customer => customerPhone(customer) === data.phone);
+    if (exact) return { customer: exact, created: false };
+  }
 
+  const customerName = String(data.customerName || data.companyName || '').trim();
+  const companyName = String(data.companyName || data.customerName || '').trim();
   const response = await createCustomerImpl({
-    name: data.customerName,
-    companyName: data.customerName,
-    whatsapp: data.phone,
-    phone: data.phone,
-    address: data.address
+    name: customerName || companyName,
+    companyName: companyName || customerName,
+    ...(data.phone ? { whatsapp: data.phone, phone: data.phone } : {}),
+    ...(data.email ? { email: data.email } : {}),
+    ...(data.address ? { address: data.address } : {})
   });
   const customer = response?.data?.customer || response?.data || response?.customer || response;
   return { customer, created: true };
@@ -252,7 +462,7 @@ async function finalizeQuotationMode(identity, state, metadata = {}, dependencie
 
   await updateContextImpl({
     activeCustomerId: customerId,
-    activeCustomerReference: state.data.customerName,
+    activeCustomerReference: state.data.customerName || state.data.companyName,
     lastEntityType: 'customer',
     lastEntityId: customerId,
     lastIntent: 'quotation_mode'
@@ -299,7 +509,6 @@ async function finalizeQuotationMode(identity, state, metadata = {}, dependencie
     completed: true,
     outputText: [
       quotationResult.summary,
-      mediaResult?.handled ? '' : '',
       mediaResult?.handled ? mediaResult.outputText : ''
     ].filter(Boolean).join('\n\n'),
     quotationResult,
@@ -314,7 +523,7 @@ async function startQuotationMode(identity, env = process.env) {
     handled: true,
     mode: 'quotation',
     status: 'in_progress',
-    outputText: nextQuestion('phone'),
+    outputText: nextQuestion('party'),
     state
   };
 }
@@ -335,43 +544,89 @@ async function processQuotationModeText({ identity, text, metadata = {}, depende
     };
   }
 
-  const next = JSON.parse(JSON.stringify(state));
+  let next = JSON.parse(JSON.stringify(state));
 
-  if (next.step === 'phone') {
+  if (next.step === 'party') {
+    const resolved = await resolvePartyReference(text, dependencies);
+    if (resolved.status === 'ambiguous_customer' || resolved.status === 'ambiguous_prospect') {
+      return {
+        handled: true,
+        mode: 'quotation',
+        status: 'in_progress',
+        outputText: formatAmbiguousParty(resolved)
+      };
+    }
+    next = applyResolvedParty(next, resolved);
+    next.step = nextMissingStep(next.data);
+  } else if (next.step === 'phone') {
     const phone = extractPhone(text);
-    if (!phone) return { handled: true, mode: 'quotation', status: 'in_progress', outputText: 'Necesito un número válido de teléfono o WhatsApp del cliente.' };
+    if (!phone) {
+      return {
+        handled: true,
+        mode: 'quotation',
+        status: 'in_progress',
+        outputText: 'Necesito un número válido de teléfono o WhatsApp del cliente.'
+      };
+    }
     next.data.phone = phone;
-    next.step = 'customerName';
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'customerName') {
-    if (!isUsefulText(text)) return { handled: true, mode: 'quotation', status: 'in_progress', outputText: nextQuestion('customerName') };
-    next.data.customerName = String(text).trim();
-    next.step = 'description';
+    if (!isUsefulText(text)) {
+      return { handled: true, mode: 'quotation', status: 'in_progress', outputText: nextQuestion('customerName') };
+    }
+    const name = String(text).trim();
+    next.data.customerName = name;
+    if (!next.data.companyName) next.data.companyName = name;
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'description') {
-    if (String(text || '').trim().length < 5) return { handled: true, mode: 'quotation', status: 'in_progress', outputText: 'Necesito una descripción un poco más completa del trabajo.' };
+    if (String(text || '').trim().length < 5) {
+      return {
+        handled: true,
+        mode: 'quotation',
+        status: 'in_progress',
+        outputText: 'Necesito una descripción un poco más completa del trabajo.'
+      };
+    }
     next.data.description = String(text).trim();
-    next.step = 'paymentTerms';
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'paymentTerms') {
     const terms = paymentTermsFromText(text);
-    if (!terms) return { handled: true, mode: 'quotation', status: 'in_progress', outputText: 'Indicame las condiciones como 60/40, 50/50 o “anticipo 60%”.' };
+    if (!terms) {
+      return {
+        handled: true,
+        mode: 'quotation',
+        status: 'in_progress',
+        outputText: 'Indicame las condiciones como 60/40, 50/50 o “anticipo 60%”.'
+      };
+    }
     next.data.paymentTerms = terms;
-    next.step = 'address';
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'address') {
-    if (!isUsefulText(text)) return { handled: true, mode: 'quotation', status: 'in_progress', outputText: nextQuestion('address') };
+    if (!isUsefulText(text)) {
+      return { handled: true, mode: 'quotation', status: 'in_progress', outputText: nextQuestion('address') };
+    }
     next.data.address = String(text).trim();
-    next.step = 'price';
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'price') {
     const price = parsePrice(text);
-    if (!price) return { handled: true, mode: 'quotation', status: 'in_progress', outputText: 'Indicame el precio final en USD o decime “usar precio de biblioteca”.' };
+    if (!price) {
+      return {
+        handled: true,
+        mode: 'quotation',
+        status: 'in_progress',
+        outputText: 'Indicame el precio final en USD o decime “usar precio de biblioteca”.'
+      };
+    }
     next.data.priceMode = price.mode;
     next.data.explicitPriceUsd = price.amountUsd;
-    next.step = 'image';
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'image') {
     if (!isNoImage(text)) {
       return {
         handled: true,
         mode: 'quotation',
         status: 'in_progress',
-        outputText: 'Si tenés imagen, enviala como foto. Si no hay imagen, decime “sin imagen”.'
+        outputText: 'Si tenés imagen de referencia, enviala como foto. Si no hay imagen, decime “sin imagen”.'
       };
     }
     next.data.imageProvided = false;
@@ -387,24 +642,101 @@ async function processQuotationModeText({ identity, text, metadata = {}, depende
   }
 
   await setState(identity, next, env);
+  const sourceNote = next.data.sourceType === 'customer'
+    ? '✅ Encontré el cliente registrado. '
+    : next.data.sourceType === 'prospect'
+      ? '✅ Encontré el prospecto y reutilicé sus datos disponibles. '
+      : '';
   return {
     handled: true,
     mode: 'quotation',
     status: 'in_progress',
-    outputText: nextQuestion(next.step),
+    outputText: `${sourceNote}${nextQuestion(next.step)}`.trim(),
     state: next
   };
 }
 
 async function processQuotationModeImage({ identity, media, metadata = {}, dependencies = {}, env = process.env }) {
   const state = await getState(identity, env);
-  if (!state?.active || state.step !== 'image') return { handled: false };
+  if (!state?.active) return { handled: false };
+
   if (!media?.url) {
     return {
       handled: true,
       mode: 'quotation',
       status: 'in_progress',
       outputText: 'Recibí la imagen, pero todavía no tengo una referencia descargable. Reenviámela como foto normal.'
+    };
+  }
+
+  if (state.step === 'party') {
+    const extractImpl = dependencies.extractQuotationIntakeFromImage || extractQuotationIntakeFromImage;
+    const extracted = await extractImpl({ media });
+    const companyName = String(extracted.companyName || '').trim();
+    const customerName = String(extracted.customerName || '').trim() || companyName;
+    const reference = customerName || companyName || extracted.phone || '';
+
+    let resolved = null;
+    if (reference) {
+      try {
+        resolved = await resolvePartyReference(reference, dependencies);
+      } catch {
+        resolved = null;
+      }
+    }
+
+    let next = applyResolvedParty(state, resolved?.status === 'selected' ? resolved : {
+      sourceType: 'new',
+      customerName,
+      companyName: companyName || customerName,
+      phone: extracted.phone,
+      email: extracted.email,
+      address: extracted.address,
+      description: extracted.workDescription || extracted.productName
+    });
+
+    if (!next.data.customerName && next.data.companyName) {
+      next.data.customerName = next.data.companyName;
+    }
+    if (!next.data.companyName && next.data.customerName) {
+      next.data.companyName = next.data.customerName;
+    }
+    if (!next.data.phone && extracted.phone) next.data.phone = extracted.phone;
+    if (!next.data.email && extracted.email) next.data.email = extracted.email;
+    if (!next.data.address && extracted.address) next.data.address = extracted.address;
+    if (!next.data.description && (extracted.workDescription || extracted.productName)) {
+      next.data.description = extracted.workDescription || extracted.productName;
+    }
+
+    next.step = nextMissingStep(next.data);
+    await setState(identity, next, env);
+
+    const identityText = next.data.customerName || next.data.companyName
+      ? `Identifiqué: ${next.data.customerName || next.data.companyName}.`
+      : 'No pude identificar con suficiente claridad el cliente o negocio.';
+    return {
+      handled: true,
+      mode: 'quotation',
+      status: 'in_progress',
+      outputText: [
+        '✅ Captura procesada para la cotización.',
+        identityText,
+        next.data.companyName ? `Negocio: ${next.data.companyName}` : '',
+        next.data.description ? `Trabajo detectado: ${next.data.description}` : '',
+        '',
+        nextQuestion(next.step)
+      ].filter(Boolean).join('\n'),
+      state: next,
+      extracted
+    };
+  }
+
+  if (state.step !== 'image') {
+    return {
+      handled: true,
+      mode: 'quotation',
+      status: 'in_progress',
+      outputText: `Todavía estamos completando los datos de la cotización. ${nextQuestion(state.step)}`
     };
   }
 
@@ -426,6 +758,9 @@ async function processQuotationModeImage({ identity, media, metadata = {}, depen
 module.exports = {
   DEFAULT_STORE_PATH,
   QUOTATION_MODE_TTL_MS,
+  applyResolvedParty,
+  chooseCustomer,
+  chooseProspect,
   clearState,
   extractPhone,
   finalizeQuotationMode,
@@ -434,12 +769,16 @@ module.exports = {
   isNoImage,
   isQuotationModeStartRequest,
   isQuotationModeStopRequest,
+  nextMissingStep,
   nextQuestion,
   parsePrice,
   paymentTermsFromText,
+  preferredProspectContact,
   processQuotationModeImage,
   processQuotationModeText,
+  prospectRows,
   resolveOrCreateCustomer,
+  resolvePartyReference,
   setState,
   stateKey,
   summaryForState
