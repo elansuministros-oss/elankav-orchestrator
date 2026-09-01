@@ -123,6 +123,84 @@ test('extractIncoming recognizes GOWS audio by media MIME when type is absent', 
   assert.equal(incoming.media.mimeType, 'audio/ogg; codecs=opus');
 });
 
+test('extractIncoming preserves Owner image/video captions for multimedia library', () => {
+  const image = extractIncoming({
+    event: 'message',
+    session: 'ELANKAV',
+    payload: {
+      from: '50588388940@c.us',
+      type: 'image',
+      caption: 'Carga esta imagen a la biblioteca. Fachada en ACM con letras PVC.',
+      media: { url: '/api/files/fachada.jpg', mimetype: 'image/jpeg', filename: 'fachada.jpg' }
+    }
+  });
+  assert.equal(image.messageType, 'image');
+  assert.equal(image.media.mimeType, 'image/jpeg');
+
+  const video = extractIncoming({
+    event: 'message',
+    session: 'ELANKAV',
+    payload: {
+      from: '50588388940@c.us',
+      type: 'video',
+      caption: 'Guarda este video en recursos. Caja de luz iluminada.',
+      media: { url: '/api/files/caja.mp4', mimetype: 'video/mp4', filename: 'caja.mp4' }
+    }
+  });
+  assert.equal(video.messageType, 'video');
+  assert.equal(video.media.filename, 'caja.mp4');
+});
+
+test('Owner guarda multimedia sin pasar por provider ni modelo', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'owner-library-stable-1',
+      session: 'ELANKAV',
+      payload: {
+        from: '50588388940@c.us',
+        type: 'image',
+        caption: 'Carga esta imagen a la biblioteca. Fachada en ACM con letras PVC.',
+        media: { url: '/api/files/fachada.jpg', mimetype: 'image/jpeg', filename: 'fachada.jpg' }
+      }
+    }
+  });
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  const persisted = [];
+  let providerCalls = 0;
+  let modelCalls = 0;
+
+  await handleWahaWebhookApi({
+    req,
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() { modelCalls += 1; throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async resolveRegisteredProvider() { providerCalls += 1; return null; },
+      async saveOwnerWhatsappMedia() {
+        return {
+          item: { id: 'media-stable-1' },
+          folder: 'rotulos_fachadas',
+          folderLabel: 'Rótulos y fachadas',
+          tags: ['fachada','acm','pvc','image'],
+          mediaKind: 'image'
+        };
+      },
+      async sendWahaText(input) { sent.push(input); return { id: 'reply-1' }; },
+      async persistConversationEvent(input) { persisted.push(input); return { ok: true }; }
+    }
+  });
+
+  assert.equal(providerCalls, 0);
+  assert.equal(modelCalls, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Biblioteca multimedia/);
+  assert.equal(persisted.length, 2);
+  assert.equal(recorder.calls[0].payload.mediaLibrary, true);
+  assert.equal(recorder.calls[0].payload.folder, 'rotulos_fachadas');
+});
+
 test('GET /webhook/inbound reports READY', async () => {
   const req = createRequest({ method: 'GET', body: null });
   const res = createResponse();
