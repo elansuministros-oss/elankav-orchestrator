@@ -28,6 +28,11 @@ const {
   executeOwnerProspectingOutreachCommand
 } = require('./ownerProspectingOutreachCommandService');
 const {
+  COMMAND_TYPE: PROSPECTING_NATURAL_AUDIT,
+  detectOwnerProspectingNaturalAudit,
+  executeOwnerProspectingNaturalAudit
+} = require('./ownerProspectingNaturalAuditService');
+const {
   COMMAND_TYPE: SELLER_ACCESS_DELIVERY,
   detectOwnerSellerAccessDeliveryCommand,
   executeOwnerSellerAccessDeliveryCommand,
@@ -60,6 +65,9 @@ function detectOwnerBusinessCommand(message) {
   const prospectingOutreach = detectOwnerProspectingOutreachCommand(message);
   if (prospectingOutreach) return prospectingOutreach;
 
+  const prospectingAudit = detectOwnerProspectingNaturalAudit(message);
+  if (prospectingAudit) return prospectingAudit;
+
   const prospecting = detectOwnerProspectingCommand(message);
   if (prospecting) return prospecting;
 
@@ -74,6 +82,7 @@ async function executeOwnerBusinessCommand(command) {
   if (command?.type === SELLER_ACCESS_DELIVERY) return executeOwnerSellerAccessDeliveryCommand(command);
   if (command?.type === SELLER_READ) return executeOwnerSellerReadCommand(command);
   if (command?.type === PROSPECTING_OUTREACH_AUTOPILOT) return executeOwnerProspectingOutreachCommand(command);
+  if (command?.type === PROSPECTING_NATURAL_AUDIT) return executeOwnerProspectingNaturalAudit(command);
   if (command?.type === PROSPECTING_AUTOPILOT) return executeOwnerProspectingCommand(command);
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
@@ -285,6 +294,7 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
     sellerAccessDelivery: true,
     prospectingAutopilot: true,
     prospectingOutreachAutopilot: true,
+    prospectingNaturalAudit: true,
     sellerOnboarding: true,
     sellerBusinessTransactions: true
   });
@@ -296,6 +306,7 @@ module.exports = {
   PRICE_CATALOG_ADMIN,
   PROSPECTING_AUTOPILOT,
   PROSPECTING_OUTREACH_AUTOPILOT,
+  PROSPECTING_NATURAL_AUDIT,
   QUOTATION_ITEM_ADD,
   SELLER_ACCESS_DELIVERY,
   SELLER_READ,
