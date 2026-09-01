@@ -96,7 +96,8 @@ function assertAllowedRequest(path, method) {
   const normalizedMethod = String(method || 'GET').toUpperCase();
   const allowed =
     (path === '/api/v1/prospecting/control-status' && normalizedMethod === 'GET') ||
-    (path.startsWith('/api/v1/prospecting/missions') && ['GET', 'POST'].includes(normalizedMethod));
+    (path.startsWith('/api/v1/prospecting/missions') && ['GET', 'POST'].includes(normalizedMethod)) ||
+    (path.startsWith('/api/v1/prospecting/outreach-campaigns') && ['GET', 'POST', 'PATCH'].includes(normalizedMethod));
 
   if (!allowed) {
     throw new OwnerProspectingError(
