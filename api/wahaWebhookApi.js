@@ -552,7 +552,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         chatId: incoming.chatId
       });
 
-      if (quotationModeState?.active && quotationModeState.step === 'image') {
+      if (quotationModeState?.active) {
         try {
           const hydratedIncoming = await hydrateOwnerWhatsappMediaImpl({ incoming });
           const configuredWahaBases = [
