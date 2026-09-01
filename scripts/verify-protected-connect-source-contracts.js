@@ -26,6 +26,10 @@ function verifyProviderRecruitment(connectRepo) {
   assertIncludes(source, "nextFollowupAt:null", 'PROVIDER_RECRUITMENT_RESPONSE_STOP_MISSING');
   assertIncludes(source, "/recruitment/contact-preflight", 'PROVIDER_RECRUITMENT_PREFLIGHT_ROUTE_MISSING');
   assertIncludes(source, "/recruitment/contact-attempts", 'PROVIDER_RECRUITMENT_AUDIT_ROUTE_MISSING');
+  assertIncludes(source, "PROVIDER_AUTONOMOUS_INVESTIGATION_DISABLED", 'PROVIDER_AUTONOMOUS_FLAG_GATE_MISSING');
+  assertIncludes(source, "/recruitment/autonomous-research", 'PROVIDER_AUTONOMOUS_RESEARCH_ROUTE_MISSING');
+  assertIncludes(source, "PROVIDER_AUTONOMOUS_ALREADY_CONTACTED", 'PROVIDER_AUTONOMOUS_DEDUPE_GATE_MISSING');
+  assertIncludes(source, "verifiedAutonomousContact", 'PROVIDER_AUTONOMOUS_VERIFIED_CONTACT_MISSING');
 
   return 'PROVIDER_RECRUITMENT_CONNECT_CONTRACT_OK';
 }

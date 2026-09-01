@@ -32,7 +32,11 @@ test('provider recruitment source contract acepta todos los gates protegidos', (
     "followupAttempts>=2",
     "nextFollowupAt:null",
     "/recruitment/contact-preflight",
-    "/recruitment/contact-attempts"
+    "/recruitment/contact-attempts",
+    "PROVIDER_AUTONOMOUS_INVESTIGATION_DISABLED",
+    "/recruitment/autonomous-research",
+    "PROVIDER_AUTONOMOUS_ALREADY_CONTACTED",
+    "verifiedAutonomousContact"
   ].join('\n');
 
   const result = runContract(makeRepo(source));
@@ -48,7 +52,11 @@ test('provider recruitment source contract falla cerrado si desaparece verificac
     "followupAttempts>=2",
     "nextFollowupAt:null",
     "/recruitment/contact-preflight",
-    "/recruitment/contact-attempts"
+    "/recruitment/contact-attempts",
+    "PROVIDER_AUTONOMOUS_INVESTIGATION_DISABLED",
+    "/recruitment/autonomous-research",
+    "PROVIDER_AUTONOMOUS_ALREADY_CONTACTED",
+    "verifiedAutonomousContact"
   ].join('\n');
 
   const result = runContract(makeRepo(source));

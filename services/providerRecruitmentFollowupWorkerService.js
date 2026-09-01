@@ -19,6 +19,9 @@ const state = {
 
 function clean(value){ return String(value || '').trim(); }
 function enabled(env=process.env){ return String(env.PROVIDER_RECRUITMENT_FOLLOWUP_ENABLED ?? 'true').toLowerCase() !== 'false'; }
+function autonomousInvestigationEnabled(env=process.env){
+  return String(env.PROVIDER_AUTONOMOUS_INVESTIGATION_ENABLED || 'false').trim().toLowerCase()==='true';
+}
 function connectBaseUrl(env=process.env){ return clean(env.ELANKAV_CONNECT_URL || DEFAULT_CONNECT_URL).replace(/\/+$/,''); }
 function token(env=process.env){
   const value=clean(env.CONNECT_PROVIDER_INTELLIGENCE_TOKEN || env.CONNECT_VOICE_TOKEN);
@@ -61,6 +64,21 @@ function withinContactWindow(now=new Date(),env=process.env){
   if(clock.weekday==='Sun') return false;
   return clock.hour>=start && clock.hour<end;
 }
+function autonomousInitialMessage(item){
+  const question=clean(item?.nextQuestion);
+  const intro='Hola, soy ELAN, asistente de inteligencia artificial de ELAN Suministros & Tecnología.';
+  return [
+    intro,
+    'Estamos incorporando proveedores para nuestro ecosistema.',
+    question || 'Para comenzar, ¿qué productos o servicios ofrecen actualmente?'
+  ].join('\n\n');
+}
+function isAutonomousInitialPending(item,env=process.env){
+  return autonomousInvestigationEnabled(env) &&
+    item?.recruitment?.recruitmentStatus==='CONTACT_PENDING' &&
+    !item?.recruitment?.lastContactAt &&
+    item?.recruitment?.source?.autonomousInvestigation===true;
+}
 function followupMessage(item){
   const name=clean(item?.provider?.tradeName);
   const attempt=Number(item?.recruitment?.followupAttempts || 0)+1;
@@ -90,6 +108,26 @@ async function processDueItem(item,{
 }={}){
   const id=item?.provider?.id || item?.recruitment?.providerId;
   if(!id) return {action:'SKIPPED',reason:'PROVIDER_ID_MISSING'};
+
+  if(isAutonomousInitialPending(item,env)){
+    let pre;
+    try {
+      pre=await get('/api/v1/providers/'+encodeURIComponent(id)+'/recruitment/contact-preflight?mode=autonomous',{env,fetchImpl});
+    } catch(error){
+      if(['PROVIDER_CONTACT_BLOCKED','PROVIDER_CONTACT_NOT_VERIFIED','PROVIDER_CONTACT_MISSING','PROVIDER_AUTONOMOUS_ALREADY_CONTACTED'].includes(error?.code)){
+        await stopFollowup(id,{env,fetchImpl}).catch(()=>null);
+        return {action:'SKIPPED',providerId:id,reason:error.code};
+      }
+      throw error;
+    }
+    const message=autonomousInitialMessage(item);
+    const sent=await delivery.sendText({phone:pre.contact,text:message});
+    await post('/api/v1/providers/'+encodeURIComponent(id)+'/recruitment/contact-attempts',{
+      message,...(sent?.messageId?{externalMessageId:sent.messageId}:{})
+    },{env,fetchImpl});
+    return {action:'INITIAL_SENT',providerId:id,messageId:sent?.messageId||null};
+  }
+
   const attempts=Number(item?.recruitment?.followupAttempts || 0);
   if(attempts>=2){
     await post('/api/v1/providers/'+encodeURIComponent(id)+'/recruitment/followups',{sent:false},{env,fetchImpl});
@@ -129,7 +167,7 @@ async function runProviderRecruitmentFollowups({
     for(const item of rows){
       const result=await processDueItem(item,{env,fetchImpl,delivery});
       state.processed+=1;
-      if(result.action==='SENT') state.sent+=1;
+      if(result.action==='SENT'||result.action==='INITIAL_SENT') state.sent+=1;
       else if(result.action==='NO_RESPONSE') state.closedNoResponse+=1;
       else state.skipped+=1;
     }
@@ -166,6 +204,6 @@ function startProviderRecruitmentFollowupWorker({env=process.env,...deps}={}){
 function getProviderRecruitmentFollowupState(){ return {...state}; }
 
 module.exports={
-  followupMessage,getProviderRecruitmentFollowupState,localClock,processDueItem,
+  autonomousInitialMessage,autonomousInvestigationEnabled,followupMessage,getProviderRecruitmentFollowupState,isAutonomousInitialPending,localClock,processDueItem,
   runProviderRecruitmentFollowups,startProviderRecruitmentFollowupWorker,withinContactWindow
 };

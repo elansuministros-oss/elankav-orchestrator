@@ -4,6 +4,7 @@ const messageService = require('./messageService');
 const { createWahaDeliveryAdapter, normalizePhone } = require('../adapters/wahaDeliveryAdapter');
 const { downloadProviderMedia } = require('./providerInboundIntelligenceService');
 const { rawOwnerIdentity } = require('./ownerProviderCandidateOutreachMessagePatch');
+const { withinContactWindow } = require('./providerRecruitmentFollowupWorkerService');
 
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 let installed = false;
@@ -11,6 +12,9 @@ const PENDING_MEDIA_TTL_MS = 5 * 60 * 1000;
 const pendingOwnerMedia = new Map();
 
 function clean(value) { return String(value || '').trim(); }
+function autonomousInvestigationEnabled(env=process.env) {
+  return String(env.PROVIDER_AUTONOMOUS_INVESTIGATION_ENABLED || 'false').trim().toLowerCase() === 'true';
+}
 function normalized(value) {
   return clean(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g,' ');
 }
@@ -156,8 +160,9 @@ function initialMessage(mode, nextQuestion) {
 function providerLabel(result) {
   return result?.provider?.tradeName || result?.provider?.businessName || 'Proveedor';
 }
-async function contactProvider(providerId,mode,{delivery=createWahaDeliveryAdapter(),fetchImpl=fetch}={}) {
-  const pre=await get('/api/v1/providers/'+encodeURIComponent(providerId)+'/recruitment/contact-preflight',fetchImpl);
+async function contactProvider(providerId,mode,{delivery=createWahaDeliveryAdapter(),fetchImpl=fetch,autonomous=false}={}) {
+  const suffix=autonomous ? '?mode=autonomous' : '';
+  const pre=await get('/api/v1/providers/'+encodeURIComponent(providerId)+'/recruitment/contact-preflight'+suffix,fetchImpl);
   const message=initialMessage(mode,pre.nextQuestion);
   const sent=await delivery.sendText({phone:pre.contact,text:message});
   await post('/api/v1/providers/'+encodeURIComponent(providerId)+'/recruitment/contact-attempts',{
@@ -186,17 +191,59 @@ function ownerResult(reply, command) {
 }
 async function runCommand(kind,args,deps={}) {
   const fetchImpl=deps.fetchImpl||fetch;
+  const env=deps.env||process.env;
+  const now=typeof deps.now==='function' ? deps.now() : new Date();
+  const withinContactWindowImpl=deps.withinContactWindowImpl||withinContactWindow;
   if(kind==='register'||kind==='investigate'||kind==='recruit') {
-    const result=await intakeFromOwner(args,{fetchImpl});
-    if(kind!=='recruit') {
-      return ownerResult(summarize(result,kind==='register'?'Proveedor registrado para reclutamiento':'Proveedor analizado'),{type:kind,providerId:result.provider?.id,raw:args.message});
+    let result=await intakeFromOwner(args,{fetchImpl});
+
+    if(kind==='register') {
+      return ownerResult(summarize(result,'Proveedor registrado para reclutamiento'),{type:kind,providerId:result.provider?.id,raw:args.message});
     }
+
+    if(kind==='investigate' && !autonomousInvestigationEnabled(env)) {
+      return ownerResult(summarize(result,'Proveedor analizado'),{type:kind,providerId:result.provider?.id,raw:args.message});
+    }
+
     const providerId=result?.provider?.id;
     if(!providerId) throw Object.assign(new Error('No pude crear o identificar el proveedor desde la evidencia.'),{code:'PROVIDER_TARGET_NOT_FOUND',status:404});
+
+    if(kind==='investigate') {
+      result=await post('/api/v1/providers/'+encodeURIComponent(providerId)+'/recruitment/autonomous-research',{},fetchImpl);
+
+      if(result?.autonomousResearch?.matched!==true) {
+        return ownerResult([
+          summarize(result,'Proveedor investigado'),
+          '',
+          '⚠️ La búsqueda web no confirmó suficientemente la identidad del proveedor.',
+          'No envié ningún mensaje.',
+          'La ficha quedó guardada para revisión; no se contactará un número ambiguo.'
+        ].join('\n'),{type:kind,providerId,errorCode:'PROVIDER_AUTONOMOUS_WEB_IDENTITY_UNCONFIRMED',raw:args.message});
+      }
+
+      if(!withinContactWindowImpl(now,env)) {
+        await patch('/api/v1/providers/'+encodeURIComponent(providerId)+'/recruitment',{
+          nextFollowupAt:now.toISOString()
+        },fetchImpl);
+        return ownerResult([
+          summarize(result,'Proveedor investigado'),
+          '',
+          '✅ Investigación web pública completada.',
+          '⏳ Primer contacto automático pendiente para la siguiente ventana permitida.',
+          'No necesitás dar otra instrucción.',
+          'ELAN continuará únicamente si el contacto supera el preflight protegido.'
+        ].join('\n'),{type:kind,providerId,queued:true,raw:args.message});
+      }
+    }
+
     try {
-      const sent=await contactProvider(providerId,'recruit',{delivery:deps.delivery||createWahaDeliveryAdapter(),fetchImpl});
+      const sent=await contactProvider(providerId,'recruit',{
+        delivery:deps.delivery||createWahaDeliveryAdapter(),
+        fetchImpl,
+        autonomous:kind==='investigate'
+      });
       return ownerResult([
-        summarize(result,'Proveedor reclutado'),
+        summarize(result,kind==='investigate'?'Proveedor investigado y reclutado':'Proveedor reclutado'),
         '',
         '✅ Primer contacto enviado automáticamente.',
         'WhatsApp: +'+normalizePhone(sent.pre.contact),
@@ -204,7 +251,7 @@ async function runCommand(kind,args,deps={}) {
         'Estado: CONTACTED'
       ].join('\n'),{type:kind,providerId,messageId:sent.sent?.messageId||null,raw:args.message});
     } catch(error) {
-      if(['PROVIDER_CONTACT_NOT_VERIFIED','PROVIDER_CONTACT_MISSING','PROVIDER_CONTACT_BLOCKED'].includes(error?.code)) {
+      if(['PROVIDER_CONTACT_NOT_VERIFIED','PROVIDER_CONTACT_MISSING','PROVIDER_CONTACT_BLOCKED','PROVIDER_AUTONOMOUS_ALREADY_CONTACTED'].includes(error?.code)) {
         return ownerResult([
           summarize(result,'Proveedor registrado para reclutamiento'),
           '',
@@ -213,8 +260,10 @@ async function runCommand(kind,args,deps={}) {
             ? 'Motivo: el número encontrado aún no está suficientemente vinculado al proveedor.'
             : error.code==='PROVIDER_CONTACT_MISSING'
               ? 'Motivo: no encontré un WhatsApp o teléfono utilizable.'
-              : 'Motivo: el proveedor está bloqueado para contacto.',
-          'ELAN no contactará un número dudoso o bloqueado.'
+              : error.code==='PROVIDER_AUTONOMOUS_ALREADY_CONTACTED'
+                ? 'Motivo: este proveedor ya recibió el primer contacto automático; no lo duplicaré.'
+                : 'Motivo: el proveedor está bloqueado para contacto.',
+          'ELAN no contactará un número dudoso, bloqueado o ya contactado automáticamente.'
         ].join('\n'),{type:kind,providerId,errorCode:error.code,raw:args.message});
       }
       throw error;
@@ -301,9 +350,12 @@ function installOwnerProviderRecruitmentMessagePatch() {
       const query=extractProviderQuery(args.message);
       if(!phone && !query) {
         rememberPendingMedia(args,kind);
-        return ownerResult(kind==='recruit'
+        const reply=kind==='recruit'
           ? 'Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del posible proveedor. Lo registraré y, si el contacto queda verificado, ELAN le escribirá automáticamente.'
-          : 'Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del proveedor y lo asociaré a este reclutamiento.',{type:kind,pendingMedia:true,raw:args.message});
+          : kind==='investigate' && autonomousInvestigationEnabled(process.env)
+            ? 'Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del proveedor. ELAN lo investigará en web pública, validará el contacto y continuará automáticamente si pasa el preflight protegido.'
+            : 'Listo. Enviame ahora la captura, imagen, PDF, catálogo o archivo del proveedor y lo asociaré a este reclutamiento.';
+        return ownerResult(reply,{type:kind,pendingMedia:true,raw:args.message});
       }
     }
     if(pending) {
@@ -328,6 +380,6 @@ function installOwnerProviderRecruitmentMessagePatch() {
 }
 
 module.exports={
-  commandKind,contactProvider,extractProviderQuery,initialMessage,installOwnerProviderRecruitmentMessagePatch,
+  autonomousInvestigationEnabled,commandKind,contactProvider,extractProviderQuery,initialMessage,installOwnerProviderRecruitmentMessagePatch,
   intakeFromOwner,resolveTarget,runCommand,rememberPendingMedia,consumePendingMedia,clearPendingOwnerMedia
 };
