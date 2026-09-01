@@ -8,15 +8,21 @@ function trimTrailingSlashes(value) {
   return normalize(value).replace(/\/+$/, '');
 }
 
-function getConfig() {
+function getConfig(env = process.env) {
   const baseUrl = trimTrailingSlashes(
-    process.env.CONNECT_API_URL ||
-    process.env.CRM_API_URL ||
-    'https://elankav-connect.vercel.app'
+    env.ELANKAV_CONNECT_URL ||
+    env.CONNECT_BASE_URL ||
+    env.CONNECT_URL ||
+    env.CONNECT_API_URL ||
+    env.CRM_API_URL ||
+    'https://connect.elankav.com'
   );
   const token = normalize(
-    process.env.CONNECT_INTERNAL_TOKEN ||
-    process.env.CRM_INTERNAL_TOKEN
+    env.CONNECT_INTERNAL_API_TOKEN ||
+    env.CONNECT_INTERNAL_TOKEN ||
+    env.ELANKAV_CONNECT_INTERNAL_TOKEN ||
+    env.ORCHESTRATOR_INTERNAL_TOKEN ||
+    env.CRM_INTERNAL_TOKEN
   );
 
   if (!baseUrl) {
@@ -35,7 +41,10 @@ function buildHeaders(token) {
     'X-Elankav-Actor-Type': 'system'
   };
 
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers['X-Elankav-Internal-Token'] = token;
+  }
   return headers;
 }
 
