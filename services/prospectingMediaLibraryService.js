@@ -266,12 +266,12 @@ function canonicalizeWahaMediaUrl(url, authorizedBaseUrls = []) {
   const parsed = new URL(raw);
   if (isAuthorizedWahaHost(raw, authorizedBaseUrls)) return raw;
 
-  const hostname = String(parsed.hostname || '').toLowerCase();
-  const loopbackOrContainer = new Set(['localhost', '127.0.0.1', '::1', 'waha']);
-  const safeMediaPath = /^\/api\/(?:files|messages?\/)/i.test(parsed.pathname) || /^\/api\/.*\/messages\//i.test(parsed.pathname);
+  const safeMediaPath =
+    /^\/api\/files\//i.test(parsed.pathname) ||
+    /^\/api\/.*\/messages\//i.test(parsed.pathname);
 
-  if (!loopbackOrContainer.has(hostname) || !safeMediaPath) {
-    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'El recurso multimedia no pertenece a un host WAHA autorizado.');
+  if (!safeMediaPath) {
+    throw createError('WAHA_MEDIA_HOST_NOT_ALLOWED', 400, 'La URL multimedia no corresponde a una ruta segura de WAHA.');
   }
 
   const preferredBase = authorizedBaseUrls.find(Boolean);
