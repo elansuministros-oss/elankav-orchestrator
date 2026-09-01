@@ -50,13 +50,13 @@ jobs:
 
       - name: WhatsApp and identity regressions
         run: |
-          node --test tests/wahaLidAlternateIdentity.test.js
-          node --test tests/whatsappCommercialIdentity.test.js
+          node --test test/wahaLidAlternateIdentity.test.js
+          node --test test/whatsappCommercialIdentity.test.js
 
       - name: Seller regressions
         run: |
-          node --test tests/ownerSellerRead.test.js
-          node --test tests/ownerSellerRegistration.test.js
+          node --test test/ownerSellerRead.test.js
+          node --test test/ownerSellerRegistration.test.js
 
       - name: Quotation regressions
         run: |
