@@ -1,4 +1,11 @@
 require("dotenv").config({ path: "/etc/elankav-orchestrator.env" });
+
+// Runtime bootstrap must be self-contained.
+// These modules are also listed as npm --require preloads, but production
+// must not lose Owner/Seller/Copilot routing if systemd starts server.js directly.
+require('./services/ownerBusinessQuotationItemPatch');
+require('./services/liveCopilotMessagePatch');
+require('./services/sellerBusinessRuntimeIntegration');
 const http = require('node:http');
 const os = require('node:os');
 const fs = require('node:fs');
