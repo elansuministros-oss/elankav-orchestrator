@@ -61,6 +61,7 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
     }
     if (path.startsWith('/api/v1/prospecting/missions?')) return [mission];
     if (path === '/api/v1/prospecting/outreach-campaigns') return campaign;
+    if (path.endsWith('/prepare')) return { ...campaign, status: 'draft', queuedCount: 1 };
     if (path.endsWith('/activate')) return { ...campaign, status: 'active' };
     throw new Error('Unexpected request ' + path);
   };
@@ -72,11 +73,12 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
 
   assert.equal(result.handled, true);
   assert.equal(result.result.campaign.status, 'active');
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert.equal(calls[2].options.body.strategy, 'email_first');
   assert.equal(calls[2].options.body.maxTargets, 500);
   assert.equal(calls[2].options.body.requireDecisionMaker, true);
-  assert.equal(calls[3].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/activate');
+  assert.equal(calls[3].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/prepare');
+  assert.equal(calls[4].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/activate');
   assert.match(result.outputText, /Outreach Autopilot activado/);
   assert.match(result.outputText, /Email: ON/);
   assert.match(result.outputText, /WhatsApp: ON/);
@@ -110,4 +112,139 @@ test('solo correo no exige WhatsApp habilitado', async () => {
   );
   assert.ok(command);
   assert.equal(command.input.strategy, 'email_only');
+});
+
+
+test('entiende órdenes cortas y naturales de inicio sin exigir la palabra misión', () => {
+  const email = detectOwnerProspectingOutreachCommand(
+    'ELAN, empezá a enviar correos a las empresas que ya estén listas, solo 20 hoy'
+  );
+  assert.ok(email);
+  assert.equal(email.input.action, 'start');
+  assert.equal(email.input.strategy, 'email_only');
+  assert.equal(email.input.maxTargets, 20);
+
+  const whatsapp = detectOwnerProspectingOutreachCommand(
+    'mandales wasap a las empresas que tengan número verificado'
+  );
+  assert.ok(whatsapp);
+  assert.equal(whatsapp.input.action, 'start');
+  assert.equal(whatsapp.input.strategy, 'whatsapp_only');
+
+  const both = detectOwnerProspectingOutreachCommand(
+    'comenzá a enviar correos y mensajes a las empresas listas'
+  );
+  assert.ok(both);
+  assert.equal(both.input.strategy, 'email_first');
+});
+
+test('no secuestra órdenes de clientes, cotizaciones o proveedores', () => {
+  assert.equal(
+    detectOwnerProspectingOutreachCommand('enviale correo al cliente Juan con la cotización'),
+    null
+  );
+  assert.equal(
+    detectOwnerProspectingOutreachCommand('manda whatsapp al proveedor Vargas'),
+    null
+  );
+});
+
+test('pausa campañas activas con lenguaje natural', async () => {
+  const command = detectOwnerProspectingOutreachCommand('ELAN pausa los mensajes');
+  assert.ok(command);
+  assert.equal(command.input.action, 'pause');
+
+  const calls = [];
+  const result = await executeOwnerProspectingOutreachCommand(command, {
+    requestImpl: async (path, options = {}) => {
+      calls.push({ path, options });
+      if (path.includes('status=active')) {
+        return [
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', status: 'active' },
+          { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', status: 'active' }
+        ];
+      }
+      if (path.endsWith('/pause')) return { id: path.split('/').at(-2), status: 'paused' };
+      throw new Error('Unexpected request ' + path);
+    }
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.result.campaigns.length, 2);
+  assert.equal(calls.filter(x => x.path.endsWith('/pause')).length, 2);
+  assert.match(result.outputText, /Pausé 2 campaña/);
+});
+
+test('reanuda la campaña pausada respetando sus canales', async () => {
+  const command = detectOwnerProspectingOutreachCommand('ELAN seguí con los correos');
+  assert.ok(command);
+  assert.equal(command.input.action, 'resume');
+
+  const paused = {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    status: 'paused',
+    strategy: 'email_only'
+  };
+
+  const result = await executeOwnerProspectingOutreachCommand(command, {
+    requestImpl: async (path) => {
+      if (path === '/api/v1/prospecting/control-status') {
+        return {
+          outreachEnabled: true,
+          outreachAutopilotEnabled: true,
+          emailOutreachEnabled: true,
+          whatsappOutreachEnabled: false
+        };
+      }
+      if (path.includes('status=paused')) return [paused];
+      if (path.endsWith('/activate')) return { ...paused, status: 'active' };
+      throw new Error('Unexpected request ' + path);
+    }
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.result.campaign.status, 'active');
+  assert.match(result.outputText, /Reanudé/);
+});
+
+test('una orden explícita de correo no exige WhatsApp habilitado', async () => {
+  const command = detectOwnerProspectingOutreachCommand(
+    'ELAN empezá a enviar correos a las empresas listas, solo 5 hoy'
+  );
+  const mission = {
+    id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    targetCompanies: 500,
+    status: 'running'
+  };
+  const campaign = {
+    id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    missionId: mission.id,
+    maxTargets: 5,
+    strategy: 'email_only',
+    minPriority: 'MEDIA PRIORIDAD',
+    status: 'draft'
+  };
+
+  const result = await executeOwnerProspectingOutreachCommand(command, {
+    requestImpl: async (path) => {
+      if (path === '/api/v1/prospecting/control-status') {
+        return {
+          outreachEnabled: true,
+          outreachAutopilotEnabled: true,
+          emailOutreachEnabled: true,
+          whatsappOutreachEnabled: false
+        };
+      }
+      if (path.startsWith('/api/v1/prospecting/missions?')) return [mission];
+      if (path === '/api/v1/prospecting/outreach-campaigns') return campaign;
+      if (path.endsWith('/prepare')) return { ...campaign, queuedCount: 5 };
+      if (path.endsWith('/activate')) return { ...campaign, status: 'active' };
+      throw new Error('Unexpected request ' + path);
+    }
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.result.campaign.strategy, 'email_only');
+  assert.equal(result.result.campaign.maxTargets, 5);
+  assert.match(result.outputText, /como máximo 5 empresas/);
 });
