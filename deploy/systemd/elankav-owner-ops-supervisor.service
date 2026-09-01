@@ -15,6 +15,7 @@ UMask=0077
 Environment=NODE_ENV=production
 Environment=OWNER_OPS_SUPERVISOR_DIR=/var/lib/elankav-owner-ops
 Environment=WHATSAPP_CORE_PROTECTED=true
+Environment=WHATSAPP_CORE_WATCHDOG_MS=60000
 NoNewPrivileges=false
 PrivateTmp=true
 ProtectHome=true
