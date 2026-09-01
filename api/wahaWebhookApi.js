@@ -20,6 +20,7 @@ const {
   enableLibraryCapture,
   hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
+  isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
   isLibraryMediaSaveRequest,
   librarySavedReply,
@@ -477,7 +478,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-12' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-13' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -689,7 +690,11 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       return true;
     }
 
-    if (ownerIdentity.isOwner && ['text', 'audio'].includes(incoming.messageType) && isLibraryMediaSaveRequest(resolvedMessage)) {
+    if (
+      ownerIdentity.isOwner &&
+      ['text', 'audio'].includes(incoming.messageType) &&
+      (isLibraryCaptureStartRequest(resolvedMessage) || isLibraryMediaSaveRequest(resolvedMessage))
+    ) {
       const pending = consumePendingOwnerMedia(incoming);
       enableLibraryCapture(incoming, resolvedMessage);
 
@@ -756,7 +761,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         return true;
       }
 
-      const reply = '✅ Modo Biblioteca activo. Mandame las fotos o videos normalmente. Si escribís una descripción en cada archivo, la usaré para clasificarlos y etiquetarlos. Para terminar, decime “terminé de cargar a la biblioteca”.';
+      const reply = '✅ Modo Biblioteca multimedia activo. Mandame las fotos o videos normalmente. Si escribís una descripción en cada archivo, la usaré para clasificarlos y etiquetarlos. Si una imagen es para una cotización, decime “agregá esta imagen a la cotización” y conservaré ese flujo aparte. Para terminar la carga a Biblioteca, decime “terminé de cargar a la biblioteca”.';
       const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
       await persistConversationEventImpl(buildConversationEvent({
         incoming,
