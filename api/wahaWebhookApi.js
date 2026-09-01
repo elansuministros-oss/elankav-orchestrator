@@ -505,6 +505,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const ingestProviderDocumentImpl = dependencies.ingestProviderDocument || ingestProviderDocument;
   const saveOwnerWhatsappMediaImpl = dependencies.saveOwnerWhatsappMedia || saveOwnerWhatsappMedia;
   const hydrateOwnerWhatsappMediaImpl = dependencies.hydrateOwnerWhatsappMedia || hydrateOwnerWhatsappMedia;
+  const maintainLastLibraryMediaImpl = dependencies.maintainLastLibraryMedia || maintainLastLibraryMedia;
   const buildCreativeBriefImpl = dependencies.buildCreativeBrief || buildCreativeBrief;
   const isCreativeBriefRequestImpl = dependencies.isCreativeBriefRequest || isCreativeBriefRequest;
   let incoming = null;
@@ -711,7 +712,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 
     if (ownerIdentity.isOwner && isLibraryMaintenanceRequest(resolvedMessage)) {
       try {
-        const result = await maintainLastLibraryMedia({ incoming, text: resolvedMessage });
+        const result = await maintainLastLibraryMediaImpl({ incoming, text: resolvedMessage });
         let reply = '';
         if (result?.action === 'archived') {
           reply = '✅ Archivé la última pieza de la Biblioteca activa. Ya no aparecerá en los recursos disponibles.';
