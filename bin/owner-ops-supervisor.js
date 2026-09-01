@@ -7,6 +7,9 @@ const net = require('node:net');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
+  scheduleSupervisorRefresh
+} = require('../deploy/schedule-owner-ops-supervisor-refresh');
+const {
   getProtectedComponentsForTarget
 } = require('../services/protectedComponentRegistry');
 const {
@@ -782,6 +785,11 @@ async function writeResult(id, payload) {
   await fs.rename(tempPath, finalPath);
 }
 
+function shouldRefreshSupervisorAfterRequest(request) {
+  return request?.capability === 'repository.deploy'
+    && request?.target === 'orchestrator';
+}
+
 async function processFile(fileName) {
   if (!/^OPS-\d+-[A-Z0-9]{6}\.json$/.test(fileName)) return;
   const source = path.join(REQUEST_DIR, fileName);
@@ -794,13 +802,16 @@ async function processFile(fileName) {
   }
 
   let request;
+  let refreshSupervisor = false;
   try {
     request = JSON.parse(await fs.readFile(processing, 'utf8'));
     const execution = await executeRequest(request);
+    refreshSupervisor = shouldRefreshSupervisorAfterRequest(request);
     await writeResult(request.id, {
       id: request.id,
       status: 'completed',
       execution,
+      supervisorRefreshScheduled: refreshSupervisor,
       completedAt: new Date().toISOString()
     });
   } catch (error) {
@@ -811,10 +822,20 @@ async function processFile(fileName) {
       error: sanitizeTechnicalError(error.message) || String(error.code || 'SUPERVISOR_OPERATION_FAILED'),
       errorCode: String(error.code || 'SUPERVISOR_OPERATION_FAILED'),
       exitCode: error.exitCode ?? null,
+      supervisorRefreshScheduled: false,
       completedAt: new Date().toISOString()
     }).catch(() => {});
   } finally {
     await fs.unlink(processing).catch(() => {});
+  }
+
+  if (refreshSupervisor) {
+    const scheduled = scheduleSupervisorRefresh();
+    console.log('[OWNER_OPS_SUPERVISOR_REFRESH]', {
+      scheduled,
+      reason: 'ORCHESTRATOR_DEPLOY_COMPLETED',
+      delaySeconds: scheduled ? 60 : null
+    });
   }
 }
 
@@ -886,6 +907,7 @@ module.exports = {
   runWhatsappCoreWatchdog,
   restartService,
   sanitizeTechnicalError,
+  shouldRefreshSupervisorAfterRequest,
   verifyOrchestratorHttpHealth,
   verifyPort,
   verifyService,
