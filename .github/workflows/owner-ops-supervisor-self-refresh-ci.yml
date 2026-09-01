@@ -3,7 +3,7 @@ name: Owner Ops Supervisor Self Refresh CI
 on:
   push:
     branches:
-      - fix/OWNER-OPS-SUPERVISOR-SELF-REFRESH-01
+      - 'fix/OWNER-OPS-SUPERVISOR-*'
   pull_request:
     branches:
       - stable/ORCHESTRATOR-WHATSAPP-CORE
@@ -28,7 +28,16 @@ jobs:
           node --check deploy/schedule-owner-ops-supervisor-refresh.js
       - name: Supervisor regression
         run: |
-          node --test             test/ownerOpsSupervisor.test.js             test/protectedComponentRegistry.test.js             test/protectedConnectSourceContracts.test.js
+          node --test \
+            test/ownerOpsSupervisor.test.js \
+            test/scheduleOwnerOpsSupervisorRefresh.test.js \
+            test/protectedComponentRegistry.test.js \
+            test/protectedConnectSourceContracts.test.js
       - name: Protected runtime regressions
         run: |
-          node --test             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js             test/providerAutonomousInvestigation.test.js             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js
+          node --test \
+            test/runtimeBootstrapPreloads.test.js \
+            test/sellerBusinessRuntimeOwnerBypass.test.js \
+            test/providerAutonomousInvestigation.test.js \
+            test/wahaWebhookApi.test.js \
+            test/wahaLidAlternateIdentity.test.js
