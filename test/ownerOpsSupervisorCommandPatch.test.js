@@ -7,6 +7,9 @@ const {
   formatSupervisorStatus,
   STATUS_TYPE
 } = require('../services/ownerOpsSupervisorCommandPatch');
+const {
+  detectPriorityOwnerOpsCommand
+} = require('../services/elanUnifiedRuntimeMessagePatch');
 
 test('routes Orchestrator self restart through confirmed supervisor operation', () => {
   const command = detectSupervisorCommand('ELAN reinicia Orchestrator');
@@ -63,4 +66,18 @@ test('routes supervisor operation status query', () => {
   const command = detectSupervisorCommand('ELAN estado OPS-1234567890-ABC123');
   assert.equal(command.type, STATUS_TYPE);
   assert.equal(command.operationId, 'OPS-1234567890-ABC123');
+});
+
+
+test('priority Owner Ops route catches CONNECT deploy before unified runtime dependencies', () => {
+  const sha = '139d1af59e6a8396675042ff0e9543480267ac5e';
+  const command = detectPriorityOwnerOpsCommand(`ELAN despliega CONNECT commit ${sha}`);
+  assert.ok(command);
+  assert.equal(command.capability, 'repository.deploy');
+  assert.equal(command.target, 'connect');
+  assert.equal(command.parameters.expectedCommit, sha);
+});
+
+test('priority Owner Ops route ignores normal Owner conversation', () => {
+  assert.equal(detectPriorityOwnerOpsCommand('HOLA'), null);
 });
