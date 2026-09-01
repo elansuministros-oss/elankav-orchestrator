@@ -23,11 +23,16 @@ function normalize(value) {
 }
 
 function strategyFromText(normalized) {
-  if (/\bsolo\s+(?:correo|email)\b/.test(normalized)) return 'email_only';
-  if (/\bsolo\s+(?:whatsapp|wasap)\b/.test(normalized)) return 'whatsapp_only';
-  if (/\b(?:whatsapp|wasap)\s+(?:primero|antes)\b/.test(normalized)) return 'whatsapp_first';
-  if (/\b(?:correo|email)\s+(?:primero|antes)\b/.test(normalized)) return 'email_first';
-  if (/\bprimero\s+(?:por\s+)?(?:whatsapp|wasap)\b/.test(normalized)) return 'whatsapp_first';
+  const hasEmail = /\b(?:correo|correos|email|emails)\b/.test(normalized);
+  const hasWhatsapp = /\b(?:whatsapp|whatsap|wasap|wqasap|guasap|mensajes?\s+por\s+whatsapp)\b/.test(normalized);
+
+  if (/\bsolo\s+(?:correo|correos|email|emails)\b/.test(normalized)) return 'email_only';
+  if (/\bsolo\s+(?:whatsapp|whatsap|wasap|wqasap|guasap)\b/.test(normalized)) return 'whatsapp_only';
+  if (/\b(?:whatsapp|whatsap|wasap|wqasap|guasap)\s+(?:primero|antes)\b/.test(normalized)) return 'whatsapp_first';
+  if (/\b(?:correo|correos|email|emails)\s+(?:primero|antes)\b/.test(normalized)) return 'email_first';
+  if (/\bprimero\s+(?:por\s+)?(?:whatsapp|whatsap|wasap|wqasap|guasap)\b/.test(normalized)) return 'whatsapp_first';
+  if (hasEmail && !hasWhatsapp) return 'email_only';
+  if (hasWhatsapp && !hasEmail) return 'whatsapp_only';
   return 'email_first';
 }
 
@@ -36,21 +41,49 @@ function detectOwnerProspectingOutreachCommand(message) {
   const normalized = normalize(raw);
   if (!raw) return null;
 
-  const outreachIntent =
-    /\b(contacta|contactar|envia|enviar|escribe|escribir|manda|mandar)\b/.test(normalized);
-  const prospectScope =
-    /\b(mision|prospectos?|empresas\s+encontradas|empresas\s+de\s+la\s+mision)\b/.test(normalized);
   const channelIntent =
-    /\b(correo|email|whatsapp|wasap|mensajes?)\b/.test(normalized);
+    /\b(correo|correos|email|emails|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?)\b/.test(normalized);
+  const prospectScope =
+    /\b(mision|prospectos?|empresas?|negocios?|investigacion|busqueda|encontradas?|listas?|decisores?|mercadeo|marketing|compras)\b/.test(normalized);
+  const otherBusinessScope =
+    /\b(cotizaci(?:on|ones)|facturas?|recibos?|proveedores?|vendedores?|clientes?|pedidos?|orden(?:es)?\s+de\s+trabajo)\b/.test(normalized);
 
-  if (!outreachIntent || !prospectScope || !channelIntent) return null;
+  const pauseIntent =
+    /\b(pausa|pausar|detene|detener|suspende|suspender|frena|frenar)\b/.test(normalized) &&
+    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|campana)\b/.test(normalized);
+
+  const resumeIntent =
+    /\b(reanuda|reanudar|continua|continuar|segui|seguir|retoma|retomar)\b/.test(normalized) &&
+    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|campana|empresas?)\b/.test(normalized);
+
+  const startIntent =
+    /\b(contacta|contactar|envia|enviar|escribe|escribir|manda|mandar|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized) &&
+    channelIntent;
+
+  if (pauseIntent && !otherBusinessScope) {
+    return { type: COMMAND_TYPE, input: { action: 'pause', raw } };
+  }
+
+  if (resumeIntent && !otherBusinessScope) {
+    return { type: COMMAND_TYPE, input: { action: 'resume', raw } };
+  }
+
+  const implicitCurrentMission =
+    startIntent &&
+    !otherBusinessScope &&
+    /\b(empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized);
+
+  if (!startIntent || otherBusinessScope || (!prospectScope && !implicitCurrentMission)) return null;
 
   const missionIdMatch = raw.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i);
   const missionTargetMatch =
     normalized.match(/\bmision\s+(?:de\s+)?(\d{1,3})\s+(?:prospectos?|empresas)?\b/) ||
     normalized.match(/\bmision\b[^.]{0,80}\b(\d{1,3})\s+(?:prospectos?|empresas)\b/);
+
   const maxTargetsMatch =
-    normalized.match(/\b(?:contacta|contactar|envia|enviar)\s+(?:a\s+)?(\d{1,3})\s+(?:empresas|prospectos)\b/);
+    normalized.match(/\b(?:contacta|contactar|envia|enviar|manda|mandar|escribe|escribir)\s+(?:a\s+)?(\d{1,3})\s+(?:empresas|prospectos)\b/) ||
+    normalized.match(/\b(?:solo|solamente|maximo|maximo\s+de|hasta)\s+(\d{1,3})\b/) ||
+    normalized.match(/\b(?:empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\s+(?:con\s+)?(\d{1,3})\b/);
 
   const missionTarget = missionTargetMatch ? Number(missionTargetMatch[1]) : null;
   const maxTargets = maxTargetsMatch ? Number(maxTargetsMatch[1]) : null;
@@ -61,6 +94,7 @@ function detectOwnerProspectingOutreachCommand(message) {
   return {
     type: COMMAND_TYPE,
     input: {
+      action: 'start',
       ...(missionIdMatch ? { missionId: missionIdMatch[0] } : {}),
       ...(Number.isInteger(missionTarget) ? { missionTarget } : {}),
       ...(Number.isInteger(maxTargets) ? { maxTargets } : {}),
@@ -126,22 +160,36 @@ function chooseMission(missions, input) {
 }
 
 function formatCampaign(campaign, mission, control) {
+  const strategyLabel = campaign?.strategy === 'email_only'
+    ? 'solo correo'
+    : campaign?.strategy === 'whatsapp_only'
+      ? 'solo WhatsApp'
+      : campaign?.strategy === 'whatsapp_first'
+        ? 'WhatsApp primero y luego correo'
+        : 'correo primero y luego WhatsApp';
+
   return [
-    '✅ Outreach Autopilot activado.',
-    '',
-    'Misión: ' + (mission?.id || campaign?.missionId || 'sin id'),
-    'Objetivo de investigación: ' + Number(mission?.targetCompanies || 0) + ' empresas',
-    'Máximo de campaña: ' + Number(campaign?.maxTargets || 0) + ' prospectos',
-    'Estrategia: ' + String(campaign?.strategy || 'email_first'),
-    'Prioridad mínima: ' + String(campaign?.minPriority || 'MEDIA PRIORIDAD'),
-    'Estado: ' + String(campaign?.status || 'active'),
-    '',
-    'Email: ' + (control?.emailOutreachEnabled === true ? 'ON' : 'OFF'),
-    'WhatsApp: ' + (control?.whatsappOutreachEnabled === true ? 'ON' : 'OFF'),
-    'Outreach general: ' + (control?.outreachEnabled === true ? 'ON' : 'OFF'),
-    '',
-    'ELAN administrará la cola, dedupe, límites y seguimiento sin contacto manual empresa por empresa.'
-  ].join('\n');
+    '✅ Ya empecé.',
+    `Voy a contactar como máximo ${Number(campaign?.maxTargets || 0)} empresas de la investigación actual.`,
+    `Canal: ${strategyLabel}.`,
+    'Solo usaré decisores verificados y respetaré bloqueos, deduplicación, límites y seguimiento.',
+    `Objetivo de investigación: ${Number(mission?.targetCompanies || 0)} empresas.`,
+    `Estado: ${String(campaign?.status || 'active')}.`,
+    control?.emailOutreachEnabled === true ? 'Correo habilitado.' : '',
+    control?.whatsappOutreachEnabled === true ? 'WhatsApp habilitado.' : ''
+  ].filter(Boolean).join('\n');
+}
+
+function formatPaused(count) {
+  return count > 0
+    ? `⏸️ Pausé ${count} campaña(s) de contacto. No se enviarán nuevos mensajes mientras estén pausadas.`
+    : 'No había ninguna campaña activa que pausar.';
+}
+
+function formatResumed(campaign) {
+  return campaign
+    ? `▶️ Reanudé la campaña de contacto. Estado: ${campaign.status}. Continúo respetando dedupe, decisores verificados, límites y respuestas.`
+    : 'No encontré una campaña pausada para reanudar.';
 }
 
 async function executeOwnerProspectingOutreachCommand(
@@ -153,10 +201,59 @@ async function executeOwnerProspectingOutreachCommand(
   }
 
   const input = command.input || {};
+  const action = String(input.action || 'start');
+
+  if (action === 'pause') {
+    const active = await requestImpl(
+      '/api/v1/prospecting/outreach-campaigns?businessUnit=ELANVISUAL&status=active&limit=500',
+      { method: 'GET' }
+    );
+    const rows = Array.isArray(active) ? active : [];
+    const paused = [];
+    for (const campaign of rows) {
+      paused.push(await requestImpl(
+        '/api/v1/prospecting/outreach-campaigns/' + encodeURIComponent(campaign.id) + '/pause',
+        { method: 'PATCH' }
+      ));
+    }
+    return {
+      handled: true,
+      outputText: formatPaused(paused.length),
+      result: { action, campaigns: paused }
+    };
+  }
+
   const control = await requestImpl(
     '/api/v1/prospecting/control-status',
     { method: 'GET' }
   );
+
+  if (action === 'resume') {
+    assertControls(control, 'email_first');
+    const paused = await requestImpl(
+      '/api/v1/prospecting/outreach-campaigns?businessUnit=ELANVISUAL&status=paused&limit=500',
+      { method: 'GET' }
+    );
+    const campaign = Array.isArray(paused) ? paused[0] : null;
+    if (!campaign) {
+      return {
+        handled: true,
+        outputText: formatResumed(null),
+        result: { action, campaign: null, control }
+      };
+    }
+    assertControls(control, campaign.strategy || 'email_first');
+    const active = await requestImpl(
+      '/api/v1/prospecting/outreach-campaigns/' + encodeURIComponent(campaign.id) + '/activate',
+      { method: 'POST' }
+    );
+    return {
+      handled: true,
+      outputText: formatResumed(active),
+      result: { action, campaign: active, control }
+    };
+  }
+
   assertControls(control, input.strategy || 'email_first');
 
   const missions = await requestImpl(
@@ -167,7 +264,7 @@ async function executeOwnerProspectingOutreachCommand(
   if (!mission) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_MISSION_NOT_FOUND',
-      'No encontré una misión Prospecting que coincida con la orden.',
+      'No encontré una investigación comercial activa que coincida con la orden.',
       404
     );
   }
@@ -198,6 +295,11 @@ async function executeOwnerProspectingOutreachCommand(
     }
   );
 
+  await requestImpl(
+    '/api/v1/prospecting/outreach-campaigns/' + encodeURIComponent(campaign.id) + '/prepare',
+    { method: 'POST' }
+  );
+
   const active = await requestImpl(
     '/api/v1/prospecting/outreach-campaigns/' + encodeURIComponent(campaign.id) + '/activate',
     { method: 'POST' }
@@ -206,7 +308,7 @@ async function executeOwnerProspectingOutreachCommand(
   return {
     handled: true,
     outputText: formatCampaign(active, mission, control),
-    result: { campaign: active, mission, control }
+    result: { action, campaign: active, mission, control }
   };
 }
 
@@ -218,6 +320,8 @@ module.exports = {
   detectOwnerProspectingOutreachCommand,
   executeOwnerProspectingOutreachCommand,
   formatCampaign,
+  formatPaused,
+  formatResumed,
   requestedChannels,
   strategyFromText
 };
