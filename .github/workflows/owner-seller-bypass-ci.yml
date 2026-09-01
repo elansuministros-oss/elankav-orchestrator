@@ -1,0 +1,32 @@
+name: Owner Seller Bypass CI
+
+on:
+  push:
+    branches:
+      - fix/OWNER-BYPASS-SELLER-RUNTIME-01
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-orchestrator-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check services/sellerBusinessRuntimeIntegration.js
+          node --check services/ownerBusinessProcessMessageGateway.js
+          node --check services/ownerProspectingCommandService.js
+      - name: Owner bypass tests
+        run: |
+          node --test             test/sellerBusinessRuntimeOwnerBypass.test.js             test/ownerProspectingCommandService.test.js             test/runtimeBootstrapPreloads.test.js
+      - name: Protected WhatsApp regressions
+        run: |
+          node --test             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js             test/ownerOpsSupervisor.test.js             tests/connectConversationClient.test.js             tests/universalConversationMemory.test.js
