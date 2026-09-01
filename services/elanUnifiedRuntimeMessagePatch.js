@@ -25,6 +25,9 @@ const {
   handleOwnerEntityCreateContinuity,
   clearPendingEntityCreate
 } = require('./ownerEntityCreateContinuityService');
+const {
+  createConnectCommercialIntelligenceAdapter
+} = require('../adapters/connectCommercialIntelligenceAdapter');
 
 const INSTALL_MARK = Symbol.for('elankav.elanUnifiedRuntimeMessagePatch.installed');
 
@@ -50,6 +53,154 @@ function detectDesignSendFollowUp(message){
   const match=text.match(/^(?:elan[\s,:-]+)?(?:mand[aá]sela|mandasela|env[ií]asela|enviasela|mandala|m[aá]ndala|enviala|env[ií]ala)(?:\s+la\s+propuesta|\s+el\s+dise[nñ]o)?\s+(?:a\s+)?(.+?)[.!]?$/i);
   if(!match?.[1])return null;
   return{query:match[1].trim()};
+}
+
+function managuaDateParts(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Managua',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(now).reduce((parts, item) => {
+    if (item.type !== 'literal') parts[item.type] = item.value;
+    return parts;
+  }, {});
+}
+
+function commercialRange(period, now = new Date()) {
+  if (!period || period === 'recent') return {};
+  const parts = managuaDateParts(now);
+  const localDate = `${parts.year}-${parts.month}-${parts.day}`;
+  const todayStart = new Date(`${localDate}T00:00:00-06:00`);
+  let from = todayStart;
+  let to = now;
+
+  if (period === 'yesterday') {
+    to = new Date(todayStart.getTime() - 1);
+    from = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+  } else if (period === 'week') {
+    const managuaDay = new Date(`${localDate}T12:00:00-06:00`).getUTCDay();
+    const daysSinceMonday = managuaDay === 0 ? 6 : managuaDay - 1;
+    from = new Date(todayStart.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000);
+  }
+
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function detectCommercialIntelligenceIntent(message, { now = new Date() } = {}) {
+  const text = normalized(message);
+  if (!text) return null;
+
+  const asksForIntelligence = /\b(cuant(?:o|a|os|as)?|conteo|resumen|reporte|informe|pendientes?|sin responder|requieren respuesta|esperando respuesta|seguimientos?|atienda personalmente|atender personalmente|debo atender|tengo que atender|prioridad|urgente|rendimiento|como va|como vamos|resultados|estadisticas?|oportunidades?|campanas?|recibimos hoy|recibidos hoy)\b/.test(text);
+  const commercialSubject = /\b(mensajes?|correos?|emails?|conversaciones?|clientes?|negocio|comercial|ventas?|cotizaciones?|oportunidades?|campanas?|seguimientos?|pendientes?)\b/.test(text);
+  const personalAttention = /\b(quien|quienes|que)\b.*\b(atienda|atender|tome|tomar)\b.*\b(personalmente|yo)\b|\bque tengo pendiente\b/.test(text);
+  if (!asksForIntelligence || (!commercialSubject && !personalAttention)) return null;
+
+  const period = /\bayer\b/.test(text)
+    ? 'yesterday'
+    : /\b(esta semana|semana actual|semanal)\b/.test(text)
+      ? 'week'
+      : /\b(hoy|dia de hoy|este dia)\b/.test(text)
+        ? 'today'
+        : 'recent';
+
+  let channel;
+  if (/\b(correo|correos|email|emails)\b/.test(text)) channel = 'email';
+  else if (/\b(whatsapp|wasap|guasap)\b/.test(text)) channel = 'whatsapp';
+  else if (/\b(messenger)\b/.test(text)) channel = 'messenger';
+  else if (/\b(instagram|instagram dm)\b/.test(text)) channel = 'instagram_dm';
+
+  let businessUnit;
+  if (/\belan\s*pet\b/.test(text)) businessUnit = 'ELANPET';
+  else if (/\belan\s*go\b/.test(text)) businessUnit = 'ELAN GO';
+  else if (/\b(elanvisual|elan visual)\b/.test(text)) businessUnit = 'ELANVISUAL';
+
+  const wantsReport = /\b(cuant(?:o|a|os|as)?|conteo|reporte|informe|rendimiento|como va|como vamos|resultados|estadisticas?|ventas?|cotizaciones?|recibimos)\b/.test(text);
+  const filters = {
+    ...commercialRange(period, now),
+    ...(channel ? { channel } : {}),
+    ...(businessUnit ? { businessUnit } : {})
+  };
+
+  return Object.freeze({
+    type: wantsReport ? 'report' : 'briefing',
+    period,
+    filters,
+    channel: channel || null,
+    businessUnit: businessUnit || null
+  });
+}
+
+function commercialPeriodLabel(period) {
+  if (period === 'today') return 'Hoy';
+  if (period === 'yesterday') return 'Ayer';
+  if (period === 'week') return 'Esta semana';
+  return 'En el período consultado';
+}
+
+function formatCommercialReport(payload, intent) {
+  const summary = payload?.summary || {};
+  const label = commercialPeriodLabel(intent?.period);
+  const inbound = Number(summary.inboundMessages || 0);
+  const conversations = Number(summary.conversations || 0);
+  const outbound = Number(summary.outboundMessages || 0);
+  const elanResponses = Number(summary.elanResponses || 0);
+  const humanResponses = Number(summary.humanResponses || 0);
+  const awaitingUs = Number(summary.awaitingUs || 0);
+  const awaitingCustomer = Number(summary.awaitingCustomer || 0);
+  const followUpDue = Number(summary.followUpDue || 0);
+  const ownerRecommended = Number(summary.ownerRecommended || 0);
+  const quotesCreated = Number(summary.quotesCreated || 0);
+  const quotesAccepted = Number(summary.quotesAccepted || 0);
+  const quotesPending = Number(summary.quotesPending || 0);
+
+  return [
+    `${label} recibimos ${inbound} ${inbound === 1 ? 'mensaje' : 'mensajes'} en ${conversations} ${conversations === 1 ? 'conversación' : 'conversaciones'}${intent?.channel ? ` por ${intent.channel}` : ''}.`,
+    `Se enviaron ${outbound} respuestas: ${elanResponses} de ELAN y ${humanResponses} humanas.`,
+    `${awaitingUs} requieren respuesta nuestra; ${awaitingCustomer} esperan respuesta del cliente; ${followUpDue} tienen seguimiento vencido o para hoy.`,
+    ownerRecommended ? `${ownerRecommended} recomiendo que las atendás personalmente.` : null,
+    `Cotizaciones: ${quotesCreated} creadas, ${quotesAccepted} aceptadas y ${quotesPending} pendientes.`
+  ].filter(Boolean).join(' ');
+}
+
+async function executeCommercialIntelligenceIntent({
+  intent,
+  context,
+  args,
+  adapter = createConnectCommercialIntelligenceAdapter()
+}) {
+  try {
+    const payload = intent.type === 'report'
+      ? await adapter.getReport(intent.filters)
+      : await adapter.getBriefing(intent.filters);
+    const reply = intent.type === 'report'
+      ? formatCommercialReport(payload, intent)
+      : String(payload?.spokenText || payload?.text || '').trim();
+    if (!reply) {
+      const error = new Error('CONNECT no devolvió un resumen comercial utilizable.');
+      error.code = 'CONNECT_COMMERCIAL_INTELLIGENCE_EMPTY';
+      throw error;
+    }
+    return runtimeResult({
+      args,
+      context,
+      execution: { actor: ownerActor(context, args), version: '1.0.0' },
+      reply,
+      command: `commercial_intelligence.${intent.type}`
+    });
+  } catch (error) {
+    console.error('[COMMERCIAL_INTELLIGENCE_QUERY_FAILED]', {
+      code: error?.code || null,
+      message: error?.message || String(error)
+    });
+    return runtimeResult({
+      args,
+      context,
+      execution: { actor: ownerActor(context, args), version: '1.0.0' },
+      reply: `No pude consultar la inteligencia comercial de CONNECT. Error: ${error?.code || 'CONNECT_COMMERCIAL_INTELLIGENCE_FAILED'}. No voy a inventar cifras.`,
+      command: `commercial_intelligence.${intent.type}`
+    });
+  }
 }
 function ownerActor(context,args){return{role:'owner',actorId:'owner',authority:'owner_identity',phone:context?.phone||args?.phone||null,scopes:['*'],platforms:['*']}}
 function platformOf(context,args){return String(context?.platform||args?.platform||'ELANVISUAL').toUpperCase()}
@@ -166,13 +317,16 @@ async function executeEntityCreateContinuity({continuity,context,args}){
   }
 }
 
-function installElanUnifiedRuntimeMessagePatch(messageService=require('./messageService')){
+function installElanUnifiedRuntimeMessagePatch(messageService=require('./messageService'),dependencies={}){
   installOwnerBusinessProcessMessageGateway(messageService);if(!messageService||typeof messageService.processMessage!=='function')throw new TypeError('messageService.processMessage no está disponible');if(messageService[INSTALL_MARK])return messageService.processMessage;
   const originalProcessMessage=messageService.processMessage;
+  const persistRuntimeTurnImpl=dependencies.persistRuntimeTurn||persistRuntimeTurn;
+  const persistOwnerTurnImpl=dependencies.persistOwnerTurn||persistOwnerTurn;
+  const commercialIntelligenceAdapter=dependencies.commercialIntelligenceAdapter||createConnectCommercialIntelligenceAdapter();
   messageService.processMessage=async function processMessageWithUnifiedRuntime(args={}){
     const context=buildContext({message:args.message,source:'elan-unified-runtime-whatsapp',platform:args.platform,channel:args.channel,externalUserId:args.externalUserId,phone:args.phone,metadata:args.metadata&&typeof args.metadata==='object'?args.metadata:{}});const isOwner=Boolean(context?.owner?.isOwner);
     const actor=await resolveRuntimeActor(context,args);
-    await persistRuntimeTurn({actor,context,args,direction:'inbound',text:String(args.message||'').trim(),externalMessageId:args?.metadata?.messageId||null});
+    await persistRuntimeTurnImpl({actor,context,args,direction:'inbound',text:String(args.message||'').trim(),externalMessageId:args?.metadata?.messageId||null});
     if(!isOwner){
       const result=await originalProcessMessage(args);
       if(result?.reply&&result?.suppressDelivery!==true)await persistRuntimeTurn({actor,context,args,direction:'outbound',text:result.reply,externalMessageId:result?.responseId?'reply:'+result.responseId:null});
@@ -181,6 +335,13 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
 
     const imageIntent=detectQuotationImageIntent(args.message,args.metadata||{});if(imageIntent){const result=await executeQuotationImageIntent({intent:imageIntent,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
     const designSendIntent=detectDesignSendFollowUp(args.message);if(designSendIntent){const result=await executeDesignSendFollowUp({intent:designSendIntent,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
+
+    const commercialIntelligenceIntent=detectCommercialIntelligenceIntent(args.message);
+    if(commercialIntelligenceIntent){
+      const result=await executeCommercialIntelligenceIntent({intent:commercialIntelligenceIntent,context,args,adapter:commercialIntelligenceAdapter});
+      try{await persistOwnerTurnImpl({context,args,direction:'outbound',text:result.reply})}catch(error){console.error('[COMMERCIAL_INTELLIGENCE_PERSIST_FAILED]',{code:error?.code||null,message:error?.message||String(error)})}
+      return result;
+    }
 
     let intent=detectAuthorizedPriceLookup(args.message);let measureFollowUp=false;if(!intent&&detectPriceMeasureFollowUp(args.message)){try{intent=await recoverPreviousPriceIntent({context,args});measureFollowUp=Boolean(intent)}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_MEMORY_LOOKUP_FAILED]',{code:error?.code||null,message:error?.message||null})}}
     if(intent){let result;try{const execution=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:intent.tool,arguments:intent.arguments});const reply=measureFollowUp?formatMeasureFollowUp(execution):formatAuthorizedPriceResult(execution);console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]',{channel:'whatsapp',tool:intent.tool,status:execution?.result?.status||'OK',followUp:measureFollowUp});result=runtimeResult({args,context,execution,reply,command:intent.tool})}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_FAILED]',{channel:'whatsapp',tool:intent.tool,code:error?.code||null});result=runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude consultar la autoridad comercial de CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No voy a inventar un precio.`,command:intent.tool})}await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
@@ -260,4 +421,4 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete',entityCreateContinuity:true});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch,resolveRuntimeActor,persistRuntimeTurn};
+module.exports={commercialRange,detectAuthorizedPriceLookup,detectCommercialIntelligenceIntent,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeCommercialIntelligenceIntent,executeEntityCreateContinuity,formatCommercialReport,installElanUnifiedRuntimeMessagePatch,resolveRuntimeActor,persistRuntimeTurn};
