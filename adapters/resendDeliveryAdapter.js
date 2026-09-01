@@ -24,6 +24,14 @@ function headerValue(value, fieldName) {
   return text;
 }
 
+function bodyValue(value, fieldName, required = true) {
+  const text = String(value || '').replace(/\u0000/g, '').trim();
+  if (required && !text) {
+    throw new ResendDeliveryError('RESEND_MESSAGE_INVALID', fieldName + ' es obligatorio.', 400);
+  }
+  return text;
+}
+
 function emailAddressValue(value, fieldName, code) {
   const email = headerValue(value, fieldName).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -190,8 +198,8 @@ function createResendDeliveryAdapter({
       'RESEND_RECIPIENT_INVALID'
     );
     const safeSubject = headerValue(subject, 'subject');
-    const bodyText = headerValue(text, 'text');
-    const bodyHtml = String(html || '').replace(/\u0000/g, '').trim();
+    const bodyText = bodyValue(text, 'text');
+    const bodyHtml = bodyValue(html, 'html', false);
     const sender = resolveSender(fromIdentity);
 
     const headers = {};
