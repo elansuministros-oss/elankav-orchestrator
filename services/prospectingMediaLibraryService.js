@@ -56,7 +56,7 @@ function isLibraryMediaSaveRequest(text) {
 function isLibraryCaptureStopRequest(text) {
   const value = normalizeText(text);
   if (!value) return false;
-  return /\b(terminamos|termine|terminado|listo|cerrar|salir|deten|detener|para|parar)\b/.test(value) &&
+  return /\b(terminamos|termine|terminado|cerrar|salir|deten|detener|parar|ya no)\b/.test(value) &&
     /\b(biblioteca|carga|cargar|imagenes|fotos|videos|recursos)\b/.test(value);
 }
 
