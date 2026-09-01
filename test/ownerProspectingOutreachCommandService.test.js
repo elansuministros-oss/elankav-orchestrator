@@ -80,7 +80,7 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
   assert.equal(calls[2].options.body.requireDecisionMaker, true);
   assert.equal(calls[3].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/prepare');
   assert.equal(calls[4].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/activate');
-  assert.match(result.outputText, /Outreach Autopilot activado/);
+  assert.match(result.outputText, /Ya empecé/);
   assert.match(result.outputText, /Email: ON/);
   assert.match(result.outputText, /WhatsApp: ON/);
 });
