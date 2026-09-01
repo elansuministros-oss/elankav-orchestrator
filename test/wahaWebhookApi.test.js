@@ -233,7 +233,7 @@ test('Owner pide una plantilla en lenguaje natural y recibe brief sin pasar por 
   });
 
   assert.equal(modelCalls, 0);
-  assert.equal(providerCalls, 1);
+  assert.equal(providerCalls, 0);
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, /PROMPT TÉCNICO PARA CHATGPT/);
   assert.match(sent[0].text, /1080 × 540 px/);
