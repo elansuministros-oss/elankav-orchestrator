@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const REFRESH_DELAY_SECONDS = Math.max(
   30,
@@ -30,9 +30,13 @@ function scheduleSupervisorRefresh() {
   if (process.platform !== 'linux') return false;
   if (typeof process.getuid !== 'function' || process.getuid() !== 0) return false;
 
+  const shellCommand = buildRefreshShellCommand();
+  const syntax = spawnSync('/bin/sh', ['-n', '-c', shellCommand], { stdio: 'ignore' });
+  if (syntax.status !== 0) return false;
+
   const child = spawn(
     '/bin/sh',
-    ['-c', buildRefreshShellCommand()],
+    ['-c', shellCommand],
     {
       detached: true,
       stdio: 'ignore'
