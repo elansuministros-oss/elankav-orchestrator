@@ -82,7 +82,18 @@ async function publishConversationEvent(event, { fetchImpl = globalThis.fetch, e
 }
 
 async function requestConversationDecision(
-  { identity, platform = 'ELANVISUAL', message = '', ownerMode = false, phone = '' } = {},
+  {
+    identity,
+    platform = 'ELANVISUAL',
+    message = '',
+    ownerMode = false,
+    phone = '',
+    channel = 'whatsapp',
+    externalMessageId = '',
+    source = '',
+    campaign = '',
+    metadata = {}
+  } = {},
   { fetchImpl = globalThis.fetch, env = process.env, providerContinuityLoader = loadProviderContinuityHistory } = {}
 ) {
   if (isPriorityLiveCommand(message)) {
@@ -126,7 +137,18 @@ async function requestConversationDecision(
   const { token, baseUrl } = requireTransport(fetchImpl, env);
   const response = await fetchImpl(`${baseUrl}/api/v1/conversations/decision`, {
     method: 'POST', headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identity, platform, message, ownerMode }), signal: AbortSignal.timeout(15000)
+    body: JSON.stringify({
+      identity,
+      platform,
+      message,
+      ownerMode,
+      phone: clean(phone) || undefined,
+      channel: clean(channel) || 'whatsapp',
+      externalMessageId: clean(externalMessageId) || undefined,
+      source: clean(source) || undefined,
+      campaign: clean(campaign) || undefined,
+      metadata: metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}
+    }), signal: AbortSignal.timeout(15000)
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) throw Object.assign(new Error(payload?.error?.message || `CONNECT_DECISION_HTTP_${response.status}`), { code: payload?.error?.code || 'CONNECT_CONVERSATION_DECISION_FAILED', status: response.status });
