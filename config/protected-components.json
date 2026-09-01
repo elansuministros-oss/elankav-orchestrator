@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policy": "FUNCTIONS_THAT_WORK_ARE_VALIDATED_THEN_PROTECTED",
+  "components": [
+    {
+      "id": "OWNER_WHATSAPP_CORE",
+      "target": "orchestrator",
+      "contract": "owner_whatsapp_core",
+      "critical": true,
+      "description": "Owner WhatsApp routing, LID identity, customer isolation and visible fallback."
+    },
+    {
+      "id": "OWNER_PROSPECTING_BRIDGE",
+      "target": "orchestrator",
+      "contract": "owner_prospecting_bridge",
+      "critical": true,
+      "description": "Owner natural-language Prospecting mission creation and runtime bootstrap."
+    },
+    {
+      "id": "PROVIDER_RECRUITMENT_ORCHESTRATOR",
+      "target": "orchestrator",
+      "contract": "provider_recruitment_orchestrator",
+      "critical": true,
+      "description": "Provider intake, verified-contact preflight, AI disclosure and bounded follow-ups."
+    },
+    {
+      "id": "PROSPECTING_RESEARCH_AUTOPILOT",
+      "target": "connect",
+      "contract": "prospecting_research_connect",
+      "critical": true,
+      "description": "Continuous Prospecting research missions and research/outreach separation."
+    },
+    {
+      "id": "PROVIDER_RECRUITMENT_CONNECT",
+      "target": "connect",
+      "contract": "provider_recruitment_connect",
+      "critical": true,
+      "description": "Canonical provider recruitment state, fail-closed contact verification and response stop."
+    },
+    {
+      "id": "ELAN_GO_CONTROL",
+      "target": "connect",
+      "contract": "elan_go_control_connect",
+      "critical": true,
+      "description": "ELAN GO control plane must retain explicit enable/search/outreach gates."
+    }
+  ]
+}
