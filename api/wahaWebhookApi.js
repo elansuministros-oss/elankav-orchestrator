@@ -28,6 +28,7 @@ const DEDUPE_TTL_MS = 10 * 60 * 1000;
 const processedMessageIds = new Map();
 const TRANSCRIPTION_FAILURE_TEXT = 'No pude escuchar correctamente la nota de voz. Podés enviarla nuevamente o escribirme el mensaje.';
 const INTERNAL_AUDIO_FAILURE_TEXT = 'Tuve un problema procesando el audio. Podés escribirme el mensaje mientras lo intento nuevamente.';
+const OWNER_TEXT_FAILURE_TEXT = 'ELAN recibió tu mensaje, pero un módulo interno falló. WhatsApp sigue operativo. Intentá nuevamente o pedime estado del sistema.';
 const PRESENTATION_TEXT = process.env.ELAN_AI_PRESENTATION_TEXT || [
   'Hola, soy ELAN IA, el asistente inteligente del ecosistema ELANKAV.',
   'Puedo ayudarte con información, cotizaciones, diseño, seguimiento de proyectos y servicios disponibles en ELANVISUAL, ELANHOME y ELANPET.',
@@ -462,6 +463,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const ingestProviderTextImpl = dependencies.ingestProviderText || ingestProviderText;
   const ingestProviderDocumentImpl = dependencies.ingestProviderDocument || ingestProviderDocument;
   let incoming = null;
+  let ownerIdentity = null;
   let welcomeAudioSent = false;
 
   try {
@@ -486,7 +488,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       if (contactResolver) incoming.whatsappName = await contactResolver({ session: incoming.session, contactId: incoming.senderRaw });
     }
 
-    const ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
+    ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
     const registeredProvider = !ownerIdentity.isOwner && incoming.phone
       ? await resolveProviderImpl({ phone: incoming.phone })
       : null;
@@ -727,6 +729,60 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     });
   } catch (error) {
     console.error('[WAHA_INBOUND_ERROR]', { message: error.message, code: error.code || null, status: error.status || null });
+
+    if (ownerIdentity?.isOwner && incoming?.messageType !== 'audio' && (incoming.chatId || incoming.senderRaw)) {
+      const fallbackChatId = incoming.chatId || incoming.senderRaw;
+      try {
+        const sent = await sendWahaTextImpl({
+          session: incoming.session,
+          chatId: fallbackChatId,
+          text: OWNER_TEXT_FAILURE_TEXT
+        });
+        try {
+          await persistConversationEventImpl(buildConversationEvent({
+            incoming,
+            direction: 'outbound',
+            text: OWNER_TEXT_FAILURE_TEXT,
+            externalMessageId: sent?.messageId || sent?.id || null,
+            actorType: 'assistant',
+            actorName: 'ELAN IA',
+            metadata: {
+              replyType: 'text',
+              ownerMode: true,
+              fallbackFrom: 'owner_text_error',
+              pipelineError: error.code || error.message
+            }
+          }));
+        } catch (persistenceError) {
+          console.error('[OWNER_TEXT_FALLBACK_PERSISTENCE_FAILED]', {
+            message: persistenceError.message,
+            code: persistenceError.code || null
+          });
+        }
+        console.log('[OWNER_TEXT_FALLBACK_SENT]', {
+          chatId: maskChatId(fallbackChatId),
+          errorCode: error.code || error.message || 'OWNER_TEXT_PIPELINE_ERROR'
+        });
+        sendJson(res, 200, {
+          ok: false,
+          processed: false,
+          replySent: true,
+          fallbackSent: true,
+          ownerMode: true,
+          error: error.message,
+          code: error.code || null
+        });
+        return true;
+      } catch (fallbackError) {
+        console.error('[OWNER_TEXT_FALLBACK_FAILED]', {
+          chatId: maskChatId(fallbackChatId),
+          message: fallbackError.message,
+          code: fallbackError.code || null,
+          status: fallbackError.status || null
+        });
+      }
+    }
+
     try {
       if (incoming?.messageType === 'audio' && (incoming.chatId || incoming.senderRaw)) {
         const fallbackChatId = incoming.chatId || incoming.senderRaw;
