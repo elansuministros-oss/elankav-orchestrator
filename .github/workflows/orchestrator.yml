@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+      NPM_CONFIG_PACKAGE_LOCK_ONLY: "false"
 
     steps:
       - uses: actions/checkout@v4
