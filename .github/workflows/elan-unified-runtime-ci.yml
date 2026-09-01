@@ -24,8 +24,10 @@ on:
   push:
     branches:
       - feature/ELAN-OWNER-COMPLETE-TOOLS-01
+      - fix/ORCHESTRATOR-COMMERCIAL-INTELLIGENCE-RUNTIME-02
     paths:
       - 'services/elanUnified*.js'
+      - 'adapters/connectCommercialIntelligenceAdapter.js'
       - 'services/ownerBusinessConnectClient.js'
       - 'services/ownerEntityCreateContinuityService.js'
       - 'services/ownerSeller*.js'
@@ -36,6 +38,7 @@ on:
       - 'test/humanLanguageInterpreter.test.js'
       - 'tests/ownerEntityCreateContinuity.test.js'
       - 'tests/ownerProviderStructuredContinuity.test.js'
+      - 'tests/commercialIntelligenceRuntime.test.js'
       - '.github/workflows/elan-unified-runtime-ci.yml'
   workflow_dispatch:
 
@@ -56,6 +59,7 @@ jobs:
           node --check services/elanUnifiedToolRegistry.js
           node --check services/elanUnifiedRuntimeService.js
           node --check services/elanUnifiedRuntimeMessagePatch.js
+          node --check adapters/connectCommercialIntelligenceAdapter.js
           node --check services/elanUnifiedOwnerCommandService.js
           node --check services/ownerSellerTemporaryCredentialPatch.js
           node --check services/ownerSellerPreviewConfirmationPatch.js
@@ -71,6 +75,7 @@ jobs:
           node --check server.voice-pipeline-v2.js
           node --check tests/ownerEntityCreateContinuity.test.js
           node --check tests/ownerProviderStructuredContinuity.test.js
+          node --check tests/commercialIntelligenceRuntime.test.js
       - name: Install dependencies
         run: npm install --ignore-scripts
       - name: Existing Owner business regression tests
@@ -80,6 +85,8 @@ jobs:
             tests/ownerBusinessProcessMessageGateway.test.js \
             tests/ownerBusinessProcessMessageIntegration.test.js \
             tests/ownerQuotationHomonymResolver.test.js
+      - name: Commercial intelligence WhatsApp runtime
+        run: node --test tests/commercialIntelligenceRuntime.test.js
       - name: Owner entity continuity regression tests
         run: |
           node --test \
