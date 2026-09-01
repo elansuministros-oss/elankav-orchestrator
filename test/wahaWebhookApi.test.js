@@ -122,6 +122,100 @@ test('extractIncoming recognizes GOWS audio by media MIME when type is absent', 
   assert.equal(incoming.media.mimeType, 'audio/ogg; codecs=opus');
 });
 
+test('extractIncoming preserves classified image/video captions', () => {
+  const image = extractIncoming({
+    event: 'message',
+    session: 'ELANKAV',
+    payload: {
+      from: '50588388940@c.us',
+      type: 'image',
+      caption: 'Carga esta imagen a la biblioteca. Fachada en ACM con letras PVC.',
+      media: {
+        url: '/api/files/fachada.jpg',
+        mimetype: 'image/jpeg',
+        filename: 'fachada.jpg'
+      }
+    }
+  });
+
+  assert.equal(image.messageType, 'image');
+  assert.equal(image.media.mimeType, 'image/jpeg');
+  assert.match(image.text, /fachada/i);
+
+  const video = extractIncoming({
+    event: 'message',
+    session: 'ELANKAV',
+    payload: {
+      from: '50588388940@c.us',
+      type: 'video',
+      caption: 'Guarda este video en recursos. Caja de luz iluminada.',
+      media: {
+        url: '/api/files/caja.mp4',
+        mimetype: 'video/mp4',
+        filename: 'caja.mp4'
+      }
+    }
+  });
+
+  assert.equal(video.messageType, 'video');
+  assert.equal(video.media.filename, 'caja.mp4');
+});
+
+test('Owner guarda una foto de WhatsApp en Biblioteca multimedia sin pasar por el modelo', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'owner-library-image-1',
+      session: 'ELANKAV',
+      payload: {
+        from: '50588388940@c.us',
+        type: 'image',
+        caption: 'Carga esta imagen a la biblioteca. Fachada en ACM con letras PVC.',
+        media: {
+          url: '/api/files/fachada.jpg',
+          mimetype: 'image/jpeg',
+          filename: 'fachada.jpg'
+        }
+      }
+    }
+  });
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  const saved = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() {
+        throw new Error('El modelo no debe ejecutarse para guardar recursos.');
+      },
+      async saveOwnerWhatsappMedia({ incoming }) {
+        saved.push(incoming);
+        return {
+          item: { id: 'media-1' },
+          folder: 'rotulos_fachadas',
+          folderLabel: 'Rótulos y fachadas',
+          tags: ['fachada', 'acm', 'pvc', 'image'],
+          mediaKind: 'image'
+        };
+      },
+      async sendWahaText(input) {
+        sent.push(input);
+      }
+    }
+  });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].messageType, 'image');
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Biblioteca multimedia/);
+  assert.equal(recorder.calls[0].payload.mediaLibrary, true);
+  assert.equal(recorder.calls[0].payload.folder, 'rotulos_fachadas');
+  assert.equal(recorder.calls[0].payload.itemId, 'media-1');
+});
+
 test('GET /webhook/inbound reports READY', async () => {
   const req = createRequest({ method: 'GET', body: null });
   const res = createResponse();
