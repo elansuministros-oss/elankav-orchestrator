@@ -14,6 +14,7 @@ const {
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const {
+  canonicalizeWahaMediaUrl,
   composeLibraryInstruction,
   consumePendingOwnerMedia,
   disableLibraryCapture,
@@ -36,6 +37,11 @@ const {
   setLibraryProjectContext
 } = require('../services/prospectingMediaLibraryService');
 const { buildCreativeBrief, isCreativeBriefRequest } = require('../services/ownerCreativeBriefService');
+const {
+  getState: getQuotationModeState,
+  processQuotationModeImage,
+  processQuotationModeText
+} = require('../services/ownerQuotationModeService');
 const {
   publishConversationEventSafely,
   requestConversationDecision
@@ -486,7 +492,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-14' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-15' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -506,6 +512,9 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const saveOwnerWhatsappMediaImpl = dependencies.saveOwnerWhatsappMedia || saveOwnerWhatsappMedia;
   const hydrateOwnerWhatsappMediaImpl = dependencies.hydrateOwnerWhatsappMedia || hydrateOwnerWhatsappMedia;
   const maintainLastLibraryMediaImpl = dependencies.maintainLastLibraryMedia || maintainLastLibraryMedia;
+  const getQuotationModeStateImpl = dependencies.getQuotationModeState || getQuotationModeState;
+  const processQuotationModeImageImpl = dependencies.processQuotationModeImage || processQuotationModeImage;
+  const processQuotationModeTextImpl = dependencies.processQuotationModeText || processQuotationModeText;
   const buildCreativeBriefImpl = dependencies.buildCreativeBrief || buildCreativeBrief;
   const isCreativeBriefRequestImpl = dependencies.isCreativeBriefRequest || isCreativeBriefRequest;
   let incoming = null;
@@ -535,6 +544,78 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     }
 
     ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
+
+    if (ownerIdentity.isOwner && incoming.messageType === 'image') {
+      const quotationModeState = await getQuotationModeStateImpl({
+        externalUserId: incoming.senderRaw,
+        phone: incoming.phone,
+        chatId: incoming.chatId
+      });
+
+      if (quotationModeState?.active && quotationModeState.step === 'image') {
+        try {
+          const hydratedIncoming = await hydrateOwnerWhatsappMediaImpl({ incoming });
+          const configuredWahaBases = [
+            process.env.WAHA_INTERNAL_BASE_URL,
+            process.env.WAHA_BASE_URL || DEFAULT_WAHA_BASE_URL
+          ].filter(Boolean);
+          const quoteMedia = hydratedIncoming.media?.url
+            ? {
+                ...hydratedIncoming.media,
+                url: canonicalizeWahaMediaUrl(hydratedIncoming.media.url, configuredWahaBases)
+              }
+            : hydratedIncoming.media;
+
+          const outcome = await processQuotationModeImageImpl({
+            identity: {
+              externalUserId: incoming.senderRaw,
+              phone: incoming.phone,
+              chatId: incoming.chatId
+            },
+            media: quoteMedia,
+            metadata: { incoming: hydratedIncoming }
+          });
+
+          if (outcome?.handled) {
+            const reply = String(outcome.outputText || '').trim();
+            const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+            await persistConversationEventImpl(buildConversationEvent({
+              incoming,
+              direction: 'inbound',
+              text: incoming.text || '[Imagen para cotización guiada]',
+              externalMessageId: incoming.messageId || null,
+              actorType: 'owner',
+              actorName: 'Owner',
+              metadata: { ownerMode: true, quotationMode: true, media: quoteMedia || null }
+            }));
+            await persistConversationEventImpl(buildConversationEvent({
+              incoming,
+              direction: 'outbound',
+              text: reply,
+              externalMessageId: sent?.messageId || sent?.id || null,
+              actorType: 'assistant',
+              actorName: 'ELAN IA',
+              metadata: { replyType: 'text', ownerMode: true, quotationMode: true, status: outcome.status || null }
+            }));
+            sendJson(res, 200, {
+              ok: true,
+              processed: true,
+              replySent: true,
+              ownerMode: true,
+              quotationMode: true,
+              status: outcome.status || null
+            });
+            return true;
+          }
+        } catch (quotationModeMediaError) {
+          const code = String(quotationModeMediaError?.code || 'QUOTATION_MODE_IMAGE_FAILED');
+          const reply = `⚠️ No pude procesar la imagen de la cotización. Código: ${code}. El modo cotización sigue activo.`;
+          await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+          sendJson(res, 200, { ok: false, processed: false, replySent: true, ownerMode: true, quotationMode: true, error: code });
+          return true;
+        }
+      }
+    }
 
     if (ownerIdentity.isOwner && ['image', 'video'].includes(incoming.messageType)) {
       const explicitLibrarySave = isLibraryMediaSaveRequest(incoming.text);
@@ -709,6 +790,54 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     if (incoming.messageType === 'audio') logVoiceEvent('VOICE_INBOUND_RECEIVED', { ...incoming, mimeType: incoming.media?.mimeType || null });
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
+
+    if (ownerIdentity.isOwner && ['text', 'audio'].includes(incoming.messageType)) {
+      const outcome = await processQuotationModeTextImpl({
+        identity: {
+          externalUserId: incoming.senderRaw,
+          phone: incoming.phone,
+          chatId: incoming.chatId
+        },
+        text: resolvedMessage,
+        metadata: {
+          messageType: incoming.messageType,
+          media: incoming.media || null,
+          messageId: incoming.messageId || null
+        }
+      });
+
+      if (outcome?.handled) {
+        const reply = String(outcome.outputText || '').trim();
+        const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'inbound',
+          text: resolvedMessage,
+          externalMessageId: incoming.messageId || null,
+          actorType: 'owner',
+          actorName: 'Owner',
+          metadata: { ownerMode: true, quotationMode: true }
+        }));
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: reply,
+          externalMessageId: sent?.messageId || sent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: { replyType: 'text', ownerMode: true, quotationMode: true, status: outcome.status || null }
+        }));
+        sendJson(res, 200, {
+          ok: true,
+          processed: true,
+          replySent: true,
+          ownerMode: true,
+          quotationMode: true,
+          status: outcome.status || null
+        });
+        return true;
+      }
+    }
 
     if (ownerIdentity.isOwner && isLibraryMaintenanceRequest(resolvedMessage)) {
       try {
