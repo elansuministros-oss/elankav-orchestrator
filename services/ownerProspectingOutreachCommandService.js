@@ -113,6 +113,12 @@ function requestedChannels(strategy) {
 }
 
 function assertControls(control, strategy) {
+  if (control?.ownerAuthorizationRequired !== true) {
+    throw new OwnerProspectingOutreachError(
+      'PROSPECTING_OWNER_AUTH_GATE_REQUIRED',
+      'CONNECT no confirmó el gate de autorización del Owner. No creé ni activé campaña.'
+    );
+  }
   if (control?.outreachEnabled !== true) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_OUTREACH_DISABLED',
