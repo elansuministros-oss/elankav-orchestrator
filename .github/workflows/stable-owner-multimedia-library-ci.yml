@@ -1,0 +1,31 @@
+name: Stable Owner Multimedia Library CI
+
+on:
+  pull_request:
+    branches:
+      - stable/ORCHESTRATOR-WHATSAPP-CORE
+    paths:
+      - 'api/wahaWebhookApi.js'
+      - 'services/prospectingMediaLibraryService.js'
+      - 'test/wahaWebhookApi.test.js'
+      - 'test/prospectingMediaLibraryService.test.js'
+      - '.github/workflows/stable-owner-multimedia-library-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Syntax
+        run: |
+          node --check api/wahaWebhookApi.js
+          node --check services/prospectingMediaLibraryService.js
+      - name: Multimedia service
+        run: node --test test/prospectingMediaLibraryService.test.js
+      - name: WhatsApp protected regressions
+        run: node --test --test-name-pattern="extractIncoming preserves Owner image/video captions for multimedia library|Owner guarda multimedia sin pasar por provider ni modelo|Owner recibido por @lid responde|Owner text nunca queda mudo" test/wahaWebhookApi.test.js
