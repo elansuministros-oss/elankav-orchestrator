@@ -627,3 +627,54 @@ test('WhatsApp Web Owner LID wins over a misleading phone candidate', () => {
   assert.equal(owner.phone, '50588388940');
   assert.equal(owner.matchedAlias, true);
 });
+
+
+test('Owner text nunca queda mudo si falla el runtime interno', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      id: 'owner-text-runtime-failure-01',
+      session: 'ELANKAV',
+      payload: {
+        from: '215440458567779@lid',
+        body: 'HOLA DESDE WEB',
+        fromMe: false,
+        key: {
+          remoteJidAlt: '50512345678@c.us'
+        }
+      }
+    }
+  });
+
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() {
+        const error = new Error('SIMULATED_RUNTIME_FAILURE');
+        error.code = 'SIMULATED_RUNTIME_FAILURE';
+        throw error;
+      },
+      async sendWahaText(input) {
+        sent.push(input);
+        return { id: 'owner-visible-fallback-01' };
+      },
+      async persistConversationEvent() {
+        return { ok: true };
+      }
+    }
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, '215440458567779@lid');
+  assert.match(sent[0].text, /WhatsApp sigue operativo/i);
+  assert.equal(recorder.calls[0].status, 200);
+  assert.equal(recorder.calls[0].payload.replySent, true);
+  assert.equal(recorder.calls[0].payload.fallbackSent, true);
+  assert.equal(recorder.calls[0].payload.ownerMode, true);
+});
