@@ -10,6 +10,9 @@ const {
 
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 const MAX_MEDIA_BYTES = 64 * 1024 * 1024;
+const LIBRARY_CAPTURE_TTL_MS = Number(process.env.OWNER_LIBRARY_CAPTURE_TTL_MS || 15 * 60 * 1000);
+const libraryCaptureSessions = new Map();
+const pendingOwnerMedia = new Map();
 const ALLOWED_MEDIA_TYPES = new Set([
   'image/jpeg','image/png','image/webp','image/gif',
   'video/mp4','video/webm','video/quicktime'
@@ -45,9 +48,100 @@ function normalizeText(value) {
 function isLibraryMediaSaveRequest(text) {
   const value = normalizeText(text);
   if (!value) return false;
-  const action = /\b(carga|cargar|cargalo|cargala|guarda|guardar|guardalo|guardala|agrega|agregar|agregalo|agregala|sube|subir|archiva|archivar)\b/.test(value);
+  const action = /\b(carga|cargar|cargalo|cargala|guarda|guardar|guardalo|guardala|agrega|agregar|agregalo|agregala|sube|subir|archiva|archivar|pasare|pasarte|mandare|mandarte|enviare|enviarte)\b/.test(value);
   const destination = /\b(biblioteca|recursos|recurso|muestras|portafolio)\b/.test(value);
   return action && destination;
+}
+
+function isLibraryCaptureStopRequest(text) {
+  const value = normalizeText(text);
+  if (!value) return false;
+  return /\b(terminamos|termine|terminado|cerrar|salir|deten|detener|parar|ya no)\b/.test(value) &&
+    /\b(biblioteca|carga|cargar|imagenes|fotos|videos|recursos)\b/.test(value);
+}
+
+function ownerLibraryKey(incoming = {}) {
+  return [
+    String(incoming.session || 'ELANKAV'),
+    String(incoming.chatId || incoming.senderRaw || incoming.phone || 'owner')
+  ].join(':');
+}
+
+function pruneOwnerLibraryState(now = Date.now()) {
+  for (const [key, value] of libraryCaptureSessions.entries()) {
+    if (!value || value.expiresAt <= now) libraryCaptureSessions.delete(key);
+  }
+  for (const [key, value] of pendingOwnerMedia.entries()) {
+    if (!value || value.expiresAt <= now) pendingOwnerMedia.delete(key);
+  }
+}
+
+function enableLibraryCapture(incoming, contextText = '') {
+  pruneOwnerLibraryState();
+  const key = ownerLibraryKey(incoming);
+  libraryCaptureSessions.set(key, {
+    contextText: String(contextText || '').trim(),
+    expiresAt: Date.now() + LIBRARY_CAPTURE_TTL_MS
+  });
+  return { key, active: true };
+}
+
+function disableLibraryCapture(incoming) {
+  const key = ownerLibraryKey(incoming);
+  libraryCaptureSessions.delete(key);
+  pendingOwnerMedia.delete(key);
+  return { key, active: false };
+}
+
+function clearOwnerLibraryState() {
+  libraryCaptureSessions.clear();
+  pendingOwnerMedia.clear();
+}
+
+function getLibraryCapture(incoming) {
+  pruneOwnerLibraryState();
+  return libraryCaptureSessions.get(ownerLibraryKey(incoming)) || null;
+}
+
+function isLibraryCaptureActive(incoming) {
+  return Boolean(getLibraryCapture(incoming));
+}
+
+function rememberPendingOwnerMedia(incoming) {
+  if (!incoming?.media?.url || !['image', 'video'].includes(incoming.messageType)) return null;
+  pruneOwnerLibraryState();
+  const key = ownerLibraryKey(incoming);
+  const remembered = {
+    incoming: {
+      ...incoming,
+      media: { ...(incoming.media || {}) }
+    },
+    expiresAt: Date.now() + LIBRARY_CAPTURE_TTL_MS
+  };
+  pendingOwnerMedia.set(key, remembered);
+  return remembered.incoming;
+}
+
+function peekPendingOwnerMedia(incoming) {
+  pruneOwnerLibraryState();
+  return pendingOwnerMedia.get(ownerLibraryKey(incoming))?.incoming || null;
+}
+
+function consumePendingOwnerMedia(incoming) {
+  const key = ownerLibraryKey(incoming);
+  const value = peekPendingOwnerMedia(incoming);
+  if (value) pendingOwnerMedia.delete(key);
+  return value;
+}
+
+function composeLibraryInstruction(incoming, extraText = '') {
+  const capture = getLibraryCapture(incoming);
+  return [
+    'Guardar en biblioteca.',
+    capture?.contextText || '',
+    incoming?.text || '',
+    extraText || ''
+  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 function classifyFolder(text) {
@@ -280,10 +374,21 @@ module.exports = {
   ALLOWED_MEDIA_TYPES,
   FOLDER_LABELS,
   MAX_MEDIA_BYTES,
+  LIBRARY_CAPTURE_TTL_MS,
   classifyFolder,
   classifyTags,
+  clearOwnerLibraryState,
+  composeLibraryInstruction,
+  consumePendingOwnerMedia,
+  disableLibraryCapture,
+  enableLibraryCapture,
+  getLibraryCapture,
+  isLibraryCaptureActive,
+  isLibraryCaptureStopRequest,
   isLibraryMediaSaveRequest,
   librarySavedReply,
+  peekPendingOwnerMedia,
+  rememberPendingOwnerMedia,
   saveOwnerWhatsappMedia,
   titleFromInstruction,
   uploadToConnect
