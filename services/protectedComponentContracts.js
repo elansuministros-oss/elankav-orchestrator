@@ -13,6 +13,7 @@ const CONTRACT_SPECS = Object.freeze({
     files: Object.freeze([
       'test/ownerProspectingCommandService.test.js',
       'test/ownerProspectingNaturalAuditService.test.js',
+      'test/ownerProspectingOutreachCommandService.test.js',
       'test/runtimeBootstrapPreloads.test.js',
       'test/sellerBusinessRuntimeOwnerBypass.test.js'
     ])
@@ -35,7 +36,8 @@ const CONTRACT_SPECS = Object.freeze({
       'tests/prospecting-missions.test.ts',
       'tests/prospecting-autopilot.test.ts',
       'tests/prospecting-api.test.ts',
-      'tests/prospecting-outreach-autopilot.test.ts'
+      'tests/prospecting-outreach-autopilot.test.ts',
+      'tests/prospecting-outreach-window.test.ts'
     ])
   }),
   provider_recruitment_connect: Object.freeze({
