@@ -9,6 +9,7 @@ const {
   composeLibraryInstruction,
   consumePendingOwnerMedia,
   enableLibraryCapture,
+  hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
   isLibraryCaptureStopRequest,
   isLibraryMediaSaveRequest,
@@ -91,6 +92,47 @@ test('no confunde una solicitud de logs con una orden de cargar a Biblioteca', (
     isLibraryMediaSaveRequest('Revisa el error de cargar imágenes a la biblioteca y dime el estado del servicio'),
     false
   );
+});
+
+test('recupera URL de media desde WAHA cuando el webhook trae hasMedia pero no media.url', async () => {
+  const incoming = {
+    session: 'ELANKAV',
+    chatId: '50588388940@c.us',
+    senderRaw: '50588388940@c.us',
+    messageId: 'false_50588388940@c.us_MEDIA123',
+    messageType: 'image',
+    text: 'Fachada ACM',
+    media: { url: '', mimeType: 'image/jpeg', filename: 'attachment' }
+  };
+
+  const calls = [];
+  const hydrated = await hydrateOwnerWhatsappMedia({
+    incoming,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), method: options?.method || 'GET' });
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            id: incoming.messageId,
+            hasMedia: true,
+            media: {
+              url: 'http://localhost:3000/api/files/media123.jpg',
+              mimetype: 'image/jpeg',
+              filename: 'media123.jpg'
+            }
+          };
+        }
+      };
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /downloadMedia=true/);
+  assert.equal(hydrated.media.url, 'http://localhost:3000/api/files/media123.jpg');
+  assert.equal(hydrated.media.mimeType, 'image/jpeg');
+  assert.equal(hydrated.media.filename, 'media123.jpg');
 });
 
 test('clasifica fachada ACM + PVC en la carpeta funcional correcta', () => {
