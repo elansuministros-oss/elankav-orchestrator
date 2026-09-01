@@ -81,8 +81,8 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
   assert.equal(calls[3].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/prepare');
   assert.equal(calls[4].path, '/api/v1/prospecting/outreach-campaigns/' + campaign.id + '/activate');
   assert.match(result.outputText, /Ya empecé/);
-  assert.match(result.outputText, /Email: ON/);
-  assert.match(result.outputText, /WhatsApp: ON/);
+  assert.match(result.outputText, /Correo habilitado/);
+  assert.match(result.outputText, /WhatsApp habilitado/);
 });
 
 test('no crea campaña si WhatsApp Outreach está OFF para estrategia email_first', async () => {
