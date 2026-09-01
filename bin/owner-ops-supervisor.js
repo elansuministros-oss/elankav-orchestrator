@@ -6,6 +6,13 @@ const path = require('node:path');
 const net = require('node:net');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const {
+  getProtectedComponentsForTarget
+} = require('../services/protectedComponentRegistry');
+const {
+  getProtectedContractSpec,
+  resolveVitestBinary
+} = require('../services/protectedComponentContracts');
 
 const execFileAsync = promisify(execFile);
 const BASE_DIR = process.env.OWNER_OPS_SUPERVISOR_DIR || '/var/lib/elankav-owner-ops';
@@ -18,6 +25,7 @@ const GENERATED_CONNECT_CATALOG = 'data/elanvisual-commercial-catalog-2026-08-16
 const WHATSAPP_CORE_PROTECTED = String(process.env.WHATSAPP_CORE_PROTECTED || 'true').trim().toLowerCase() !== 'false';
 const WHATSAPP_CORE_WATCHDOG_MS = Math.max(15_000, Number(process.env.WHATSAPP_CORE_WATCHDOG_MS) || 60_000);
 const WHATSAPP_CORE_STATE_PATH = path.join(BASE_DIR, 'whatsapp-core-state.json');
+const PROTECTED_COMPONENT_STATE_PATH = path.join(BASE_DIR, 'protected-components-state.json');
 let nextWhatsappCoreWatchdogAt = 0;
 const WHATSAPP_CORE_CONTRACT_LINES = Object.freeze(["const assert=require('node:assert/strict');","const {EventEmitter}=require('node:events');","const api=require('./api/wahaWebhookApi');","function req(body){const r=new EventEmitter();r.method='POST';r.url='/webhook/inbound';r.headers={host:'localhost'};r.destroy=()=>{};process.nextTick(()=>{r.emit('data',Buffer.from(JSON.stringify(body)));r.emit('end')});return r}","function res(){return{setHeader(){}}}","async function runCase(body,mode){api.clearWahaInboundDedupe();const json=[];const sent=[];let decisions=0,processes=0;await api.handleWahaWebhookApi({req:req(body),res:res(),sendJson(_r,status,payload){json.push({status,payload})},dependencies:{async requestConversationDecision(){decisions++;if(mode==='customer')return{action:'NO_REPLY',reason:'contract_customer_gate'};throw new Error('OWNER_MUST_NOT_USE_CUSTOMER_GATE')},async processMessage(){processes++;if(mode==='owner-failure'){const e=new Error('SIMULATED_OWNER_RUNTIME_FAILURE');e.code='SIMULATED_OWNER_RUNTIME_FAILURE';throw e}if(mode==='customer')throw new Error('CUSTOMER_GATE_MUST_SUPPRESS_PROCESSING');return{reply:'WHATSAPP_CORE_CONTRACT_REPLY',model:'contract',context:{ownerMode:true,platform:'elanvisual'}}},async sendWahaText(input){sent.push(input);return{id:'contract-message'}},async persistConversationEvent(){return{ok:true}}}});assert.equal(json.length,1);return{response:json[0],sent,decisions,processes}}","(async()=>{","let x=await runCase({event:'message',id:'contract-owner-phone',session:'ELANKAV',payload:{from:'50588388940@c.us',body:'HOLA',fromMe:false}},'owner');assert.equal(x.response.payload.replySent,true);assert.equal(x.response.payload.ownerMode,true);assert.equal(x.decisions,0);assert.equal(x.processes,1);","x=await runCase({event:'message',id:'contract-owner-web',session:'ELANKAV',payload:{from:'215440458567779@lid',body:'HOLA DESDE WEB',fromMe:false,key:{remoteJidAlt:'50512345678@c.us'}}},'owner');assert.equal(x.response.payload.replySent,true);assert.equal(x.response.payload.ownerMode,true);assert.equal(x.decisions,0);assert.equal(x.processes,1);assert.equal(x.sent[0].chatId,'215440458567779@lid');","x=await runCase({event:'message',id:'contract-owner-fallback',session:'ELANKAV',payload:{from:'215440458567779@lid',body:'FALLA',fromMe:false,key:{remoteJidAlt:'50512345678@c.us'}}},'owner-failure');assert.equal(x.response.payload.replySent,true);assert.equal(x.response.payload.fallbackSent,true);assert.equal(x.response.payload.ownerMode,true);","x=await runCase({event:'message',id:'contract-customer',session:'ELANKAV',payload:{from:'50577777777@c.us',body:'HOLA',fromMe:false}},'customer');assert.equal(x.decisions,1);assert.equal(x.processes,0);assert.equal(x.response.payload.replySent,false);assert.equal(x.response.payload.suppressed,true);","process.stdout.write('WHATSAPP_CORE_CONTRACT_OK\\n')","})().catch(e=>{console.error('WHATSAPP_CORE_CONTRACT_FAILED',e&&e.stack||e);process.exit(1)});"]);
 
@@ -90,6 +98,113 @@ async function runWhatsappCoreContract(repo) {
   return 'WHATSAPP_CORE_CONTRACT_OK';
 }
 
+async function runProtectedComponentContract(component, repo) {
+  const spec = getProtectedContractSpec(component.contract);
+  let result = '';
+
+  if (spec.kind === 'builtin' && component.contract === 'owner_whatsapp_core') {
+    result = await runWhatsappCoreContract(repo);
+  } else if (spec.kind === 'node_test') {
+    const execution = await run('node', ['--test', ...spec.files], {
+      cwd: repo,
+      timeout: 180_000
+    });
+    result = execution.stdout || `${spec.label}_OK`;
+  } else if (spec.kind === 'vitest') {
+    const execution = await run(resolveVitestBinary(repo), ['run', ...spec.files], {
+      cwd: repo,
+      timeout: 240_000
+    });
+    result = execution.stdout || `${spec.label}_OK`;
+  } else if (spec.kind === 'source_contract') {
+    const scriptPath = path.join(TARGETS.orchestrator.repo, spec.script);
+    const execution = await run('node', [scriptPath, ...spec.args, repo], {
+      cwd: TARGETS.orchestrator.repo,
+      timeout: 60_000
+    });
+    result = execution.stdout || `${spec.label}_OK`;
+  } else {
+    const error = new Error('PROTECTED_COMPONENT_RUNNER_DENIED');
+    error.code = 'PROTECTED_COMPONENT_RUNNER_DENIED';
+    throw error;
+  }
+
+  return {
+    id: component.id,
+    contract: component.contract,
+    critical: component.critical !== false,
+    status: 'passed',
+    result: sanitizeTechnicalError(result).slice(0, 1200)
+  };
+}
+
+async function runProtectedComponentContracts(target, repo) {
+  const components = getProtectedComponentsForTarget(target);
+  if (!components.length) {
+    const error = new Error('PROTECTED_COMPONENTS_NOT_REGISTERED');
+    error.code = 'PROTECTED_COMPONENTS_NOT_REGISTERED';
+    throw error;
+  }
+
+  const results = [];
+  for (const component of components) {
+    try {
+      results.push(await runProtectedComponentContract(component, repo));
+    } catch (cause) {
+      const error = new Error(`PROTECTED_COMPONENT_CONTRACT_FAILED:${component.id}:${cause?.code || cause?.message || 'UNKNOWN'}`);
+      error.code = 'PROTECTED_COMPONENT_CONTRACT_FAILED';
+      error.componentId = component.id;
+      error.cause = cause;
+      throw error;
+    }
+  }
+  return results;
+}
+
+async function readProtectedComponentState() {
+  try {
+    const raw = await fs.readFile(PROTECTED_COMPONENT_STATE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : { version: 1, components: {} };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { version: 1, components: {} };
+    throw error;
+  }
+}
+
+async function writeProtectedComponentState(state) {
+  await ensureDirs();
+  const payload = {
+    version: 1,
+    components: state?.components && typeof state.components === 'object'
+      ? state.components
+      : {},
+    updatedAt: new Date().toISOString()
+  };
+  const tempPath = `${PROTECTED_COMPONENT_STATE_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  await fs.rename(tempPath, PROTECTED_COMPONENT_STATE_PATH);
+  return payload;
+}
+
+async function markProtectedComponentsGood({ target, sha, contracts, source = 'supervisor_deploy' }) {
+  const current = await readProtectedComponentState();
+  const components = { ...(current.components || {}) };
+  for (const contract of contracts || []) {
+    components[contract.id] = {
+      target,
+      lastGoodSha: sha,
+      contract: contract.contract,
+      status: 'passed',
+      source,
+      verifiedAt: new Date().toISOString()
+    };
+  }
+  return writeProtectedComponentState({ components });
+}
+
 async function verifyOrchestratorHttpHealth() {
   const urls = ['http://127.0.0.1:4100/health', 'http://172.19.0.1:4100/health'];
   let lastError = null;
@@ -132,6 +247,14 @@ async function restoreOrchestratorBaseline(config, before) {
   await restartService('orchestrator');
   await verifyOrchestratorHttpHealth();
   await verifyWhatsappBridgeHealth();
+  return before;
+}
+
+async function restoreConnectBaseline(config, before) {
+  await run('git', ['-C', config.repo, 'reset', '--hard', before], { timeout: 60_000 });
+  await installDependencies(config);
+  await buildRepository(config);
+  await restartService('connect');
   return before;
 }
 
@@ -547,6 +670,7 @@ async function deployRepository(target, parameters = {}) {
   let installCommand = null;
   let buildCommand = null;
   let whatsappCoreContract = null;
+  let protectedContracts = [];
   let healthEndpoint = null;
   let bridgeEndpoint = null;
 
@@ -562,9 +686,11 @@ async function deployRepository(target, parameters = {}) {
       buildCommand = await buildRepository(config);
     }
 
-    if (target === 'orchestrator' && WHATSAPP_CORE_PROTECTED) {
-      whatsappCoreContract = await runWhatsappCoreContract(config.repo);
-    }
+    protectedContracts = await runProtectedComponentContracts(target, config.repo);
+    const whatsappResult = protectedContracts.find(item => item.id === 'OWNER_WHATSAPP_CORE');
+    whatsappCoreContract = whatsappResult?.result?.includes('WHATSAPP_CORE_CONTRACT_OK')
+      ? 'WHATSAPP_CORE_CONTRACT_OK'
+      : (target === 'orchestrator' && WHATSAPP_CORE_PROTECTED ? null : null);
 
     let restart = null;
     if (parameters.restart !== false) {
@@ -584,6 +710,13 @@ async function deployRepository(target, parameters = {}) {
       await markWhatsappCoreGood({ source: 'supervisor_deploy' });
     }
 
+    await markProtectedComponentsGood({
+      target,
+      sha: after,
+      contracts: protectedContracts,
+      source: 'supervisor_deploy'
+    });
+
     return {
       capability: 'repository.deploy',
       target,
@@ -600,6 +733,11 @@ async function deployRepository(target, parameters = {}) {
       listening,
       whatsappCoreProtected: target === 'orchestrator' ? WHATSAPP_CORE_PROTECTED : null,
       whatsappCoreContract,
+      protectedComponents: protectedContracts.map(item => ({
+        id: item.id,
+        contract: item.contract,
+        status: item.status
+      })),
       healthEndpoint,
       bridgeEndpoint
     };
@@ -607,10 +745,18 @@ async function deployRepository(target, parameters = {}) {
     if (merged && target === 'orchestrator' && WHATSAPP_CORE_PROTECTED) {
       try {
         await restoreOrchestratorBaseline(config, before);
-        cause.message = `${cause.message || cause.code || 'ORCHESTRATOR_DEPLOY_FAILED'};WHATSAPP_CORE_ROLLBACK_OK`;
+        cause.message = `${cause.message || cause.code || 'ORCHESTRATOR_DEPLOY_FAILED'};PROTECTED_COMPONENT_ROLLBACK_OK`;
       } catch (rollbackError) {
-        cause.message = `${cause.message || cause.code || 'ORCHESTRATOR_DEPLOY_FAILED'};WHATSAPP_CORE_ROLLBACK_FAILED:${sanitizeTechnicalError(rollbackError.message || rollbackError.code)}`;
-        cause.code = 'SUPERVISOR_WHATSAPP_CORE_ROLLBACK_FAILED';
+        cause.message = `${cause.message || cause.code || 'ORCHESTRATOR_DEPLOY_FAILED'};PROTECTED_COMPONENT_ROLLBACK_FAILED:${sanitizeTechnicalError(rollbackError.message || rollbackError.code)}`;
+        cause.code = 'SUPERVISOR_PROTECTED_COMPONENT_ROLLBACK_FAILED';
+      }
+    } else if (merged && target === 'connect') {
+      try {
+        await restoreConnectBaseline(config, before);
+        cause.message = `${cause.message || cause.code || 'CONNECT_DEPLOY_FAILED'};PROTECTED_COMPONENT_ROLLBACK_OK`;
+      } catch (rollbackError) {
+        cause.message = `${cause.message || cause.code || 'CONNECT_DEPLOY_FAILED'};PROTECTED_COMPONENT_ROLLBACK_FAILED:${sanitizeTechnicalError(rollbackError.message || rollbackError.code)}`;
+        cause.code = 'SUPERVISOR_PROTECTED_COMPONENT_ROLLBACK_FAILED';
       }
     }
     throw cause;
@@ -729,6 +875,11 @@ module.exports = {
   recoverInterruptedOperations,
   readWhatsappCoreState,
   writeWhatsappCoreState,
+  readProtectedComponentState,
+  writeProtectedComponentState,
+  markProtectedComponentsGood,
+  runProtectedComponentContract,
+  runProtectedComponentContracts,
   readOrchestratorRepoState,
   markWhatsappCoreGood,
   restoreWhatsappCoreLastGood,
@@ -740,5 +891,6 @@ module.exports = {
   verifyService,
   verifyWhatsappBridgeHealth,
   runWhatsappCoreContract,
-  restoreOrchestratorBaseline
+  restoreOrchestratorBaseline,
+  restoreConnectBaseline
 };
