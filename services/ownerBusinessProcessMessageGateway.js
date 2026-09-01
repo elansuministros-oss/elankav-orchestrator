@@ -18,6 +18,11 @@ const {
   executeOwnerSellerReadCommand
 } = require('./ownerSellerReadService');
 const {
+  COMMAND_TYPE: PROSPECTING_AUTOPILOT,
+  detectOwnerProspectingCommand,
+  executeOwnerProspectingCommand
+} = require('./ownerProspectingCommandService');
+const {
   COMMAND_TYPE: SELLER_ACCESS_DELIVERY,
   detectOwnerSellerAccessDeliveryCommand,
   executeOwnerSellerAccessDeliveryCommand,
@@ -47,6 +52,9 @@ function detectOwnerBusinessCommand(message) {
   const sellerRead = detectOwnerSellerReadCommand(message);
   if (sellerRead) return sellerRead;
 
+  const prospecting = detectOwnerProspectingCommand(message);
+  if (prospecting) return prospecting;
+
   const quotationItemRequest = parseAddQuotationItemRequest(message);
   if (quotationItemRequest) return { type: QUOTATION_ITEM_ADD, input: quotationItemRequest };
   return businessCommands.detectOwnerBusinessCommand(message);
@@ -57,6 +65,7 @@ async function executeOwnerBusinessCommand(command) {
   if (command?.type === CONNECT_RUNTIME_AUDIT) return executeConnectRuntimeAudit(command.query || null);
   if (command?.type === SELLER_ACCESS_DELIVERY) return executeOwnerSellerAccessDeliveryCommand(command);
   if (command?.type === SELLER_READ) return executeOwnerSellerReadCommand(command);
+  if (command?.type === PROSPECTING_AUTOPILOT) return executeOwnerProspectingCommand(command);
   if (command?.type === QUOTATION_ITEM_ADD) {
     const result = await addItemByHumanReference(command.input || {});
     return { handled: true, outputText: result?.outputText || 'Cotización actualizada.', result };
@@ -265,6 +274,7 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
     priceCatalogAdmin: true,
     sellerRead: true,
     sellerAccessDelivery: true,
+    prospectingAutopilot: true,
     sellerOnboarding: true,
     sellerBusinessTransactions: true
   });
@@ -274,6 +284,7 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
 module.exports = {
   CONNECT_RUNTIME_AUDIT,
   PRICE_CATALOG_ADMIN,
+  PROSPECTING_AUTOPILOT,
   QUOTATION_ITEM_ADD,
   SELLER_ACCESS_DELIVERY,
   SELLER_READ,
