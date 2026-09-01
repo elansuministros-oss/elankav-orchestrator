@@ -1,0 +1,38 @@
+name: Prospecting Natural Audit CI
+
+on:
+  push:
+    branches:
+      - feat/PROSPECTING-NATURAL-AUDIT-01
+  pull_request:
+    branches:
+      - stable/ORCHESTRATOR-WHATSAPP-CORE
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      NPM_CONFIG_CACHE: /tmp/prospecting-natural-audit-orchestrator-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check services/ownerProspectingNaturalAuditService.js
+          node --check services/ownerProspectingCommandService.js
+          node --check services/ownerBusinessProcessMessageGateway.js
+      - name: Natural Prospecting audit
+        run: |
+          node --test             test/ownerProspectingNaturalAuditService.test.js             test/ownerProspectingCommandService.test.js             test/ownerProspectingOutreachCommandService.test.js
+      - name: Protected component registry
+        run: |
+          node --test             test/protectedComponentRegistry.test.js             test/protectedConnectSourceContracts.test.js
+      - name: WhatsApp and runtime regressions
+        run: |
+          node --test             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js             test/ownerOpsSupervisor.test.js
