@@ -112,6 +112,24 @@ function resolveOwnerIdentity(value) {
   };
 }
 
+function resolveOwnerIdentityFromIncoming(incoming = {}) {
+  const candidates = [
+    incoming.senderRaw,
+    incoming.chatId,
+    ...(Array.isArray(incoming.identityCandidates) ? incoming.identityCandidates : []),
+    incoming.phone
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const resolved = resolveOwnerIdentity(candidate);
+    if (resolved.isOwner) return resolved;
+  }
+
+  return resolveOwnerIdentity(
+    incoming.phone || incoming.senderRaw || incoming.chatId
+  );
+}
+
 function isPresentationAudioRequest(text) {
   const normalized = String(text || '').trim().toLowerCase();
   return normalized === '/demo bienvenida'
@@ -468,7 +486,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       if (contactResolver) incoming.whatsappName = await contactResolver({ session: incoming.session, contactId: incoming.senderRaw });
     }
 
-    const ownerIdentity = resolveOwnerIdentity(incoming.phone || incoming.senderRaw || incoming.chatId);
+    const ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
     const registeredProvider = !ownerIdentity.isOwner && incoming.phone
       ? await resolveProviderImpl({ phone: incoming.phone })
       : null;
@@ -762,6 +780,7 @@ module.exports = {
   isPresentationAudioRequest,
   normalizePhone,
   resolveIncomingMessage,
+  resolveOwnerIdentityFromIncoming,
   resolveWahaContactName,
   sendWahaText,
   sendWahaVoice,
