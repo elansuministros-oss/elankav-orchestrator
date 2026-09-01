@@ -7,10 +7,12 @@ on:
       - fix/ORCHESTRATOR-COMMERCIAL-INTELLIGENCE-RUNTIME-03
     paths:
       - 'adapters/connectCommercialIntelligenceAdapter.js'
+      - 'adapters/crmContextAdapter.js'
       - 'adapters/openaiAdapter.js'
       - 'services/ownerCommercialIntelligenceService.js'
       - 'services/openaiService.js'
       - 'tests/ownerCommercialIntelligenceService.test.js'
+      - 'tests/crmContextAdapter.test.js'
       - '.github/workflows/orchestrator-commercial-intelligence-safe-ci.yml'
   pull_request:
     paths:
@@ -43,13 +45,16 @@ jobs:
       - name: Syntax
         run: |
           node --check adapters/connectCommercialIntelligenceAdapter.js
+          node --check adapters/crmContextAdapter.js
           node --check adapters/openaiAdapter.js
           node --check services/ownerCommercialIntelligenceService.js
           node --check services/openaiService.js
           node --check tests/ownerCommercialIntelligenceService.test.js
 
       - name: Commercial intelligence tests
-        run: node --test tests/ownerCommercialIntelligenceService.test.js
+        run: |
+          node --test tests/ownerCommercialIntelligenceService.test.js
+          node --test tests/crmContextAdapter.test.js
 
       - name: WhatsApp and identity regressions
         run: |
