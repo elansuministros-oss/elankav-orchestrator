@@ -1,5 +1,7 @@
 'use strict';
 
+const { randomUUID } = require('node:crypto');
+
 class GmailDeliveryError extends Error {
   constructor(code, message, status = 502) {
     super(message);
@@ -34,6 +36,14 @@ function emailAddressValue(value, fieldName, code) {
 
 function emailValue(value) {
   return emailAddressValue(value, 'to', 'GMAIL_RECIPIENT_INVALID');
+}
+
+function bodyValue(value, fieldName, required = true) {
+  const text = String(value || '').replace(/\u0000/g, '').trim();
+  if (required && !text) {
+    throw new GmailDeliveryError('GMAIL_MESSAGE_INVALID', fieldName + ' es obligatorio.', 400);
+  }
+  return text;
 }
 
 function parseSenderIdentities(rawValue) {
@@ -259,6 +269,7 @@ function createGmailDeliveryAdapter({
     to,
     subject,
     text,
+    html,
     threadId,
     inReplyTo,
     references,
@@ -266,16 +277,19 @@ function createGmailDeliveryAdapter({
   } = {}) {
     const recipient = emailValue(to);
     const safeSubject = headerValue(subject, 'subject');
-    const bodyText = headerValue(text, 'text');
+    const bodyText = bodyValue(text, 'text');
+    const bodyHtml = bodyValue(html, 'html', false);
     const resolvedSender = resolveSender(fromIdentity);
+    const boundary = '=_ELANKAV_' + randomUUID().replace(/-/g, '');
 
     const headers = [
       `From: ${resolvedSender}`,
       `To: ${recipient}`,
       `Subject: ${safeSubject}`,
       'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: 8bit'
+      ...(bodyHtml
+        ? [`Content-Type: multipart/alternative; boundary="${boundary}"`]
+        : ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit'])
     ];
 
     if (clean(inReplyTo)) {
@@ -285,7 +299,24 @@ function createGmailDeliveryAdapter({
       headers.push(`References: ${headerValue(references, 'references')}`);
     }
 
-    const raw = base64Url(`${headers.join('\r\n')}\r\n\r\n${bodyText}`);
+    const body = bodyHtml
+      ? [
+          '--' + boundary,
+          'Content-Type: text/plain; charset=UTF-8',
+          'Content-Transfer-Encoding: 8bit',
+          '',
+          bodyText,
+          '--' + boundary,
+          'Content-Type: text/html; charset=UTF-8',
+          'Content-Transfer-Encoding: 8bit',
+          '',
+          bodyHtml,
+          '--' + boundary + '--',
+          ''
+        ].join('\r\n')
+      : bodyText;
+
+    const raw = base64Url(headers.join('\r\n') + '\r\n\r\n' + body);
     const payload = await gmailRequest('/messages/send', {
       method: 'POST',
       body: JSON.stringify({
