@@ -13,7 +13,18 @@ const {
   resolveRegisteredProvider
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
-const { isLibraryMediaSaveRequest, librarySavedReply, saveOwnerWhatsappMedia } = require('../services/prospectingMediaLibraryService');
+const {
+  composeLibraryInstruction,
+  consumePendingOwnerMedia,
+  disableLibraryCapture,
+  enableLibraryCapture,
+  isLibraryCaptureActive,
+  isLibraryCaptureStopRequest,
+  isLibraryMediaSaveRequest,
+  librarySavedReply,
+  rememberPendingOwnerMedia,
+  saveOwnerWhatsappMedia
+} = require('../services/prospectingMediaLibraryService');
 const { buildCreativeBrief, isCreativeBriefRequest } = require('../services/ownerCreativeBriefService');
 const {
   publishConversationEventSafely,
@@ -455,7 +466,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-10' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-11' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -503,30 +514,67 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
 
     ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
 
-    if (ownerIdentity.isOwner && ['image', 'video'].includes(incoming.messageType) && incoming.media?.url && isLibraryMediaSaveRequest(incoming.text)) {
-      const saved = await saveOwnerWhatsappMediaImpl({ incoming });
-      const reply = librarySavedReply(saved);
-      const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
-      await persistConversationEventImpl(buildConversationEvent({
-        incoming,
-        direction: 'inbound',
-        text: incoming.text || `[${saved.mediaKind === 'video' ? 'Video' : 'Imagen'} guardado en biblioteca]`,
-        externalMessageId: incoming.messageId || null,
-        actorType: 'owner',
-        actorName: 'Owner',
-        metadata: { media: incoming.media || null, mediaLibrary: true, mediaKind: saved.mediaKind, folder: saved.folder, itemId: saved.item?.id || null }
-      }));
-      await persistConversationEventImpl(buildConversationEvent({
-        incoming,
-        direction: 'outbound',
-        text: reply,
-        externalMessageId: sent?.messageId || sent?.id || null,
-        actorType: 'assistant',
-        actorName: 'ELAN IA',
-        metadata: { replyType: 'text', ownerMode: true, mediaLibrary: true, mediaKind: saved.mediaKind, folder: saved.folder, itemId: saved.item?.id || null }
-      }));
-      sendJson(res, 200, { ok: true, processed: true, replySent: true, replyType: 'text', ownerMode: true, mediaLibrary: true, mediaKind: saved.mediaKind, folder: saved.folder, itemId: saved.item?.id || null });
-      return true;
+    if (ownerIdentity.isOwner && ['image', 'video'].includes(incoming.messageType) && incoming.media?.url) {
+      const explicitLibrarySave = isLibraryMediaSaveRequest(incoming.text);
+      const captureActive = isLibraryCaptureActive(incoming);
+
+      if (explicitLibrarySave || captureActive) {
+        const libraryIncoming = {
+          ...incoming,
+          text: composeLibraryInstruction(incoming)
+        };
+        const saved = await saveOwnerWhatsappMediaImpl({ incoming: libraryIncoming });
+        const reply = `${librarySavedReply(saved)}${captureActive ? '\n\nPodés seguir mandándome fotos o videos; los voy guardando en esta sesión.' : ''}`;
+        const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'inbound',
+          text: incoming.text || `[${saved.mediaKind === 'video' ? 'Video' : 'Imagen'} guardado en biblioteca]`,
+          externalMessageId: incoming.messageId || null,
+          actorType: 'owner',
+          actorName: 'Owner',
+          metadata: {
+            media: incoming.media || null,
+            mediaLibrary: true,
+            mediaKind: saved.mediaKind,
+            folder: saved.folder,
+            itemId: saved.item?.id || null,
+            captureActive
+          }
+        }));
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: reply,
+          externalMessageId: sent?.messageId || sent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: {
+            replyType: 'text',
+            ownerMode: true,
+            mediaLibrary: true,
+            mediaKind: saved.mediaKind,
+            folder: saved.folder,
+            itemId: saved.item?.id || null,
+            captureActive
+          }
+        }));
+        sendJson(res, 200, {
+          ok: true,
+          processed: true,
+          replySent: true,
+          replyType: 'text',
+          ownerMode: true,
+          mediaLibrary: true,
+          mediaKind: saved.mediaKind,
+          folder: saved.folder,
+          itemId: saved.item?.id || null,
+          captureActive
+        });
+        return true;
+      }
+
+      rememberPendingOwnerMedia(incoming);
     }
 
     const registeredProvider = !ownerIdentity.isOwner && incoming.phone
@@ -563,6 +611,122 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     if (incoming.messageType === 'audio') logVoiceEvent('VOICE_INBOUND_RECEIVED', { ...incoming, mimeType: incoming.media?.mimeType || null });
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
+
+    if (ownerIdentity.isOwner && isLibraryCaptureStopRequest(resolvedMessage)) {
+      disableLibraryCapture(incoming);
+      const reply = '✅ Listo. Cerré la carga continua de Biblioteca. Las fotos o videos nuevos volverán a tratarse normalmente.';
+      const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'inbound',
+        text: resolvedMessage,
+        externalMessageId: incoming.messageId || null,
+        actorType: 'owner',
+        actorName: 'Owner',
+        metadata: { ownerMode: true, mediaLibraryCapture: 'stopped' }
+      }));
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: reply,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: { replyType: 'text', ownerMode: true, mediaLibraryCapture: 'stopped' }
+      }));
+      sendJson(res, 200, { ok: true, processed: true, replySent: true, ownerMode: true, mediaLibraryCapture: 'stopped' });
+      return true;
+    }
+
+    if (ownerIdentity.isOwner && ['text', 'audio'].includes(incoming.messageType) && isLibraryMediaSaveRequest(resolvedMessage)) {
+      const pending = consumePendingOwnerMedia(incoming);
+      enableLibraryCapture(incoming, resolvedMessage);
+
+      if (pending?.media?.url) {
+        const pendingIncoming = {
+          ...pending,
+          text: [
+            'Guardar en biblioteca.',
+            pending.text || '',
+            resolvedMessage
+          ].filter(Boolean).join(' ')
+        };
+        const saved = await saveOwnerWhatsappMediaImpl({ incoming: pendingIncoming });
+        const reply = `${librarySavedReply(saved)}\n\nModo Biblioteca activo. Mandame las siguientes fotos o videos y los iré guardando automáticamente; podés describir cada uno en el pie de la imagen.`;
+        const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'inbound',
+          text: resolvedMessage,
+          externalMessageId: incoming.messageId || null,
+          actorType: 'owner',
+          actorName: 'Owner',
+          metadata: {
+            ownerMode: true,
+            mediaLibrary: true,
+            mediaLibraryCapture: 'active',
+            pendingMediaSaved: true,
+            mediaKind: saved.mediaKind,
+            folder: saved.folder,
+            itemId: saved.item?.id || null
+          }
+        }));
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: reply,
+          externalMessageId: sent?.messageId || sent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: {
+            replyType: 'text',
+            ownerMode: true,
+            mediaLibrary: true,
+            mediaLibraryCapture: 'active',
+            pendingMediaSaved: true,
+            mediaKind: saved.mediaKind,
+            folder: saved.folder,
+            itemId: saved.item?.id || null
+          }
+        }));
+        sendJson(res, 200, {
+          ok: true,
+          processed: true,
+          replySent: true,
+          ownerMode: true,
+          mediaLibrary: true,
+          mediaLibraryCapture: 'active',
+          pendingMediaSaved: true,
+          mediaKind: saved.mediaKind,
+          folder: saved.folder,
+          itemId: saved.item?.id || null
+        });
+        return true;
+      }
+
+      const reply = '✅ Modo Biblioteca activo. Mandame las fotos o videos normalmente. Si escribís una descripción en cada archivo, la usaré para clasificarlos y etiquetarlos. Para terminar, decime “terminé de cargar a la biblioteca”.';
+      const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'inbound',
+        text: resolvedMessage,
+        externalMessageId: incoming.messageId || null,
+        actorType: 'owner',
+        actorName: 'Owner',
+        metadata: { ownerMode: true, mediaLibraryCapture: 'active' }
+      }));
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: reply,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: { replyType: 'text', ownerMode: true, mediaLibraryCapture: 'active' }
+      }));
+      sendJson(res, 200, { ok: true, processed: true, replySent: true, ownerMode: true, mediaLibraryCapture: 'active' });
+      return true;
+    }
 
     if (ownerIdentity.isOwner && isCreativeBriefRequestImpl(resolvedMessage)) {
       const reply = buildCreativeBriefImpl(resolvedMessage);
