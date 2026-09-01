@@ -28,6 +28,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Node
         uses: actions/setup-node@v4
@@ -65,4 +67,4 @@ jobs:
           node --test tests/ownerQuotationSplitSend.test.js
 
       - name: Diff check
-        run: git diff --check HEAD^ HEAD
+        run: git diff --check 7b6b12c755366170e52a73ee5341692e0b592202...HEAD
