@@ -19,13 +19,21 @@ const {
   disableLibraryCapture,
   enableLibraryCapture,
   hydrateOwnerWhatsappMedia,
+  hasUsefulLibraryDescription,
   isLibraryCaptureActive,
   isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
+  isLibraryMaintenanceRequest,
   isLibraryMediaSaveRequest,
+  isQuotationMediaRequest,
+  isSameProjectContextRequest,
   librarySavedReply,
+  maintainLastLibraryMedia,
   rememberPendingOwnerMedia,
-  saveOwnerWhatsappMedia
+  resolveLibraryDescription,
+  saveOwnerWhatsappMedia,
+  setLibraryLastSavedItem,
+  setLibraryProjectContext
 } = require('../services/prospectingMediaLibraryService');
 const { buildCreativeBrief, isCreativeBriefRequest } = require('../services/ownerCreativeBriefService');
 const {
@@ -478,7 +486,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-13' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-14' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -530,15 +538,52 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     if (ownerIdentity.isOwner && ['image', 'video'].includes(incoming.messageType)) {
       const explicitLibrarySave = isLibraryMediaSaveRequest(incoming.text);
       const captureActive = isLibraryCaptureActive(incoming);
+      const quotationMediaIntent = isQuotationMediaRequest(incoming.text);
 
-      if (explicitLibrarySave || captureActive) {
+      if ((explicitLibrarySave || captureActive) && !quotationMediaIntent) {
+        const description = resolveLibraryDescription(incoming);
+        if (!description) {
+          rememberPendingOwnerMedia(incoming);
+          const reply = '⚠️ Recibí el archivo, pero no lo voy a guardar todavía porque viene sin descripción. Decime qué muestra, materiales y tipo de trabajo; con esa respuesta lo clasificaré y guardaré. Si varias fotos son del mismo proyecto, también podés decirme “todas son del mismo proyecto” y describirlo una sola vez.';
+          const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+          await persistConversationEventImpl(buildConversationEvent({
+            incoming,
+            direction: 'outbound',
+            text: reply,
+            externalMessageId: sent?.messageId || sent?.id || null,
+            actorType: 'assistant',
+            actorName: 'ELAN IA',
+            metadata: {
+              replyType: 'text',
+              ownerMode: true,
+              mediaLibrary: true,
+              pendingDescription: true,
+              captureActive
+            }
+          }));
+          sendJson(res, 200, {
+            ok: true,
+            processed: true,
+            replySent: true,
+            ownerMode: true,
+            mediaLibrary: true,
+            pendingDescription: true,
+            captureActive
+          });
+          return true;
+        }
+
         try {
           const hydratedIncoming = await hydrateOwnerWhatsappMediaImpl({ incoming });
           const libraryIncoming = {
             ...hydratedIncoming,
-            text: composeLibraryInstruction(hydratedIncoming)
+            text: composeLibraryInstruction({
+              ...hydratedIncoming,
+              text: description
+            })
           };
           const saved = await saveOwnerWhatsappMediaImpl({ incoming: libraryIncoming });
+          setLibraryLastSavedItem(incoming, saved.item?.id || null);
           const reply = `${librarySavedReply(saved)}${captureActive ? '\n\nPodés seguir mandándome fotos o videos; los voy guardando en esta sesión.' : ''}`;
         const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
         await persistConversationEventImpl(buildConversationEvent({
@@ -664,6 +709,38 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
 
+    if (ownerIdentity.isOwner && isLibraryMaintenanceRequest(resolvedMessage)) {
+      try {
+        const result = await maintainLastLibraryMedia({ incoming, text: resolvedMessage });
+        let reply = '';
+        if (result?.action === 'archived') {
+          reply = '✅ Archivé la última pieza de la Biblioteca activa. Ya no aparecerá en los recursos disponibles.';
+        } else if (result?.action === 'needs_description') {
+          reply = 'Decime la descripción correcta de la última pieza y la actualizaré, incluyendo carpeta y etiquetas.';
+        } else {
+          reply = `✅ Actualicé la última pieza de Biblioteca → ${result?.item?.folder || result?.folder || 'clasificada'}.`;
+        }
+        const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        await persistConversationEventImpl(buildConversationEvent({
+          incoming,
+          direction: 'outbound',
+          text: reply,
+          externalMessageId: sent?.messageId || sent?.id || null,
+          actorType: 'assistant',
+          actorName: 'ELAN IA',
+          metadata: { replyType: 'text', ownerMode: true, mediaLibraryMaintenance: result?.action || true }
+        }));
+        sendJson(res, 200, { ok: true, processed: true, replySent: true, ownerMode: true, mediaLibraryMaintenance: result?.action || true });
+        return true;
+      } catch (maintenanceError) {
+        const code = String(maintenanceError?.code || 'CONNECT_MEDIA_UPDATE_FAILED');
+        const reply = `⚠️ No pude actualizar la pieza de Biblioteca. Código: ${code}.`;
+        await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+        sendJson(res, 200, { ok: false, processed: false, replySent: true, ownerMode: true, mediaLibraryMaintenanceError: code });
+        return true;
+      }
+    }
+
     if (ownerIdentity.isOwner && isLibraryCaptureStopRequest(resolvedMessage)) {
       disableLibraryCapture(incoming);
       const reply = '✅ Listo. Cerré la carga continua de Biblioteca. Las fotos o videos nuevos volverán a tratarse normalmente.';
@@ -697,18 +774,33 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     ) {
       const pending = consumePendingOwnerMedia(incoming);
       enableLibraryCapture(incoming, resolvedMessage);
+      if (isSameProjectContextRequest(resolvedMessage) && hasUsefulLibraryDescription(resolvedMessage)) {
+        setLibraryProjectContext(incoming, resolvedMessage);
+      }
 
       if (pending) {
+        const description = hasUsefulLibraryDescription(resolvedMessage)
+          ? resolvedMessage
+          : resolveLibraryDescription(pending);
+        if (!description) {
+          const reply = 'Necesito una descripción del archivo antes de guardarlo. Indicame qué muestra, materiales y tipo de trabajo.';
+          const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+          sendJson(res, 200, { ok: true, processed: true, replySent: true, ownerMode: true, mediaLibrary: true, pendingDescription: true });
+          return true;
+        }
+        if (isSameProjectContextRequest(resolvedMessage)) {
+          setLibraryProjectContext(incoming, resolvedMessage);
+        }
         const hydratedPending = await hydrateOwnerWhatsappMediaImpl({ incoming: pending });
         const pendingIncoming = {
           ...hydratedPending,
           text: [
             'Guardar en biblioteca.',
-            hydratedPending.text || '',
-            resolvedMessage
+            description
           ].filter(Boolean).join(' ')
         };
         const saved = await saveOwnerWhatsappMediaImpl({ incoming: pendingIncoming });
+        setLibraryLastSavedItem(incoming, saved.item?.id || null);
         const reply = `${librarySavedReply(saved)}\n\nModo Biblioteca activo. Mandame las siguientes fotos o videos y los iré guardando automáticamente; podés describir cada uno en el pie de la imagen.`;
         const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
         await persistConversationEventImpl(buildConversationEvent({
@@ -783,6 +875,49 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       }));
       sendJson(res, 200, { ok: true, processed: true, replySent: true, ownerMode: true, mediaLibraryCapture: 'active' });
       return true;
+    }
+
+    if (
+      ownerIdentity.isOwner &&
+      ['text', 'audio'].includes(incoming.messageType) &&
+      isLibraryCaptureActive(incoming)
+    ) {
+      const pending = consumePendingOwnerMedia(incoming);
+      if (pending && hasUsefulLibraryDescription(resolvedMessage)) {
+        if (isSameProjectContextRequest(resolvedMessage)) {
+          setLibraryProjectContext(incoming, resolvedMessage);
+        }
+        try {
+          const hydratedPending = await hydrateOwnerWhatsappMediaImpl({ incoming: pending });
+          const pendingIncoming = {
+            ...hydratedPending,
+            text: composeLibraryInstruction({
+              ...hydratedPending,
+              text: resolvedMessage
+            })
+          };
+          const saved = await saveOwnerWhatsappMediaImpl({ incoming: pendingIncoming });
+          setLibraryLastSavedItem(incoming, saved.item?.id || null);
+          const reply = `${librarySavedReply(saved)}\n\nLa descripción quedó aplicada al archivo pendiente.`;
+          const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
+          await persistConversationEventImpl(buildConversationEvent({
+            incoming,
+            direction: 'outbound',
+            text: reply,
+            externalMessageId: sent?.messageId || sent?.id || null,
+            actorType: 'assistant',
+            actorName: 'ELAN IA',
+            metadata: { replyType: 'text', ownerMode: true, mediaLibrary: true, pendingDescriptionResolved: true }
+          }));
+          sendJson(res, 200, { ok: true, processed: true, replySent: true, ownerMode: true, mediaLibrary: true, pendingDescriptionResolved: true });
+          return true;
+        } catch (pendingError) {
+          rememberPendingOwnerMedia(pending);
+          throw pendingError;
+        }
+      } else if (pending) {
+        rememberPendingOwnerMedia(pending);
+      }
     }
 
     if (ownerIdentity.isOwner && isCreativeBriefRequestImpl(resolvedMessage)) {
