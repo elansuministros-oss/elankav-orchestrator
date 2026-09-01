@@ -62,12 +62,12 @@ function looksLikeCommercialIntelligenceQuery(value) {
   if (!text) return false;
 
   const operationalSubject =
-    /\b(mensaje|mensajes|correo|correos|email|emails|pendiente|pendientes|respuesta|respuestas|responder|seguimiento|seguimientos|cliente|clientes|conversacion|conversaciones|rendimiento|negocio|ventas|cotizacion|cotizaciones|campana|campanas|whatsapp|wasap|wsp|messenger|instagram|atender|atencion)\b/.test(text);
+    /\b(mensaje|mensajes|correo|correos|email|emails|pendiente|pendientes|respuesta|respuestas|responder|seguimiento|seguimientos|cliente|clientes|conversacion|conversaciones|rendimiento|negocio|ventas|cotizacion|cotizaciones|campana|campanas|whatsapp|wasap|wsp|messenger|instagram|atender|atienda|atiendo|atencion|personalmente)\b/.test(text);
 
   if (!operationalSubject) return false;
 
   const operationalQuestion =
-    /\b(cuantos?|cuantas?|que|quien|quienes|como|cual|cuales|decime|dime|mostra|mostrar|muestra|revisa|revisar|resume|resumen|hoy|ayer|semana|mes|pendiente|pendientes|sin respuesta|atender|atencion|rendimiento|recibimos|recibi|llegaron|entraron|respondio|respondieron)\b/.test(text);
+    /\b(cuantos?|cuantas?|que|quien|quienes|como|cual|cuales|decime|dime|mostra|mostrar|muestra|revisa|revisar|resume|resumen|hoy|ayer|semana|mes|pendiente|pendientes|sin respuesta|atender|atienda|atiendo|atencion|personalmente|rendimiento|recibimos|recibi|llegaron|entraron|respondio|respondieron)\b/.test(text);
 
   return operationalQuestion;
 }
