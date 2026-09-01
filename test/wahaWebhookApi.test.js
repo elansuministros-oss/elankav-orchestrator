@@ -686,6 +686,241 @@ test('Error al guardar multimedia responde código específico y no cae al fallb
   assert.doesNotMatch(sent.at(-1).text, /módulo interno falló/);
 });
 
+test('Modo Biblioteca no guarda archivo sin descripción y espera texto posterior', async () => {
+  const sent = [];
+  let savedCalls = 0;
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-start-description-gate',
+        session: 'ELANKAV',
+        payload: { from: '50588388940@c.us', body: 'Activa modo biblioteca', fromMe: false }
+      }
+    }),
+    res: createResponse(),
+    sendJson: createSendJsonRecorder().sendJson,
+    dependencies: {
+      async processMessage() { throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'start-desc-gate' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  const recorder = createSendJsonRecorder();
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-image-no-description',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          type: 'image',
+          hasMedia: true,
+          media: { url: '/api/files/no-desc.jpg', mimetype: 'image/jpeg', filename: 'no-desc.jpg' }
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async saveOwnerWhatsappMedia() { savedCalls += 1; throw new Error('SAVE_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'ask-description' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(savedCalls, 0);
+  assert.equal(recorder.calls[0].payload.pendingDescription, true);
+  assert.match(sent.at(-1).text, /no lo voy a guardar todavía/i);
+});
+
+test('Descripción posterior guarda el archivo pendiente y lo clasifica', async () => {
+  const sent = [];
+  const saved = [];
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-start-pending-description',
+        session: 'ELANKAV',
+        payload: { from: '50588388940@c.us', body: 'Activa modo biblioteca', fromMe: false }
+      }
+    }),
+    res: createResponse(),
+    sendJson: createSendJsonRecorder().sendJson,
+    dependencies: {
+      async processMessage() { throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'start-pending' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-pending-image-description',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          type: 'image',
+          media: { url: '/api/files/pending-description.jpg', mimetype: 'image/jpeg', filename: 'pending-description.jpg' }
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: createSendJsonRecorder().sendJson,
+    dependencies: {
+      async sendWahaText(input) { sent.push(input); return { id: 'pending-ask' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  const recorder = createSendJsonRecorder();
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-description-answer',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'Fachada en ACM negro con letras PVC de 10 mm y acrílico UV',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async hydrateOwnerWhatsappMedia({ incoming }) { return incoming; },
+      async saveOwnerWhatsappMedia({ incoming }) {
+        saved.push(incoming);
+        return {
+          item: { id: 'saved-after-description' },
+          folder: 'rotulos_fachadas',
+          folderLabel: 'Rótulos y fachadas',
+          tags: ['fachada','acm','pvc','acrilico','image'],
+          mediaKind: 'image'
+        };
+      },
+      async sendWahaText(input) { sent.push(input); return { id: 'saved-description-reply' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(saved.length, 1);
+  assert.match(saved[0].text, /Fachada en ACM negro/);
+  assert.equal(recorder.calls[0].payload.pendingDescriptionResolved, true);
+  assert.match(sent.at(-1).text, /guardado en Biblioteca multimedia/);
+});
+
+test('Contexto de mismo proyecto permite varias fotos sin repetir descripción', async () => {
+  const sent = [];
+  const saved = [];
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-project-context-start',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'Activa modo biblioteca. Todas son del mismo proyecto Repuestos y Accesorios: fachada en ACM negro con letras PVC y acrílico UV.',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: createSendJsonRecorder().sendJson,
+    dependencies: {
+      async processMessage() { throw new Error('MODEL_SHOULD_NOT_RUN'); },
+      async sendWahaText(input) { sent.push(input); return { id: 'project-context-reply' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  for (const id of ['project-angle-1', 'project-angle-2']) {
+    const recorder = createSendJsonRecorder();
+    await handleWahaWebhookApi({
+      req: createRequest({
+        body: {
+          event: 'message',
+          id,
+          session: 'ELANKAV',
+          payload: {
+            from: '50588388940@c.us',
+            type: 'image',
+            media: { url: `/api/files/${id}.jpg`, mimetype: 'image/jpeg', filename: `${id}.jpg` }
+          }
+        }
+      }),
+      res: createResponse(),
+      sendJson: recorder.sendJson,
+      dependencies: {
+        async hydrateOwnerWhatsappMedia({ incoming }) { return incoming; },
+        async saveOwnerWhatsappMedia({ incoming }) {
+          saved.push(incoming);
+          return {
+            item: { id: `saved-${id}` },
+            folder: 'rotulos_fachadas',
+            folderLabel: 'Rótulos y fachadas',
+            tags: ['fachada','acm','pvc','image'],
+            mediaKind: 'image'
+          };
+        },
+        async sendWahaText(input) { sent.push(input); return { id: `reply-${id}` }; },
+        async persistConversationEvent() { return { ok: true }; }
+      }
+    });
+    assert.equal(recorder.calls[0].payload.mediaLibrary, true);
+  }
+
+  assert.equal(saved.length, 2);
+  assert.match(saved[0].text, /Repuestos y Accesorios/);
+  assert.match(saved[1].text, /Repuestos y Accesorios/);
+});
+
+test('Mantenimiento permite corregir o archivar la última pieza sin borrar el flujo de cotización', async () => {
+  const sent = [];
+  const maintenanceCalls = [];
+
+  const recorder = createSendJsonRecorder();
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'library-maintenance-edit-last',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'Corrige la última foto: fachada ACM negro con letras PVC y acrílico UV',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async maintainLastLibraryMedia(input) {
+        maintenanceCalls.push(input);
+        return { action: 'updated', item: { id: 'last-1', folder: 'rotulos_fachadas' } };
+      },
+      async sendWahaText(input) { sent.push(input); return { id: 'maintenance-edit-reply' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(maintenanceCalls.length, 1);
+  assert.equal(recorder.calls[0].payload.mediaLibraryMaintenance, 'updated');
+  assert.match(sent[0].text, /Actualicé/);
+});
+
 test('GET /webhook/inbound reports READY', async () => {
   const req = createRequest({ method: 'GET', body: null });
   const res = createResponse();
