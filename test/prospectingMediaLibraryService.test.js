@@ -184,6 +184,18 @@ test('normaliza URL loopback de WAHA hacia un host autorizado sin abrir SSRF', (
   );
 });
 
+test('rebasa host interno desconocido de WAHA hacia el origen autorizado sin usar su origen original', () => {
+  const rewritten = canonicalizeWahaMediaUrl(
+    'http://172.18.0.7:3000/api/files/abc123.jpg?token=xyz',
+    ['https://waha.elankav.com']
+  );
+
+  assert.equal(
+    rewritten,
+    'https://waha.elankav.com/api/files/abc123.jpg?token=xyz'
+  );
+});
+
 test('rechaza URLs multimedia fuera de los hosts WAHA autorizados', async () => {
   let fetched = false;
   await assert.rejects(
