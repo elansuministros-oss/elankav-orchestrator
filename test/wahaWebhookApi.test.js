@@ -7,7 +7,8 @@ const {
   extractIncoming,
   handleWahaWebhookApi,
   isPresentationAudioRequest,
-  normalizePhone
+  normalizePhone,
+  resolveOwnerIdentityFromIncoming
 } = require('../api/wahaWebhookApi');
 
 test.afterEach(() => {
@@ -608,4 +609,21 @@ test('POST /webhook/inbound falla transcripción y envía mensaje visible', asyn
   assert.equal(texts[0].chatId, '50584817885@c.us');
   assert.equal(texts[0].text, 'No pude escuchar correctamente la nota de voz. Podés enviarla nuevamente o escribirme el mensaje.');
   assert.equal(recorder.calls[0].payload.ok, false);
+});
+
+
+test('WhatsApp Web Owner LID wins over a misleading phone candidate', () => {
+  const owner = resolveOwnerIdentityFromIncoming({
+    senderRaw: '215440458567779@lid',
+    chatId: '215440458567779@lid',
+    phone: '50512345678',
+    identityCandidates: [
+      '50512345678@c.us',
+      '215440458567779@lid'
+    ]
+  });
+
+  assert.equal(owner.isOwner, true);
+  assert.equal(owner.phone, '50588388940');
+  assert.equal(owner.matchedAlias, true);
 });
