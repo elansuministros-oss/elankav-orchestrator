@@ -1,5 +1,7 @@
 'use strict';
 
+const { createHmac } = require('node:crypto');
+
 class OwnerBusinessConnectError extends Error {
   constructor(code, message, statusCode, details = null) {
     super(message || code || 'OWNER_BUSINESS_CONNECT_ERROR');
@@ -17,12 +19,33 @@ function config(env = process.env) {
   return { baseUrl, token };
 }
 function headers(token, extra = {}) { return { Accept:'application/json', Authorization:`Bearer ${token}`, 'Content-Type':'application/json', 'X-Elankav-Platform':'ELAN_IA', 'X-Elankav-Actor-Type':'owner', 'X-Elankav-Role':'owner', 'X-Elankav-User-Id':'owner-whatsapp', 'X-Elankav-Source':'OWNER_WHATSAPP', ...extra }; }
+function prospectingInternalToken(env = process.env) {
+  const explicit = String(env.CONNECT_INTERNAL_API_TOKEN || '').trim();
+  if (explicit) return explicit;
+  const root = String(env.VQS_API_TOKEN || '').trim();
+  if (!root) return '';
+  return createHmac('sha256', root)
+    .update('ELANKAV_CHANNEL_INTERNAL_V1')
+    .digest('hex');
+}
 function assertAllowedPath(path, method) { const normalizedPath=String(path||''); if(normalizedPath.startsWith('/api/v1/business/vqs/'))return; if(normalizedPath.startsWith('/api/v1/providers')&&method==='GET')return; if(normalizedPath.startsWith('/api/v1/prospecting/')&&method==='GET')return; throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED','Ruta no autorizada para Owner Business Gateway.',403); }
 async function requestConnect(path, options = {}, env = process.env) {
   const { baseUrl, token }=config(env); const method=String(options.method||'GET').toUpperCase();
   if(!['GET','POST','PATCH','DELETE','PUT'].includes(method))throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED','Método no autorizado para Owner Business Gateway.',405);
   assertAllowedPath(path,method);
-  const response=await fetch(`${baseUrl}${path}`,{method,headers:headers(token,options.headers||{}),...(options.body===undefined?{}:{body:JSON.stringify(options.body)})});
+  const authToken = String(path || '').startsWith('/api/v1/prospecting/')
+    ? prospectingInternalToken(env)
+    : token;
+  if (!authToken) {
+    throw new OwnerBusinessConnectError(
+      String(path || '').startsWith('/api/v1/prospecting/')
+        ? 'CONNECT_INTERNAL_API_TOKEN_REQUIRED'
+        : 'VQS_API_TOKEN_REQUIRED',
+      'No está configurada la credencial interna requerida por CONNECT.',
+      503
+    );
+  }
+  const response=await fetch(`${baseUrl}${path}`,{method,headers:headers(authToken,options.headers||{}),...(options.body===undefined?{}:{body:JSON.stringify(options.body)})});
   const payload=await response.json().catch(()=>({}));
   if(!response.ok){const nested=payload&&typeof payload.error==='object'?payload.error:{};const code=String(payload.code||nested.code||'CONNECT_REQUEST_FAILED');const message=String((typeof payload.error==='string'?payload.error:nested.message)||payload.message||'CONNECT rechazó la operación.');throw new OwnerBusinessConnectError(code,message,response.status,nested.details||payload.details||null)}
   return payload;
@@ -179,5 +202,5 @@ async function recordElanGoHeartbeat(input,env){return requestElanGoControl('/ap
 module.exports={
   OwnerBusinessConnectError,applyPayment,createAndProcessDesign,createCustomer,createDesignRequest,createLogisticsRule,createOwnerCustomer,createOwnerFamily,createOwnerProvider,createOwnerSeller,createPriceAuthorization,createQuotation,createWorkOrder,
   deactivateOwnerCustomer,deactivateOwnerFamily,deactivateOwnerProvider,deactivateOwnerSeller,deleteOwnerSeller,getDesignRequest,getPayment,getQuotation,listAuthorizedPrices,listCustomers,listLogisticsRules,listOwnerCustomers,listOwnerFamily,listOwnerProviders,listOwnerSellers,listPayments,listPriceAuthorizations,listProviders,listQuotations,listWorkOrders,
-  executeMarketplaceTool,getElanGoControl,getProspectTimeline,marketplaceCreateDemand,marketplaceCreateInquiry,marketplaceGetSearchMission,marketplaceListDemands,marketplaceListDiscoveries,marketplaceListDiscoveryBuyers,marketplaceListDiscoveryInterests,marketplaceRecordSearchMissionResults,marketplaceRunMatching,marketplaceUpdateDiscoveryInterest,marketplaceUpdateSearchMissionStatus,marketplaceUpsertDiscovery,marketplaceUpsertDiscoveryBuyer,normalizeQuotationSource,recordElanGoHeartbeat,removeQuotationImage,requestConnect,requestElanGoControl,requestMarketplaceRuntime,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProspects,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateElanGoControl,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
+  executeMarketplaceTool,getElanGoControl,getProspectTimeline,marketplaceCreateDemand,marketplaceCreateInquiry,marketplaceGetSearchMission,marketplaceListDemands,marketplaceListDiscoveries,marketplaceListDiscoveryBuyers,marketplaceListDiscoveryInterests,marketplaceRecordSearchMissionResults,marketplaceRunMatching,marketplaceUpdateDiscoveryInterest,marketplaceUpdateSearchMissionStatus,marketplaceUpsertDiscovery,marketplaceUpsertDiscoveryBuyer,normalizeQuotationSource,recordElanGoHeartbeat,removeQuotationImage,prospectingInternalToken,requestConnect,requestElanGoControl,requestMarketplaceRuntime,resolveCatalogPricing,reviseDesignRequest,revokePriceAuthorization,searchCustomers,searchOwnerContacts,searchProspects,searchProviders,sendDesignWhatsApp,sendOwnerWhatsApp,sendQuotationWhatsApp,setOwnerSellerPlatforms,updateElanGoControl,updateOwnerCustomer,updateOwnerFamily,updateOwnerProvider,updateOwnerSeller,updateQuotation,uploadQuotationImage
 };
