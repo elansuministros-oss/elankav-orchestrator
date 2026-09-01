@@ -38,6 +38,7 @@ jobs:
     timeout-minutes: 12
     env:
       NPM_CONFIG_CACHE: /tmp/elankav-orchestrator-npm-cache
+      NPM_CONFIG_PACKAGE_LOCK_ONLY: "false"
 
     steps:
       - uses: actions/checkout@v4
