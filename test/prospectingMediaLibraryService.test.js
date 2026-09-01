@@ -6,6 +6,7 @@ const {
   classifyFolder,
   classifyTags,
   isLibraryMediaSaveRequest,
+  saveOwnerWhatsappMedia,
   titleFromInstruction
 } = require('../services/prospectingMediaLibraryService');
 
@@ -42,4 +43,28 @@ test('clasifica videos de caja de luz y conserva señal de video', () => {
   assert.ok(tags.includes('led'));
   assert.ok(tags.includes('iluminado'));
   assert.ok(tags.includes('video'));
+});
+
+
+test('rechaza URLs multimedia fuera de los hosts WAHA autorizados', async () => {
+  let fetched = false;
+  await assert.rejects(
+    saveOwnerWhatsappMedia({
+      incoming: {
+        messageType: 'image',
+        text: 'Carga esta imagen a la biblioteca. Fachada ACM.',
+        media: {
+          url: 'http://169.254.169.254/latest/meta-data',
+          mimeType: 'image/jpeg',
+          filename: 'fachada.jpg'
+        }
+      },
+      fetchImpl: async () => {
+        fetched = true;
+        throw new Error('No debe ejecutarse.');
+      }
+    }),
+    (error) => error && error.code === 'WAHA_MEDIA_HOST_NOT_ALLOWED'
+  );
+  assert.equal(fetched, false);
 });
