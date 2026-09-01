@@ -10,13 +10,19 @@ const {
   composeLibraryInstruction,
   consumePendingOwnerMedia,
   enableLibraryCapture,
+  hasUsefulLibraryDescription,
   hydrateOwnerWhatsappMedia,
   isLibraryCaptureActive,
   isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
+  isLibraryMaintenanceRequest,
   isLibraryMediaSaveRequest,
+  isQuotationMediaRequest,
+  isSameProjectContextRequest,
   rememberPendingOwnerMedia,
+  resolveLibraryDescription,
   saveOwnerWhatsappMedia,
+  setLibraryProjectContext,
   titleFromInstruction
 } = require('../services/prospectingMediaLibraryService');
 
@@ -46,6 +52,29 @@ test('distingue activar Biblioteca multimedia de agregar imagen a cotización', 
   assert.equal(isLibraryCaptureStartRequest('Agregá esta imagen a la cotización'), false);
   assert.equal(isLibraryMediaSaveRequest('Agregá esta imagen a la cotización'), false);
   assert.equal(isLibraryMediaSaveRequest('Mandale esta imagen al cliente'), false);
+});
+
+test('requiere descripción útil y permite contexto compartido de proyecto', () => {
+  const owner = { session: 'ELANKAV', chatId: '50588388940@c.us' };
+  enableLibraryCapture(owner, 'Activa modo biblioteca');
+
+  assert.equal(hasUsefulLibraryDescription(''), false);
+  assert.equal(hasUsefulLibraryDescription('Activa modo biblioteca'), false);
+  assert.equal(resolveLibraryDescription({ ...owner, text: '' }), '');
+
+  const project = 'Todas son del mismo proyecto Repuestos y Accesorios: fachada en ACM negro, letras PVC y acrílico UV.';
+  assert.equal(isSameProjectContextRequest(project), true);
+  assert.equal(hasUsefulLibraryDescription(project), true);
+  setLibraryProjectContext(owner, project);
+
+  assert.match(resolveLibraryDescription({ ...owner, text: '' }), /ACM negro/);
+});
+
+test('separa mantenimiento y cotización de Biblioteca', () => {
+  assert.equal(isLibraryMaintenanceRequest('Corrige la última foto: fachada ACM con PVC'), true);
+  assert.equal(isLibraryMaintenanceRequest('Borra la última imagen'), true);
+  assert.equal(isQuotationMediaRequest('Agregá esta imagen a la cotización'), true);
+  assert.equal(isQuotationMediaRequest('Guardá esta imagen en la biblioteca'), false);
 });
 
 test('activa una sesión natural para recibir varias imágenes y conserva el contexto', () => {
