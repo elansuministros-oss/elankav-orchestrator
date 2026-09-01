@@ -22,6 +22,7 @@ const CONTRACT_SPECS = Object.freeze({
     files: Object.freeze([
       'test/ownerProviderRecruitmentMessagePatch.test.js',
       'test/providerRecruitmentFollowupWorkerService.test.js',
+      'test/providerAutonomousInvestigation.test.js',
       'tests/ownerProviderMessageRegression.test.js',
       'tests/ownerProviderStructuredContinuity.test.js'
     ])
