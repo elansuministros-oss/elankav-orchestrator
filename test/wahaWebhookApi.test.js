@@ -285,6 +285,100 @@ test('Owner puede pedir brief de video por nota transcrita en lenguaje natural',
   assert.equal(recorder.calls[0].payload.ownerCreativeBrief, true);
 });
 
+test('Activa modo biblioteca entra al capturador multimedia y no al modo conversacional viejo', async () => {
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  let modelCalls = 0;
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-library-explicit-mode-01',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'Activa modo biblioteca',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() {
+        modelCalls += 1;
+        return { reply: 'Modo biblioteca conversacional viejo.', context: { ownerMode: true } };
+      },
+      async sendWahaText(input) {
+        sent.push(input);
+        return { id: 'library-explicit-mode-reply' };
+      },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(modelCalls, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Modo Biblioteca multimedia activo/);
+  assert.match(sent[0].text, /cotización/);
+  assert.equal(recorder.calls[0].payload.mediaLibraryCapture, 'active');
+});
+
+test('Agregar imagen a cotización conserva el flujo existente y no guarda en Biblioteca', async () => {
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  let modelCalls = 0;
+  let librarySaves = 0;
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-quote-image-preserved-01',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          type: 'image',
+          caption: 'ELAN, agregá esta imagen a la cotización',
+          media: {
+            url: '/api/files/quote-image.jpg',
+            mimetype: 'image/jpeg',
+            filename: 'quote-image.jpg'
+          }
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() {
+        modelCalls += 1;
+        return {
+          reply: 'Imagen agregada a la cotización activa.',
+          model: 'elankav-owner-command',
+          context: { ownerMode: true, platform: 'ELANVISUAL' }
+        };
+      },
+      async saveOwnerWhatsappMedia() {
+        librarySaves += 1;
+        throw new Error('LIBRARY_SHOULD_NOT_RUN');
+      },
+      async sendWahaText(input) {
+        sent.push(input);
+        return { id: 'quote-image-reply' };
+      },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(librarySaves, 0);
+  assert.equal(modelCalls, 1);
+  assert.equal(sent.at(-1).text, 'Imagen agregada a la cotización activa.');
+  assert.equal(recorder.calls[0].payload.ownerMode, true);
+  assert.equal(recorder.calls[0].payload.mediaLibrary, undefined);
+});
+
 test('Owner activa Biblioteca en lenguaje natural y las siguientes imágenes se guardan con su descripción', async () => {
   const recorder1 = createSendJsonRecorder();
   const sent = [];
