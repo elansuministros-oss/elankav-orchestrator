@@ -113,7 +113,11 @@ function formatSupervisorStatus(result) {
     execution.buildCommand ? `Build: ${execution.buildCommand}` : null,
     execution.service ? `Servicio: ${execution.service}` : null,
     execution.status ? `Estado: ${execution.status}` : null,
-    execution.listening ? `Puerto verificado: ${execution.listening}` : null
+    execution.listening ? `Puerto verificado: ${execution.listening}` : null,
+    execution.whatsappCoreProtected === true ? 'WhatsApp Core: PROTECTED' : null,
+    execution.whatsappCoreContract ? `Contrato WhatsApp: ${execution.whatsappCoreContract}` : null,
+    execution.healthEndpoint ? 'Orchestrator health: OK' : null,
+    execution.bridgeEndpoint ? 'WAHA inbound bridge: READY' : null
   ].filter(Boolean).join('\n');
 }
 
