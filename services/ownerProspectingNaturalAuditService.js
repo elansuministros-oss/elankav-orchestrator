@@ -44,7 +44,7 @@ function detectOwnerProspectingNaturalAudit(message) {
     /\b(que\s+podemos\s+hacer\s+para\s+mejorar|como\s+podemos\s+mejorar|como\s+lo\s+mejoramos|que\s+recomendas|que\s+recomiendas|como\s+mejoramos|que\s+cambiarias)\b/.test(text);
 
   const asksInterest =
-    /\b(hay\s+alguien\s+interesad|hay\s+alguno\s+interesad|quien(?:es)?\s+esta(?:n)?\s+interesad|algun\s+interesad|ves\s+interes)\b/.test(text);
+    /\b(hay\s+alguien\s+interesad[oa]s?|hay\s+alguno\s+interesad[oa]s?|quien(?:es)?\s+esta(?:n)?\s+interesad[oa]s?|algun\s+interesad[oa]?|ves\s+interes)\b/.test(text);
 
   const asksBroad =
     /\b(como\s+va\s+todo\s+(?:con\s+)?(?:las\s+)?empresas|como\s+vamos\s+con\s+todo|contame\s+como\s+va|cuentame\s+como\s+va)\b/.test(text);
