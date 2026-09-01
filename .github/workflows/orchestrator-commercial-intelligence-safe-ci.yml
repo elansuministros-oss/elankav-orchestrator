@@ -1,0 +1,68 @@
+name: Orchestrator Commercial Intelligence Safe CI
+
+on:
+  push:
+    branches:
+      - fix/ORCHESTRATOR-COMMERCIAL-INTELLIGENCE-SAFE-02
+    paths:
+      - 'adapters/connectCommercialIntelligenceAdapter.js'
+      - 'adapters/openaiAdapter.js'
+      - 'services/ownerCommercialIntelligenceService.js'
+      - 'services/openaiService.js'
+      - 'tests/ownerCommercialIntelligenceService.test.js'
+      - '.github/workflows/orchestrator-commercial-intelligence-safe-ci.yml'
+  pull_request:
+    paths:
+      - 'adapters/connectCommercialIntelligenceAdapter.js'
+      - 'adapters/openaiAdapter.js'
+      - 'services/ownerCommercialIntelligenceService.js'
+      - 'services/openaiService.js'
+      - 'tests/ownerCommercialIntelligenceService.test.js'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-commercial-safe-npm-cache
+      NPM_CONFIG_PACKAGE_LOCK: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci --include=dev --ignore-scripts
+
+      - name: Syntax
+        run: |
+          node --check adapters/connectCommercialIntelligenceAdapter.js
+          node --check adapters/openaiAdapter.js
+          node --check services/ownerCommercialIntelligenceService.js
+          node --check services/openaiService.js
+          node --check tests/ownerCommercialIntelligenceService.test.js
+
+      - name: Commercial intelligence tests
+        run: node --test tests/ownerCommercialIntelligenceService.test.js
+
+      - name: WhatsApp and identity regressions
+        run: |
+          node --test tests/wahaLidAlternateIdentity.test.js
+          node --test tests/whatsappCommercialIdentity.test.js
+
+      - name: Seller regressions
+        run: |
+          node --test tests/ownerSellerRead.test.js
+          node --test tests/ownerSellerRegistration.test.js
+
+      - name: Quotation regressions
+        run: |
+          node --test tests/ownerQuotationLookupSend.test.js
+          node --test tests/ownerQuotationSplit.test.js
+          node --test tests/ownerQuotationSplitSend.test.js
+
+      - name: Diff check
+        run: git diff --check HEAD^ HEAD
