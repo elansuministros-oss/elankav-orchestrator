@@ -97,10 +97,11 @@ function attributionNote(audit) {
     : 'Ojo: las respuestas que todavía no hayan sido atribuidas automáticamente desde correo o WhatsApp a Prospecting no entran en este conteo.';
 }
 
-function latestResponseLines(audit, limit = 4) {
-  const rows = Array.isArray(audit?.outreach?.latestResponses)
-    ? audit.outreach.latestResponses.slice(0, limit)
+function latestResponseLines(audit, limit = 4, predicate = null) {
+  const base = Array.isArray(audit?.outreach?.latestResponses)
+    ? audit.outreach.latestResponses
     : [];
+  const rows = (typeof predicate === 'function' ? base.filter(predicate) : base).slice(0, limit);
   if (!rows.length) return [];
   return rows.map((row, index) => {
     const company = row.companyName || 'empresa sin nombre';
@@ -190,7 +191,7 @@ function formatAudit(audit, intent) {
       number(o.negativeSignals) > 0
         ? `Sí veo ${number(o.negativeSignals)} respuesta(s) con señales de molestia, rechazo, spam o solicitud de no contacto.`
         : 'No tengo registrada ninguna respuesta con señales de molestia, spam o solicitud de no contacto.',
-      ...latestResponseLines(audit).filter((_, index) => index < 3),
+      ...latestResponseLines(audit, 3, row => row.negativeSignal === true),
       attributionNote(audit)
     ];
     return lines.filter(Boolean).join('\n');
@@ -201,7 +202,7 @@ function formatAudit(audit, intent) {
       number(o.positiveSignals) > 0
         ? `Veo ${number(o.positiveSignals)} respuesta(s) con señales positivas, como interés, solicitud de información, precio, propuesta o contacto.`
         : 'Todavía no tengo respuestas registradas con señales claras de interés.',
-      ...latestResponseLines(audit),
+      ...latestResponseLines(audit, 4, row => row.positiveSignal === true),
       attributionNote(audit)
     ].filter(Boolean).join('\n');
   }
