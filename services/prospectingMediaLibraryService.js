@@ -227,6 +227,14 @@ function isSameProjectContextRequest(text) {
   return /\b(mismo proyecto|misma obra|mismo trabajo|mismas fotos|varios angulos|varios ángulos|todas estas fotos|todas son del proyecto|son del mismo proyecto)\b/.test(value);
 }
 
+function isQuotationMediaRequest(text) {
+  const value = normalizeText(text);
+  if (!value) return false;
+  const quote = /\b(cotizacion|presupuesto|propuesta)\b/.test(value);
+  const action = /\b(agrega|agregar|agregalo|agregala|pone|poner|incluye|incluir|adjunta|adjuntar)\b/.test(value);
+  return quote && action;
+}
+
 function isLibraryMaintenanceRequest(text) {
   const value = normalizeText(text);
   if (!value) return false;
@@ -671,6 +679,7 @@ module.exports = {
   isLibraryCaptureStartRequest,
   isLibraryCaptureStopRequest,
   isLibraryMaintenanceRequest,
+  isQuotationMediaRequest,
   isSameProjectContextRequest,
   isLibraryMediaSaveRequest,
   librarySavedReply,
