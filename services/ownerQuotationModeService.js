@@ -9,7 +9,6 @@ const {
 } = require('./ownerBusinessConnectClient');
 const { updateContext } = require('./ownerBusinessContextService');
 const {
-  parseDimensions,
   parsePaymentTerms,
   prepareAndCreateQuotation
 } = require('./ownerQuotationService');
@@ -127,6 +126,15 @@ function extractPhone(text) {
   const match = raw.match(/(?:\+?505[\s-]?)?([578]\d{3}[\s-]?\d{4})\b/);
   if (!match) return '';
   return match[0].replace(/\D/g, '').replace(/^505(?=\d{8}$)/, '');
+}
+
+function parseDimensions(text) {
+  const match = normalize(text).match(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\b/);
+  if (!match) return {};
+  return {
+    width: Number(match[1].replace(',', '.')),
+    height: Number(match[2].replace(',', '.'))
+  };
 }
 
 function parsePrice(text) {
