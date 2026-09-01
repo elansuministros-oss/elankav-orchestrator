@@ -5,8 +5,9 @@
   "description": "Centro de control remoto del ecosistema ELANKAV",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test"
+    "start": "node --require ./services/ownerBusinessQuotationItemPatch.js --require ./services/liveCopilotMessagePatch.js --require ./services/sellerBusinessRuntimeIntegration.js server.js",
+    "test": "node --test",
+    "postinstall": "node deploy/schedule-owner-ops-supervisor-refresh.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

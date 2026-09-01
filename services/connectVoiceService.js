@@ -95,7 +95,12 @@ function safeDownloadLog(event, data = {}) {
 }
 
 function shouldFallback(error) {
-  return !error.status || error.status >= 500;
+  return (
+    !error.status ||
+    error.status === 401 ||
+    error.status === 403 ||
+    error.status >= 500
+  );
 }
 
 async function fetchWahaMediaOnce({ targetUrl, authorizedBaseUrls, apiKey, fetchImpl }) {

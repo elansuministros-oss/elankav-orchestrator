@@ -32,16 +32,27 @@ function resolveConnectUrl() {
 
 function buildHeaders() {
   const token = normalizeText(
+    process.env.CONNECT_INTERNAL_API_TOKEN ||
     process.env.CONNECT_INTERNAL_TOKEN ||
+    process.env.ORCHESTRATOR_INTERNAL_TOKEN ||
+    process.env.ELANKAV_CONNECT_INTERNAL_TOKEN ||
     process.env.CRM_INTERNAL_TOKEN
   );
-  const headers = {
+
+  if (!token) {
+    const error = new Error('CONNECT_INTERNAL_API_TOKEN_REQUIRED');
+    error.code = 'CONNECT_INTERNAL_API_TOKEN_REQUIRED';
+    error.status = 503;
+    throw error;
+  }
+
+  return {
     Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+    'X-Elankav-Internal-Token': token,
     'X-Elankav-Platform': 'ORCHESTRATOR',
     'X-Elankav-Actor-Type': 'system'
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
 }
 
 async function fetchPlatformKnowledge({ platform, query, fetchFn = globalThis.fetch } = {}) {

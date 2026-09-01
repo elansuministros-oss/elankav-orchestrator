@@ -19,7 +19,7 @@ const existingWorkOrder = {
 };
 
 function makeAdapter({ project: projectRow, workOrders = [], purchaseOrders = [] } = {}) {
-  const calls = { rpc: [], events: [], updates: [] };
+  const calls = { rpc: [], events: [], updates: [], projectUpdates: [] };
   const workOrderRow = { ...existingWorkOrder, project_id: projectRow?.id, quotation_id: projectRow?.quotation_id };
   const purchaseOrderRow = {
     id: 'po-1', purchase_order_number: 'OC-2026-000001', project_id: projectRow?.id,
@@ -50,6 +50,10 @@ function makeAdapter({ project: projectRow, workOrders = [], purchaseOrders = []
       }
     },
     getProjectById() { return Promise.resolve(projectRow || null); },
+    updateProject(id, patch) {
+      calls.projectUpdates.push({ id, patch });
+      return Promise.resolve({ ...projectRow, ...patch });
+    },
     listWorkOrders() { return Promise.resolve(workOrders); },
     listPurchaseOrders() { return Promise.resolve(purchaseOrders); },
     appendEvent(row) { calls.events.push(row); return Promise.resolve(row); }
@@ -184,4 +188,69 @@ test('valida los estados oficiales de OT y OC', async () => {
   const service = new OperationalOrdersService({ adapter, paymentAdapter: paymentAdapter() });
   await assert.rejects(service.updateWorkOrder(project.id, 'wo-1', { status: 'approved' }), (error) => error.code === 'WORK_ORDER_STATUS_INVALID');
   await assert.rejects(service.updatePurchaseOrder(project.id, 'po-1', { status: 'in_progress' }), (error) => error.code === 'PURCHASE_ORDER_STATUS_INVALID');
+});
+
+test('activa proyecto pendiente al crear la OT', async () => {
+  const pendingProject = {
+    ...project,
+    status: 'pending_activation',
+    current_stage: 'quotation',
+    activated_at: null
+  };
+
+  const { adapter, calls } = makeAdapter({
+    project: pendingProject
+  });
+
+  const service = new OperationalOrdersService({
+    adapter,
+    paymentAdapter: paymentAdapter()
+  });
+
+  await service.createWorkOrder(
+    pendingProject.id,
+    { quotationId: pendingProject.quotation_id },
+    { userId: 'user-1', role: 'ventas' }
+  );
+
+  assert.equal(calls.projectUpdates.length, 1);
+  assert.equal(calls.projectUpdates[0].id, pendingProject.id);
+  assert.equal(calls.projectUpdates[0].patch.status, 'active');
+  assert.equal(
+    calls.projectUpdates[0].patch.current_stage,
+    'work_order_ready'
+  );
+  assert.ok(calls.projectUpdates[0].patch.activated_at);
+
+  const activationEvent = calls.events.find(
+    event => event.event_type === 'project.activated'
+  );
+
+  assert.ok(activationEvent);
+  assert.equal(activationEvent.payload.source, 'work_order');
+});
+
+test('no retrocede proyecto que ya avanzó de etapa al crear OT', async () => {
+  const advancedProject = {
+    ...project,
+    status: 'production',
+    current_stage: 'production'
+  };
+
+  const { adapter, calls } = makeAdapter({
+    project: advancedProject
+  });
+
+  const service = new OperationalOrdersService({
+    adapter,
+    paymentAdapter: paymentAdapter()
+  });
+
+  await service.createWorkOrder(
+    advancedProject.id,
+    { quotationId: advancedProject.quotation_id },
+    { userId: 'user-1', role: 'ventas' }
+  );
+
+  assert.equal(calls.projectUpdates.length, 0);
 });

@@ -6,6 +6,46 @@ const PUBLIC_SCOPES = Object.freeze([
   'chat.customer'
 ]);
 
+const ROLE_SCOPES = Object.freeze({
+  seller: Object.freeze([
+    'chat.seller',
+    'price.read',
+    'customer.own.read',
+    'customer.own.create',
+    'quotation.own.read',
+    'quotation.own.create',
+    'quotation.own.send',
+    'work_order.own.read',
+    'commission.own.read',
+    'platform.deep_link.own'
+  ]),
+  customer: Object.freeze([
+    'chat.customer',
+    'price.read',
+    'quotation.self.read',
+    'quotation.self.request',
+    'receipt.self.read',
+    'work_status.self.read'
+  ]),
+  provider: Object.freeze([
+    'chat.provider',
+    'provider.self.read',
+    'provider.commercial_data.submit'
+  ]),
+  family: Object.freeze([
+    'assistant.general',
+    'design.create',
+    'image.create',
+    'video.create',
+    'web.research'
+  ]),
+  prospect: Object.freeze([
+    'chat.customer',
+    'price.read',
+    'quotation.formal.request_owner'
+  ])
+});
+
 function normalizeScope(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -17,15 +57,43 @@ function normalizeScopes(values) {
 
 function resolveAccessPolicy({
   isOwner = false,
+  actorRole = '',
+  actorScopes = [],
   delegatedScopes = [],
   delegationTrusted = false
 } = {}) {
-  if (isOwner === true) {
+  if (isOwner === true || String(actorRole || '').trim().toLowerCase() === 'owner') {
     return Object.freeze({
       role: 'owner',
       fullAccess: true,
       scopes: Object.freeze([OWNER_SCOPE]),
       source: 'owner_identity'
+    });
+  }
+
+  const normalizedRole = String(actorRole || '').trim().toLowerCase();
+
+  // Identity infrastructure failures fail closed. They do not inherit public
+  // Prospect permissions and cannot execute business actions.
+  if (normalizedRole === 'unavailable' || normalizedRole === 'conflict') {
+    return Object.freeze({
+      role: normalizedRole,
+      fullAccess: false,
+      scopes: Object.freeze([]),
+      source: 'identity_unavailable'
+    });
+  }
+
+  const roleScopes = ROLE_SCOPES[normalizedRole] || null;
+
+  if (roleScopes) {
+    const connectorScopes = normalizeScopes(actorScopes);
+    const authoritative = connectorScopes.length ? connectorScopes : roleScopes;
+    return Object.freeze({
+      role: normalizedRole,
+      fullAccess: false,
+      scopes: Object.freeze(normalizeScopes(authoritative)),
+      source: connectorScopes.length ? 'connect_actor_identity' : 'role_policy'
     });
   }
 
@@ -39,12 +107,12 @@ function resolveAccessPolicy({
   ]);
 
   return Object.freeze({
-    role: trustedDelegatedScopes.length ? 'delegated' : 'customer',
+    role: trustedDelegatedScopes.length ? 'delegated' : 'prospect',
     fullAccess: false,
     scopes: Object.freeze(scopes),
     source: trustedDelegatedScopes.length
       ? 'trusted_delegated_permissions'
-      : 'default_customer_policy'
+      : 'default_prospect_policy'
   });
 }
 
@@ -75,6 +143,7 @@ function assertScope(policy, requestedScope) {
 module.exports = {
   OWNER_SCOPE,
   PUBLIC_SCOPES,
+  ROLE_SCOPES,
   normalizeScope,
   normalizeScopes,
   resolveAccessPolicy,

@@ -2,10 +2,23 @@ name: ELANKAV Orchestrator
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/OWNER-OPS-GATEWAY-READONLY-01
+      - feature/OWNER-OPS-SUPERVISOR-01
+      - feature/OWNER-OPS-REMOTE-DEPLOY-01
+      - feature/OWNER-BUSINESS-MODES-PRICING-LOGISTICS-01
+      - audit/OWNER-CONNECT-RUNTIME-DATASOURCE-01
+      - audit/OWNER-CONNECT-PRODUCT-PRICE-DETAIL-01
+      - fix/OWNER-PUBLISH-OFFICIAL-PRICE-01
+      - fix/AI-SALES-AUTONOMY-CONTEXT-INTEGRATED-01
+      - feature/OWNER-PRICE-CATALOG-ADMIN-01
 
 jobs:
   health:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
 
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +34,51 @@ jobs:
       - name: Syntax Check
         run: |
           node --check server.js
+          node --check server.voice-pipeline-v2.js
+          node --check api/wahaWebhookApi.js
+          node --check services/providerInboundIntelligenceService.js
+          node --check services/ownerCommandService.js
+          node --check services/operatorModeService.js
+          node --check services/pricingAuthorizationPolicyService.js
+          node --check services/quotationRequirementResolver.js
+          node --check services/ownerBusinessConnectClient.js
+          node --check services/ownerBusinessContextService.js
+          node --check services/ownerBusinessCommandService.js
+          node --check services/ownerBusinessProcessMessageGateway.js
+          node --check services/ownerConnectRuntimeAuditService.js
+          node --check services/ownerPriceCatalogAdminService.js
+          node --check services/ownerSellerConnectClient.js
+          node --check services/ownerSellerIdentityExtractionService.js
+          node --check services/ownerSellerRegistrationService.js
+          node --check services/ownerQuotationService.js
+          node --check services/ownerRoutingService.js
+          node --check services/ownerOperationalReadService.js
+          node --check services/ownerOpsReadService.js
+          node --check services/ownerOpsAuditService.js
+          node --check services/ownerOpsLocalStore.js
+          node --check services/ownerOpsConfirmationService.js
+          node --check services/ownerOpsSensitiveExecutor.js
+          node --check services/ownerOpsCodePublishService.js
+          node --check services/ownerOpsSupervisorClient.js
+          node --check services/ownerOpsSupervisorCommandPatch.js
+          node --check bin/owner-ops-supervisor.js
+          node --check services/jobs/jobPipeline.js
+          node --check adapters/repositoryWorkspaceAdapter.js
+
+      - name: Owner Ops Tests
+        run: |
+          node --test \
+            test/ownerOpsCommandRouting.test.js \
+            test/ownerOpsReadService.test.js \
+            test/ownerOpsConfirmation.test.js \
+            test/ownerOpsAudit.test.js \
+            test/ownerOpsSupervisor.test.js \
+            test/ownerOpsSupervisorCommandPatch.test.js \
+            test/codePrepareJob.test.js \
+            test/ownerSellerRegistration.test.js \
+            tests/ownerBusinessModesPricingLogistics.test.js \
+            tests/ownerConnectRuntimeAuditService.test.js \
+            tests/ownerPriceCatalogAdminService.test.js
 
       - name: Success
-        run: echo "ELANKAV ORCHESTRATOR OK"
+        run: echo "ELANKAV ORCHESTRATOR OWNER OPS OK"

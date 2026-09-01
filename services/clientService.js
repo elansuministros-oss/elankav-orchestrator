@@ -7,7 +7,8 @@ const normalizePlatform = value => normalize(value).normalize('NFD').replace(/[\
 
 function normalizeClientInput(input = {}) {
   const name = normalize(input.name);
-  const platform = normalizePlatform(input.platform);
+  const platform =
+    normalizePlatform(input.platform) || 'elanvisual';
   const whatsapp = normalizeWhatsappE164(input.whatsapp || input.phone);
 
   if (!name) throw Object.assign(new Error('CLIENT_NAME_REQUIRED'), { code: 'CLIENT_NAME_REQUIRED' });

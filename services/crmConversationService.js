@@ -207,7 +207,7 @@ function ownerKey({ externalUserId, phone }) {
 function parseSupplierPayload(message) {
   return {
     name: parseSupplierName(message),
-    supplierType: parseSupplierType(message),
+    supplierType: parseSupplierType(message) || 'mixed',
     categories: parseCategories(message),
     contactName: parseContactName(message),
     contactRole: parseContactRole(message),
@@ -232,7 +232,7 @@ function parseContactPayload(message) {
 function parseClientPayload(message) {
   const whatsapp = parseWhatsapp(message);
   return {
-    platform: parsePlatform(message),
+    platform: parsePlatform(message) || 'elanvisual',
     name: parseClientName(message),
     phone: whatsapp,
     whatsapp,
@@ -241,7 +241,7 @@ function parseClientPayload(message) {
 }
 
 function hasSupplierPayload(payload) {
-  return Boolean(payload.name && payload.supplierType && payload.categories.length && payload.whatsapp);
+  return Boolean(payload.name && payload.whatsapp);
 }
 
 function hasContactPayload(payload) {
@@ -249,14 +249,24 @@ function hasContactPayload(payload) {
 }
 
 function hasClientPayload(payload) {
-  return Boolean(payload.platform && payload.name && payload.whatsapp);
+  return Boolean(payload.name && payload.whatsapp);
 }
 
 async function executeSupplierInline(message) {
   const payload = parseSupplierPayload(message);
   if (!hasSupplierPayload(payload)) return null;
   await registerSupplier(payload);
-  return { done: true, text: `Proveedor registrado y verificado.\n\nNombre: ${payload.name}\nWhatsApp: ${payload.whatsapp}` };
+  return {
+    done: true,
+    text: [
+      'Proveedor registrado correctamente.',
+      '',
+      `Nombre: ${payload.name}`,
+      `WhatsApp: ${payload.whatsapp}`,
+      '',
+      'Los demás datos pueden completarse después.'
+    ].join('\n')
+  };
 }
 
 async function executeContactInline(supplier, message) {
@@ -342,70 +352,142 @@ async function executeClientInline(message) {
   const responsibleCommercialId = normalize(process.env.CRM_DEFAULT_ADMIN_IDENTITY_ID);
   if (!responsibleCommercialId) throw Object.assign(new Error('CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED'), { code: 'CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED' });
   await registerClient({ ...payload, responsibleCommercialId });
-  return { done: true, text: `Cliente registrado y verificado.\n\nNombre: ${payload.name}\nPlataforma: ${payload.platform.toUpperCase()}\nWhatsApp: ${payload.whatsapp}` };
+  return {
+    done: true,
+    text: [
+      'Cliente registrado correctamente.',
+      '',
+      `Nombre: ${payload.name}`,
+      `WhatsApp: ${payload.whatsapp}`,
+      '',
+      'Los demás datos pueden completarse después.'
+    ].join('\n')
+  };
 }
 
 async function processSupplier(state, message) {
   if (state.step === 'name') {
     state.data.name = normalize(message);
-    state.step = 'type';
-    return { done: false, text: '¿Vende materia prima, ofrece servicios o ambas cosas?' };
-  }
-  if (state.step === 'type') {
-    const type = parseSupplierType(message);
-    if (!type) return { done: false, text: 'Indicame si es proveedor de materia prima, servicios o mixto.' };
-    state.data.supplierType = type;
-    state.step = 'categories';
-    return { done: false, text: '¿Qué materiales o servicios ofrece?' };
-  }
-  if (state.step === 'categories') {
-    const categories = splitCategories(message);
-    if (!categories.length) return { done: false, text: 'Necesito al menos un material o servicio.' };
-    state.data.categories = categories;
-    state.step = 'contactName';
-    return { done: false, text: '¿Cuál es el nombre del contacto principal? Podés responder “omitir”.' };
-  }
-  if (state.step === 'contactName') {
-    state.data.contactName = isSkip(message) ? '' : normalize(message);
+
+    if (!state.data.name) {
+      return {
+        done: false,
+        text: 'Necesito únicamente el nombre del proveedor.'
+      };
+    }
+
     state.step = 'whatsapp';
-    return { done: false, text: '¿Cuál es el WhatsApp del proveedor? Es obligatorio.' };
+
+    return {
+      done: false,
+      text: 'Indicame el número de teléfono o WhatsApp del proveedor.'
+    };
   }
+
   if (state.step === 'whatsapp') {
     const whatsapp = normalizeWhatsappE164(message);
-    if (!whatsapp) return { done: false, text: 'WhatsApp inválido. Enviámelo con código de país, por ejemplo +505 8888 8888.' };
+
+    if (!whatsapp) {
+      return {
+        done: false,
+        text: 'El número no es válido. Enviámelo, por ejemplo, como 8888-8888 o +505 8888-8888.'
+      };
+    }
+
     state.data.whatsapp = whatsapp;
-    state.step = 'confirm';
-    return { done: false, text: `Voy a registrar este proveedor:\n\nNombre: ${state.data.name}\nTipo: ${state.data.supplierType}\nRubro: ${state.data.categories.join(', ')}\nContacto: ${state.data.contactName || 'No indicado'}\nWhatsApp: ${whatsapp}\n\n¿Confirmás que lo guarde?` };
+    state.data.phone = whatsapp;
+    state.data.supplierType = state.data.supplierType || 'mixed';
+    state.data.categories = Array.isArray(state.data.categories)
+      ? state.data.categories
+      : [];
+
+    await registerSupplier(state.data);
+
+    return {
+      done: true,
+      text: [
+        'Proveedor registrado correctamente.',
+        '',
+        `Nombre: ${state.data.name}`,
+        `WhatsApp: ${state.data.whatsapp}`,
+        '',
+        'Los demás datos pueden completarse después.'
+      ].join('\n')
+    };
   }
-  if (!isConfirm(message)) return { done: false, text: 'Respondé “Sí” para guardar o “Cancelar”.' };
-  await registerSupplier(state.data);
-  return { done: true, text: `Proveedor registrado correctamente.\n\nNombre: ${state.data.name}\nWhatsApp: ${state.data.whatsapp}` };
+
+  return {
+    done: false,
+    text: 'Indicame el nombre y el número de teléfono del proveedor.'
+  };
 }
 
 async function processClient(state, message) {
-  if (state.step === 'platform') {
-    state.data.platform = normalize(message);
-    state.step = 'name';
-    return { done: false, text: '¿Cuál es el nombre del cliente?' };
-  }
   if (state.step === 'name') {
     state.data.name = normalize(message);
+
+    if (!state.data.name) {
+      return {
+        done: false,
+        text: 'Necesito únicamente el nombre del cliente.'
+      };
+    }
+
     state.step = 'phone';
-    return { done: false, text: '¿Cuál es su WhatsApp? Es obligatorio.' };
+
+    return {
+      done: false,
+      text: 'Indicame el número de teléfono o WhatsApp del cliente.'
+    };
   }
+
   if (state.step === 'phone') {
     const whatsapp = normalizeWhatsappE164(message);
-    if (!whatsapp) return { done: false, text: 'WhatsApp inválido. Enviámelo con código de país.' };
+
+    if (!whatsapp) {
+      return {
+        done: false,
+        text: 'El número no es válido. Enviámelo, por ejemplo, como 8888-8888 o +505 8888-8888.'
+      };
+    }
+
     state.data.phone = whatsapp;
     state.data.whatsapp = whatsapp;
-    state.step = 'confirm';
-    return { done: false, text: `Voy a registrar este cliente:\n\nNombre: ${state.data.name}\nPlataforma: ${state.data.platform.toUpperCase()}\nResponsable: Administrador\nWhatsApp: ${whatsapp}\n\n¿Confirmás que lo guarde?` };
+    state.data.platform = state.data.platform || 'elanvisual';
+
+    const responsibleCommercialId = normalize(
+      process.env.CRM_DEFAULT_ADMIN_IDENTITY_ID
+    );
+
+    if (!responsibleCommercialId) {
+      throw Object.assign(
+        new Error('CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED'),
+        { code: 'CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED' }
+      );
+    }
+
+    await registerClient({
+      ...state.data,
+      responsibleCommercialId
+    });
+
+    return {
+      done: true,
+      text: [
+        'Cliente registrado correctamente.',
+        '',
+        `Nombre: ${state.data.name}`,
+        `WhatsApp: ${state.data.whatsapp}`,
+        '',
+        'Los demás datos pueden completarse después.'
+      ].join('\n')
+    };
   }
-  if (!isConfirm(message)) return { done: false, text: 'Respondé “Sí” para guardar o “Cancelar”.' };
-  const responsibleCommercialId = normalize(process.env.CRM_DEFAULT_ADMIN_IDENTITY_ID);
-  if (!responsibleCommercialId) throw Object.assign(new Error('CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED'), { code: 'CRM_DEFAULT_ADMIN_IDENTITY_ID_NOT_CONFIGURED' });
-  await registerClient({ ...state.data, responsibleCommercialId });
-  return { done: true, text: `Cliente registrado correctamente.\n\nNombre: ${state.data.name}\nPlataforma: ${state.data.platform.toUpperCase()}` };
+
+  return {
+    done: false,
+    text: 'Indicame el nombre y el número de teléfono del cliente.'
+  };
 }
 
 async function processAddContact(state, message) {
@@ -494,8 +576,26 @@ async function processEditContact(state, message) {
 }
 
 async function initializeState(start) {
-  if (start.type === 'supplier') return { type: 'supplier', step: 'name', data: {} };
-  if (start.type === 'client') return { type: 'client', step: 'platform', data: {} };
+  if (start.type === 'supplier') {
+    return {
+      type: 'supplier',
+      step: 'name',
+      data: {
+        supplierType: 'mixed',
+        categories: []
+      }
+    };
+  }
+
+  if (start.type === 'client') {
+    return {
+      type: 'client',
+      step: 'name',
+      data: {
+        platform: 'elanvisual'
+      }
+    };
+  }
 
   const supplier = await resolveSupplier(start.supplierName);
   if (start.type === 'supplierUpdate') {
@@ -539,8 +639,13 @@ async function initializeState(start) {
 }
 
 function initialPrompt(state) {
-  if (state.type === 'supplier') return 'Perfecto. Decime el nombre del proveedor.';
-  if (state.type === 'client') return 'Perfecto. ¿Para qué plataforma será el cliente?';
+  if (state.type === 'supplier') {
+    return 'Decime el nombre del proveedor.';
+  }
+
+  if (state.type === 'client') {
+    return 'Decime el nombre del cliente.';
+  }
   if (state.type === 'supplierUpdate') return `Perfecto. Tengo identificado al proveedor ${state.data.supplierName}. Enviame el nombre del contacto, WhatsApp y correo que querés actualizar.`;
   if (state.type === 'addContact') return `Proveedor encontrado: ${state.data.supplierName}.\n¿Cuál es el nombre del nuevo contacto? Podés responder “omitir”.`;
   if (state.step === 'field') return `Proveedor encontrado: ${state.data.supplierName}.\n¿Qué querés editar: nombre, cargo/área, WhatsApp, teléfono, correo, ciudad, dirección o notas?`;
@@ -576,7 +681,14 @@ async function processCrmConversation({ message, externalUserId, phone }) {
       };
     }
 
-    if (start.inline && isAuthorizedInline(message)) {
+    const directCreationOrder =
+      start.inline &&
+      (start.type === 'supplier' || start.type === 'client');
+
+    if (
+      start.inline &&
+      (isAuthorizedInline(message) || directCreationOrder)
+    ) {
       let inlineResult = null;
       if (start.type === 'supplier') inlineResult = await executeSupplierInline(message);
       else if (start.type === 'client') inlineResult = await executeClientInline(message);

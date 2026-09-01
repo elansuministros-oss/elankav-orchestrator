@@ -228,6 +228,48 @@ class OperationalOrdersService {
     return workOrders[0];
   }
 
+  async reconcileProjectAfterWorkOrder(project, actor = {}) {
+    if (!project) return project;
+
+    const patch = {};
+    const now = new Date().toISOString();
+
+    if (project.status === 'pending_activation') {
+      patch.status = 'active';
+      if (!project.activated_at) patch.activated_at = now;
+    }
+
+    if (project.current_stage === 'quotation') {
+      patch.current_stage = 'work_order_ready';
+    }
+
+    if (!Object.keys(patch).length) return project;
+
+    patch.updated_by = actor.userId || null;
+
+    const updated = await this.adapter.updateProject(project.id, patch);
+
+    await this.appendEventBestEffort({
+      quotation_id: project.quotation_id,
+      project_id: project.id,
+      event_type: 'project.activated',
+      actor_type: actor.type || 'user',
+      actor_user_id: actor.userId || null,
+      actor_role: actor.role || null,
+      actor_executive_id: actor.executiveId || null,
+      platform_id: project.platform_id || actor.platformId || null,
+      payload: {
+        source: 'work_order',
+        fromStatus: project.status || null,
+        toStatus: updated?.status || patch.status || project.status || null,
+        fromStage: project.current_stage || null,
+        toStage: updated?.current_stage || patch.current_stage || project.current_stage || null
+      }
+    });
+
+    return updated || { ...project, ...patch };
+  }
+
   async appendEventBestEffort(event) {
     try {
       await this.adapter.appendEvent(event);
@@ -274,6 +316,8 @@ class OperationalOrdersService {
         financialAuthorization
       }
     });
+
+    await this.reconcileProjectAfterWorkOrder(project, actor);
 
     await this.appendEventBestEffort({
       quotation_id: quotationId,
