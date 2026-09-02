@@ -51,8 +51,10 @@ async function processMessageRoleFirst(input = {}) {
   });
 
   if (classification.kind === 'provider_candidate') {
+    const reply = providerCandidateMessage();
     return {
-      outputText: providerCandidateMessage(),
+      reply,
+      outputText: reply,
       model: 'elankav-role-first-router',
       id: null,
       status: 'completed',
@@ -63,8 +65,10 @@ async function processMessageRoleFirst(input = {}) {
   }
 
   if (classification.kind === 'ambiguous') {
+    const reply = clarificationMessage();
     return {
-      outputText: clarificationMessage(),
+      reply,
+      outputText: reply,
       model: 'elankav-role-first-router',
       id: null,
       status: 'completed',
