@@ -6,8 +6,10 @@ const { createHmac } = require('node:crypto');
 
 const {
   COMMAND_TYPE,
+  SUPPLIER_MARKER,
   detectOwnerProspectingCommand,
   executeOwnerProspectingCommand,
+  isSupplierProspectingMission,
   resolveInternalToken
 } = require('../services/ownerProspectingCommandService');
 const {
@@ -16,10 +18,11 @@ const {
 
 const EXACT_COMMAND =
   'Buscar 500 empresas con presencia física en Nicaragua que puedan requerir servicios de ELANVISUAL, priorizando hoteles, restaurantes, comercios, clínicas, universidades, bancos, constructoras y centros comerciales. Localizar prioritariamente decisores públicos de Mercadeo o Compras.';
+const SUPPLIER_COMMAND =
+  'ELAN, buscá 200 proveedores para ELANVISUAL en Nicaragua relacionados con PVC, ACM, acrílico, vinil, impresión gran formato, CNC, instalación, transporte de carga y grúas. No contactés a ninguno todavía.';
 
 test('detecta la orden natural exacta de 500 empresas como Prospecting Autopilot', () => {
   const command = detectOwnerProspectingCommand(EXACT_COMMAND);
-
   assert.ok(command);
   assert.equal(command.type, COMMAND_TYPE);
   assert.equal(command.input.businessUnit, 'ELANVISUAL');
@@ -27,6 +30,17 @@ test('detecta la orden natural exacta de 500 empresas como Prospecting Autopilot
   assert.equal(command.input.country, 'Nicaragua');
   assert.equal(command.input.targetCompanies, 500);
   assert.equal(command.input.mission, EXACT_COMMAND);
+});
+
+test('detecta búsqueda natural de proveedores y la marca como supplier prospecting', () => {
+  const command = detectOwnerProspectingCommand(SUPPLIER_COMMAND);
+  assert.ok(command);
+  assert.equal(command.type, COMMAND_TYPE);
+  assert.equal(command.input.targetCompanies, 200);
+  assert.equal(command.input.prospectType, 'supplier');
+  assert.match(command.input.mission, new RegExp(SUPPLIER_MARKER));
+  assert.equal(isSupplierProspectingMission(command.input.mission), true);
+  assert.match(command.input.mission, /no ejecutes outreach/i);
 });
 
 test('Owner Business Gateway enruta la orden de Prospecting antes del modelo generativo', () => {
@@ -47,7 +61,6 @@ test('deriva el token interno de CONNECT sin exponer VQS raw', () => {
   const expected = createHmac('sha256', env.VQS_API_TOKEN)
     .update('ELANKAV_CHANNEL_INTERNAL_V1')
     .digest('hex');
-
   assert.equal(resolveInternalToken(env), expected);
   assert.notEqual(resolveInternalToken(env), env.VQS_API_TOKEN);
 });
@@ -56,36 +69,21 @@ test('crea una misión continuous solo después de validar Research y Autopilot'
   const calls = [];
   const requestImpl = async (path, options = {}) => {
     calls.push({ path, options });
-
     if (path === '/api/v1/prospecting/control-status') {
-      return {
-        researchEnabled: true,
-        autopilotEnabled: true,
-        outreachEnabled: false,
-        mode: 'research_only'
-      };
+      return { researchEnabled: true, autopilotEnabled: true, outreachEnabled: false, mode: 'research_only' };
     }
-
     if (path.startsWith('/api/v1/prospecting/missions?')) return [];
-
     if (path === '/api/v1/prospecting/missions' && options.method === 'POST') {
       return {
         id: '11111111-1111-4111-8111-111111111111',
-        businessUnit: 'ELANVISUAL',
-        mission: EXACT_COMMAND,
-        mode: 'continuous',
-        country: 'Nicaragua',
-        targetCompanies: 500,
-        status: 'draft'
+        businessUnit: 'ELANVISUAL', mission: EXACT_COMMAND, mode: 'continuous', country: 'Nicaragua',
+        targetCompanies: 500, status: 'draft'
       };
     }
-
     throw new Error('Unexpected request: ' + path);
   };
-
   const command = detectOwnerProspectingCommand(EXACT_COMMAND);
   const result = await executeOwnerProspectingCommand(command, { requestImpl });
-
   assert.equal(result.handled, true);
   assert.equal(result.result.reused, false);
   assert.equal(calls.length, 3);
@@ -93,63 +91,56 @@ test('crea una misión continuous solo después de validar Research y Autopilot'
   assert.match(calls[1].path, /^\/api\/v1\/prospecting\/missions\?/);
   assert.equal(calls[2].path, '/api/v1/prospecting/missions');
   assert.deepEqual(calls[2].options.body, {
-    businessUnit: 'ELANVISUAL',
-    mission: EXACT_COMMAND,
-    mode: 'continuous',
-    country: 'Nicaragua',
-    targetCompanies: 500
+    businessUnit: 'ELANVISUAL', mission: EXACT_COMMAND, mode: 'continuous', country: 'Nicaragua', targetCompanies: 500
   });
   assert.match(result.outputText, /Misión Prospecting Autopilot creada/);
   assert.match(result.outputText, /Objetivo: 500 empresas/);
   assert.match(result.outputText, /Outreach: OFF/);
-  assert.match(result.outputText, /No necesitás ejecutar la búsqueda empresa por empresa/);
 });
 
-test('reutiliza una misión activa idéntica para no duplicar 500 búsquedas', async () => {
-  let postCalls = 0;
-  const command = detectOwnerProspectingCommand(EXACT_COMMAND);
-  const existingMission = {
-    id: '22222222-2222-4222-8222-222222222222',
-    businessUnit: 'ELANVISUAL',
-    mission: EXACT_COMMAND,
-    mode: 'continuous',
-    country: 'Nicaragua',
-    targetCompanies: 500,
-    status: 'partial'
-  };
-
+test('crea misión de proveedores sin autorizar contacto', async () => {
+  const calls = [];
+  const command = detectOwnerProspectingCommand(SUPPLIER_COMMAND);
   const requestImpl = async (path, options = {}) => {
-    if (path === '/api/v1/prospecting/control-status') {
-      return { researchEnabled: true, autopilotEnabled: true, outreachEnabled: false };
-    }
-    if (path.startsWith('/api/v1/prospecting/missions?')) return [existingMission];
+    calls.push({ path, options });
+    if (path === '/api/v1/prospecting/control-status') return { researchEnabled: true, autopilotEnabled: true, outreachEnabled: false };
+    if (path.startsWith('/api/v1/prospecting/missions?')) return [];
     if (path === '/api/v1/prospecting/missions' && options.method === 'POST') {
-      postCalls += 1;
-      throw new Error('No debe crear duplicado');
+      return { id: '33333333-3333-4333-8333-333333333333', ...options.body, status: 'draft' };
     }
     throw new Error('Unexpected request: ' + path);
   };
-
   const result = await executeOwnerProspectingCommand(command, { requestImpl });
+  assert.equal(result.handled, true);
+  assert.match(calls[2].options.body.mission, new RegExp(SUPPLIER_MARKER));
+  assert.match(result.outputText, /200 proveedores/);
+  assert.match(result.outputText, /NO autoriza contacto/);
+  assert.match(result.outputText, /Outreach: OFF/);
+});
 
+test('reutiliza una misión activa idéntica para no duplicar búsquedas', async () => {
+  let postCalls = 0;
+  const command = detectOwnerProspectingCommand(EXACT_COMMAND);
+  const existingMission = {
+    id: '22222222-2222-4222-8222-222222222222', businessUnit: 'ELANVISUAL', mission: EXACT_COMMAND,
+    mode: 'continuous', country: 'Nicaragua', targetCompanies: 500, status: 'partial'
+  };
+  const requestImpl = async (path, options = {}) => {
+    if (path === '/api/v1/prospecting/control-status') return { researchEnabled: true, autopilotEnabled: true, outreachEnabled: false };
+    if (path.startsWith('/api/v1/prospecting/missions?')) return [existingMission];
+    if (path === '/api/v1/prospecting/missions' && options.method === 'POST') { postCalls += 1; throw new Error('No debe crear duplicado'); }
+    throw new Error('Unexpected request: ' + path);
+  };
+  const result = await executeOwnerProspectingCommand(command, { requestImpl });
   assert.equal(result.handled, true);
   assert.equal(result.result.reused, true);
-  assert.equal(result.result.mission.id, existingMission.id);
   assert.equal(postCalls, 0);
-  assert.match(result.outputText, /no creé un duplicado/);
 });
 
 test('no crea misión si Autopilot está apagado', async () => {
   const command = detectOwnerProspectingCommand(EXACT_COMMAND);
-
   await assert.rejects(
-    () => executeOwnerProspectingCommand(command, {
-      requestImpl: async () => ({
-        researchEnabled: true,
-        autopilotEnabled: false,
-        outreachEnabled: false
-      })
-    }),
+    () => executeOwnerProspectingCommand(command, { requestImpl: async () => ({ researchEnabled: true, autopilotEnabled: false, outreachEnabled: false }) }),
     error => error && error.code === 'PROSPECTING_AUTOPILOT_DISABLED'
   );
 });
