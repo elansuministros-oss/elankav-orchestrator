@@ -9,7 +9,7 @@ const {
 } = require('./inboundCommercialRoleService');
 
 const ORIGINAL_PROCESS = messageService.processMessage;
-const OWNER_OPS_CONTROL_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:confirmar\s+OPS-\d+-[A-Z0-9]{6}|(?:estado|estatus|resultado|consulta|consultar|verifica|verificar)\s+OPS-\d+-[A-Z0-9]{6})\b/i;
+const OWNER_OPS_CONTROL_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:(?:confirmar\s+OPS-\d+-[A-Z0-9]{6}|(?:estado|estatus|resultado|consulta|consultar|verifica|verificar)\s+OPS-\d+-[A-Z0-9]{6})|(?:despliega|desplegar|deploy|actualiza|actualizar)\s+(?:orchestrator|orquestador|connect|elanvisual|langflow)\s+(?:commit\s+)?[0-9a-f]{40}\b|(?:reinicia|reiniciar|restart|rearranca|rearrancar)\s+(?:orchestrator|orquestador))\b/i;
 
 async function processMessageRoleFirst(input = {}) {
   const channel = String(input.channel || '').trim().toLowerCase();
