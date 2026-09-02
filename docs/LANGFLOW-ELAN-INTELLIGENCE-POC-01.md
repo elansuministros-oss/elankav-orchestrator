@@ -127,3 +127,25 @@ Antes de instalar:
 10. solo después diseñar la integración al Unified Runtime.
 
 No declarar READY hasta completar las pruebas naturales desde WhatsApp usando el runtime protegido.
+
+## Perfil de despliegue del POC
+
+Este POC usa `LANGFLOW_DEPLOYMENT_PROFILE=dev` con `LANGFLOW_DEV=false`.
+
+En Langflow 1.12, `deployment_profile=dev` significa únicamente que se omiten los
+preflight obligatorios de infraestructura distribuida (PostgreSQL/S3/pgVector).
+No habilita auto-login ni modo de desarrollo del servidor.
+
+El POC sigue protegido por:
+- bind exclusivo a `127.0.0.1:7860`;
+- autenticación obligatoria;
+- signup deshabilitado;
+- custom components deshabilitados;
+- code interpreter bloqueado;
+- acceso local a archivos restringido;
+- tweaks policy `declared`;
+- persistencia local en volumen dedicado.
+
+Cuando ELAN pase de POC single-node a servicio productivo compartido, la migración a
+`LANGFLOW_DEPLOYMENT_PROFILE=prod` debe incluir PostgreSQL, object storage y pgVector
+antes de activar ese perfil.
