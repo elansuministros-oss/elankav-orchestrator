@@ -1525,3 +1525,55 @@ test('Owner text nunca queda mudo si falla el runtime interno', async () => {
   assert.equal(recorder.calls[0].payload.fallbackSent, true);
   assert.equal(recorder.calls[0].payload.ownerMode, true);
 });
+
+
+test('Owner deploy command carries ownerMode before commercial role routing', async () => {
+  const sha = 'fedcba0987654321fedcba0987654321fedcba09';
+  const recorder = createSendJsonRecorder();
+  const processed = [];
+  const sent = [];
+  const persisted = [];
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-deploy-routing-regression-01',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: `ELAN despliega Orchestrator commit ${sha}\nNo reinicies WAHA.`,
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage(input) {
+        processed.push(input);
+        return {
+          reply: '⚠️ Operación sensible preparada.',
+          model: 'elankav-owner-command',
+          context: { ownerMode: true, platform: 'ELANVISUAL' }
+        };
+      },
+      async sendWahaText(input) {
+        sent.push(input);
+        return { id: 'owner-deploy-routing-reply-01' };
+      },
+      async persistConversationEvent(input) {
+        persisted.push(input);
+        return { ok: true };
+      }
+    }
+  });
+
+  assert.equal(processed.length, 1);
+  assert.equal(processed[0].metadata.ownerMode, true);
+  assert.equal(processed[0].metadata.isOwner, true);
+  assert.equal(persisted[0].actorType, 'owner');
+  assert.equal(persisted[0].actorName, 'Owner');
+  assert.equal(sent.length, 1);
+  assert.equal(recorder.calls[0].payload.ownerMode, true);
+});
