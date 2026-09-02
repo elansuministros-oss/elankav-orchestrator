@@ -1,0 +1,31 @@
+services:
+  langflow:
+    image: langflowai/langflow:1.12.0
+    container_name: elankav-langflow
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7860:7860"
+    env_file:
+      - .env
+    environment:
+      LANGFLOW_HOST: 0.0.0.0
+      LANGFLOW_PORT: 7860
+      LANGFLOW_AUTO_LOGIN: "false"
+      LANGFLOW_CONFIG_DIR: /app/langflow
+      LANGFLOW_SAVE_DB_IN_CONFIG_DIR: "true"
+      LANGFLOW_ALLOW_CUSTOM_COMPONENTS: "false"
+      LANGFLOW_BLOCK_CODE_INTERPRETER_COMPONENTS: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/langflow
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:7860/health_check', timeout=5).read()"
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
