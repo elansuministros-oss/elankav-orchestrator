@@ -1,3 +1,8 @@
+'use strict';
+
+const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
+const { classifyInboundCommercialRelationship } = require('./inboundCommercialRoleService');
+
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 
 function normalizeText(value) {
@@ -44,19 +49,13 @@ async function request(path, options = {}, fetchFn = globalThis.fetch) {
 }
 
 function leadMatchesPhone(lead, normalizedPhone) {
-  return [lead?.phone, lead?.whatsapp]
-    .map(normalizePhone)
-    .some(value => value && value === normalizedPhone);
+  return [lead?.phone, lead?.whatsapp].map(normalizePhone).some(value => value && value === normalizedPhone);
 }
 
 async function findLeadByPhone({ phone, platform, fetchFn }) {
   const normalizedPhone = normalizePhone(phone);
   if (!normalizedPhone) return null;
-
-  const params = new URLSearchParams({
-    platform: normalizeText(platform) || 'ELANVISUAL',
-    search: normalizedPhone
-  });
+  const params = new URLSearchParams({ platform: normalizeText(platform) || 'ELANVISUAL', search: normalizedPhone });
   const rows = await request(`/api/v1/leads?${params.toString()}`, {}, fetchFn);
   return (Array.isArray(rows) ? rows : []).find(lead => leadMatchesPhone(lead, normalizedPhone)) || null;
 }
@@ -65,44 +64,49 @@ async function ensureOpportunity({ lead, platform, message, fetchFn }) {
   const params = new URLSearchParams({ leadId: lead.id });
   const existing = await request(`/api/v1/opportunities?${params.toString()}`, {}, fetchFn);
   if (Array.isArray(existing) && existing.length > 0) return existing[0];
-
   return request('/api/v1/opportunities', {
     method: 'POST',
     body: JSON.stringify({
       leadId: lead.id,
       title: `Consulta WhatsApp ${lead.contactPerson || lead.name || lead.whatsapp || ''}`.trim(),
       platform: normalizeText(platform) || 'ELANVISUAL',
-      stage: 'discovery',
-      currency: 'USD',
-      probability: 10,
-      assignedExecutive: 'owner',
+      stage: 'discovery', currency: 'USD', probability: 10, assignedExecutive: 'owner',
       notes: `Primer mensaje recibido por WhatsApp: ${normalizeText(message).slice(0, 1000)}`
     })
   }, fetchFn);
 }
 
-async function synchronizeInboundWhatsappLead({
-  message,
-  platform,
-  channel,
-  externalUserId,
-  phone,
-  ownerMode,
-  metadata,
-  fetchFn
-} = {}) {
-  if (ownerMode) return { skipped: true, reason: 'OWNER_MODE' };
-  if (normalizeText(channel).toLowerCase() !== 'whatsapp') {
-    return { skipped: true, reason: 'NOT_WHATSAPP' };
-  }
+async function resolveInboundRole({ message, platform, externalUserId, phone, metadata }) {
+  const actor = await resolveCommercialActorSafely({
+    phone: phone || null,
+    identity: externalUserId || metadata?.senderRaw || metadata?.chatId || null,
+    externalUserId: externalUserId || null,
+    chatId: metadata?.chatId || null,
+    metadata: metadata || {},
+    platform: platform || 'ELANVISUAL'
+  });
+  return classifyInboundCommercialRelationship({ message, actor });
+}
 
+async function synchronizeInboundWhatsappLead({ message, platform, channel, externalUserId, phone, ownerMode, metadata, fetchFn } = {}) {
+  if (ownerMode) return { skipped: true, reason: 'OWNER_MODE' };
+  if (normalizeText(channel).toLowerCase() !== 'whatsapp') return { skipped: true, reason: 'NOT_WHATSAPP' };
   const normalizedPhone = normalizePhone(phone || externalUserId);
   if (!normalizedPhone) return { skipped: true, reason: 'PHONE_REQUIRED' };
 
   const resolvedPlatform = normalizeText(platform) || 'ELANVISUAL';
   let lead = await findLeadByPhone({ phone: normalizedPhone, platform: resolvedPlatform, fetchFn });
 
+  // Existing sales relationships keep continuity. New relationships are classified before CRM creation.
   if (!lead) {
+    const classification = await resolveInboundRole({ message, platform: resolvedPlatform, externalUserId, phone: normalizedPhone, metadata });
+    if (['provider', 'provider_candidate', 'customer', 'seller', 'family', 'owner', 'ambiguous'].includes(classification.kind)) {
+      return { skipped: true, reason: `ROLE_${classification.kind.toUpperCase()}`, classification };
+    }
+    if (classification.kind !== 'buyer_prospect') {
+      return { skipped: true, reason: 'ROLE_NOT_SALES', classification };
+    }
+
     const contactName = normalizeText(metadata?.contactName || metadata?.pushName || metadata?.name);
     lead = await request('/api/v1/leads', {
       method: 'POST',
@@ -111,44 +115,22 @@ async function synchronizeInboundWhatsappLead({
         contactPerson: contactName || undefined,
         phone: normalizedPhone,
         whatsapp: normalizedPhone,
-        source: 'whatsapp',
-        platform: resolvedPlatform,
-        status: 'new',
-        priority: 'high',
-        assignedExecutive: 'owner',
-        tags: ['whatsapp', 'inbound'],
-        notes: [
-          externalUserId ? `External user: ${externalUserId}` : '',
-          message ? `Mensaje inicial: ${normalizeText(message).slice(0, 1000)}` : ''
-        ].filter(Boolean).join(' · ')
+        source: 'whatsapp', platform: resolvedPlatform, status: 'new', priority: 'high', assignedExecutive: 'owner',
+        tags: ['whatsapp', 'inbound', 'buyer_prospect'],
+        notes: [externalUserId ? `External user: ${externalUserId}` : '', message ? `Mensaje inicial: ${normalizeText(message).slice(0, 1000)}` : ''].filter(Boolean).join(' · ')
       })
     }, fetchFn);
   }
 
-  const opportunity = await ensureOpportunity({
-    lead,
-    platform: resolvedPlatform,
-    message,
-    fetchFn
-  });
-
+  const opportunity = await ensureOpportunity({ lead, platform: resolvedPlatform, message, fetchFn });
   return { skipped: false, lead, opportunity };
 }
 
 async function synchronizeInboundWhatsappLeadSafely(input = {}) {
-  try {
-    return await synchronizeInboundWhatsappLead(input);
-  } catch (error) {
-    console.error('ELANKAV_CONNECT_WHATSAPP_SYNC_FAILED', {
-      code: error?.code || null,
-      status: error?.status || null,
-      message: error?.message || String(error)
-    });
-    return {
-      skipped: true,
-      reason: 'CONNECT_SYNC_FAILED',
-      error: error?.code || error?.message || 'CONNECT_SYNC_FAILED'
-    };
+  try { return await synchronizeInboundWhatsappLead(input); }
+  catch (error) {
+    console.error('ELANKAV_CONNECT_WHATSAPP_SYNC_FAILED', { code: error?.code || null, status: error?.status || null, message: error?.message || String(error) });
+    return { skipped: true, reason: 'CONNECT_SYNC_FAILED', error: error?.code || error?.message || 'CONNECT_SYNC_FAILED' };
   }
 }
 
@@ -157,6 +139,7 @@ module.exports = {
   normalizePhone,
   resolveConnectUrl,
   findLeadByPhone,
+  resolveInboundRole,
   synchronizeInboundWhatsappLead,
   synchronizeInboundWhatsappLeadSafely
 };
