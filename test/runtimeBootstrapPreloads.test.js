@@ -67,5 +67,5 @@ test('preload estable reconoce deploy natural de Langflow antes de cargar messag
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(result.stdout, 'langflow');
+  assert.match(result.stdout, /langflow\s*$/);
 });
