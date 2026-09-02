@@ -1,5 +1,7 @@
 'use strict';
 
+require('./ownerOpsSupervisorCommandPatch');
+
 const gateway = require('./ownerBusinessProcessMessageGateway');
 const {
   installOwnerSupplierProspectingPriorityPatch

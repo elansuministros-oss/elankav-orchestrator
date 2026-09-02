@@ -1142,8 +1142,8 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       direction: 'inbound',
       text: resolvedMessage,
       externalMessageId: incoming.messageId || null,
-      actorType: registeredProvider ? 'provider' : 'customer',
-      actorName: registeredProvider?.tradeName || 'WhatsApp',
+      actorType: ownerIdentity.isOwner ? 'owner' : (registeredProvider ? 'provider' : 'customer'),
+      actorName: ownerIdentity.isOwner ? 'Owner' : (registeredProvider?.tradeName || 'WhatsApp'),
       metadata: {
         originalText: incoming.text || null,
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,
@@ -1248,6 +1248,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
       metadata: {
         source: 'waha', session: incoming.session, messageId: incoming.messageId || null,
         chatId: incoming.chatId, event: incoming.event || 'message', senderRaw: incoming.senderRaw,
+        ownerMode: ownerIdentity.isOwner === true, isOwner: ownerIdentity.isOwner === true,
         identityCandidates: incoming.identityCandidates || [],
         messageType: incoming.messageType, originalText: incoming.text || null,
         media: incoming.media || null,
