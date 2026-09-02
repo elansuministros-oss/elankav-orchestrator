@@ -433,7 +433,7 @@ async function runWhatsappCoreWatchdog({ force = false, allowBootstrap = false }
       contract: 'WHATSAPP_CORE_CONTRACT_OK',
       health: 'OK',
       bridge: 'READY',
-      healthEndpoint,
+      healthEndpoint: restart?.healthEndpoint || healthEndpoint,
       bridgeEndpoint
     });
     return { status: 'bootstrapped', state: stored };
@@ -852,7 +852,7 @@ async function deployRepository(target, parameters = {}) {
     await run('git', ['-C', config.repo, 'merge', '--ff-only', `origin/${branch}`], { timeout: 60_000 });
     merged = true;
 
-    if (target === 'connect' || parameters.install === true) {
+    if (target === 'connect' || (parameters.install === true && config.installMode)) {
       installCommand = await installDependencies(config);
     }
 
