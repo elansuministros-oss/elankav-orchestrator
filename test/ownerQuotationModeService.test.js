@@ -11,6 +11,7 @@ process.env.OWNER_QUOTATION_MODE_STORE_PATH = tempFile;
 
 const {
   getState,
+  isQuotationModeBypassRequest,
   isQuotationModeStartRequest,
   parsePrice,
   paymentTermsFromText,
@@ -25,6 +26,18 @@ const identity = { externalUserId: '50588388940@c.us', phone: '50588388940', cha
 
 test.afterEach(async () => {
   await fs.rm(tempFile, { force: true });
+});
+
+test('permite salir con “sal del modo cotización” y deja pasar órdenes operativas', async () => {
+  assert.equal(isQuotationModeBypassRequest('ELAN, despliega Orchestrator al commit exacto abc123'), true);
+  assert.equal(isQuotationModeBypassRequest('ELAN estado OPS-123'), true);
+  assert.equal(isQuotationModeBypassRequest('muéstrame los logs del supervisor'), true);
+  assert.equal(isQuotationModeBypassRequest('Doctora Abigail'), false);
+
+  await processQuotationModeText({ identity, text: 'Activa modo cotización' });
+  const out = await processQuotationModeText({ identity, text: 'sal del modo cotización' });
+  assert.equal(out.status, 'cancelled');
+  assert.match(out.outputText, /Modo cotización cancelado/);
 });
 
 test('detecta modo cotización en lenguaje natural', () => {
