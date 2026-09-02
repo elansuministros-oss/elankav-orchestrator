@@ -1150,6 +1150,55 @@ test('Owner puede solicitar muestra de presentación sin pasar por el modelo', a
   assert.equal(recorder.calls[0].payload.replyType, 'voice');
 });
 
+test('respuesta WhatsApp de prospecto se atribuye antes del runtime comercial', async () => {
+  const recorder = createSendJsonRecorder();
+  const attributed = [];
+  const processed = [];
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'prospecting-reply-wa-1',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588887777@c.us',
+          body: 'Sí, nos interesa. Envíeme una cotización.',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async resolveRegisteredProvider() { return null; },
+      async attributeWhatsappResponseSafely(input) {
+        attributed.push(input);
+        return {
+          matched: true,
+          prospectId: 'prospect-1',
+          classification: 'quote_request',
+          ownerRecommended: true
+        };
+      },
+      async requestConversationDecision() {
+        return { action: 'RESPOND', instructions: '', history: [], platform: { platformId: 'ELANVISUAL' } };
+      },
+      async processMessage(input) {
+        processed.push(input);
+        return { reply: 'Claro, con gusto.', context: { ownerMode: false, platform: 'ELANVISUAL' } };
+      },
+      async sendWahaText() { return { id: 'reply-prospect-1' }; },
+      async persistConversationEvent() { return { ok: true }; }
+    }
+  });
+
+  assert.equal(attributed.length, 1);
+  assert.equal(attributed[0].phone, '50588887777');
+  assert.match(attributed[0].text, /cotización/);
+  assert.equal(processed.length, 1);
+});
+
 test('POST /webhook/inbound ignores messages sent by the bot', async () => {
   const req = createRequest({
     body: {
