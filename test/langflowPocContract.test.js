@@ -14,6 +14,10 @@ test('Langflow POC stays pinned, authenticated and localhost-only', () => {
   assert.match(compose, /image:\s+langflowai\/langflow:1\.12\.0/);
   assert.match(compose, /127\.0\.0\.1:7860:7860/);
   assert.match(compose, /LANGFLOW_AUTO_LOGIN:\s+"false"/);
+  assert.match(compose, /LANGFLOW_DEPLOYMENT_PROFILE:\s+dev/);
+  assert.match(compose, /LANGFLOW_DEV:\s+"false"/);
+  assert.match(compose, /LANGFLOW_STORAGE_TYPE:\s+local/);
+  assert.doesNotMatch(compose, /LANGFLOW_DEPLOYMENT_PROFILE:\s+prod/);
   assert.match(compose, /LANGFLOW_ENABLE_SIGNUP:\s+"false"/);
   assert.match(compose, /LANGFLOW_API_KEY_SOURCE:\s+env/);
   assert.match(compose, /LANGFLOW_ALLOW_CUSTOM_COMPONENTS:\s+"false"/);
