@@ -33,6 +33,7 @@ test('permite salir con “sal del modo cotización” y deja pasar órdenes ope
   assert.equal(isQuotationModeBypassRequest('ELAN estado OPS-123'), true);
   assert.equal(isQuotationModeBypassRequest('muéstrame los logs del supervisor'), true);
   assert.equal(isQuotationModeBypassRequest('Doctora Abigail'), false);
+  assert.equal(isQuotationModeBypassRequest('manda correos y WhatsApp a los prospectos'), true);
 
   await processQuotationModeText({ identity, text: 'Activa modo cotización' });
   const out = await processQuotationModeText({ identity, text: 'sal del modo cotización' });
