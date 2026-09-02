@@ -5,6 +5,7 @@ on:
     branches:
       - orchestrator-next
       - feature/ELAN-OPENAI-MULTICHANNEL-TOOLS-01
+      - feature/OWNER-SUPPLIER-PROSPECTING-01
     paths:
       - 'adapters/connectMarketplaceToolAdapter.js'
       - 'adapters/connectChannelToolAdapter.js'
@@ -15,11 +16,14 @@ on:
       - 'api/channelDeliveryApi.js'
       - 'server.js'
       - 'services/ownerOpsDeployBridge.js'
+      - 'services/ownerCommandService.js'
+      - 'services/supplierProspectingOwnerService.js'
       - 'test/ownerOpsDeployBridge.test.js'
       - 'services/openaiCommercialToolService.js'
       - 'services/openaiChannelToolService.js'
       - 'tests/openaiCommercialTools.test.js'
       - 'tests/commercialDeliveryAdapters.test.js'
+      - 'tests/ownerSupplierProspecting.test.js'
       - 'package.json'
       - 'package-lock.json'
       - 'docs/deploy-markers/**'
@@ -35,11 +39,14 @@ on:
       - 'api/channelDeliveryApi.js'
       - 'server.js'
       - 'services/ownerOpsDeployBridge.js'
+      - 'services/ownerCommandService.js'
+      - 'services/supplierProspectingOwnerService.js'
       - 'test/ownerOpsDeployBridge.test.js'
       - 'services/openaiCommercialToolService.js'
       - 'services/openaiChannelToolService.js'
       - 'tests/openaiCommercialTools.test.js'
       - 'tests/commercialDeliveryAdapters.test.js'
+      - 'tests/ownerSupplierProspecting.test.js'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/orchestrator-multichannel-tools-ci.yml'
@@ -70,9 +77,12 @@ jobs:
           node --check api/channelDeliveryApi.js
           node --check server.js
           node --check services/ownerOpsDeployBridge.js
+          node --check services/ownerCommandService.js
+          node --check services/supplierProspectingOwnerService.js
           node --check test/ownerOpsDeployBridge.test.js
           node --check services/openaiChannelToolService.js
           node --check tests/openaiCommercialTools.test.js
+          node --check tests/ownerSupplierProspecting.test.js
 
       - name: Multichannel tool tests
-        run: node --test tests/openaiCommercialTools.test.js tests/commercialDeliveryAdapters.test.js test/ownerOpsDeployBridge.test.js
+        run: node --test tests/openaiCommercialTools.test.js tests/commercialDeliveryAdapters.test.js tests/ownerSupplierProspecting.test.js test/ownerOpsDeployBridge.test.js

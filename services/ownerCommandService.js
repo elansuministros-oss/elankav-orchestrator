@@ -19,6 +19,11 @@ const {
   detectOwnerOpsDeployCommand,
   executeOwnerOpsDeployCommand
 } = require('./ownerOpsDeployBridge');
+const {
+  formatSupplierMissionStarted,
+  isSupplierProspectingRequest,
+  startSupplierProspectingMission
+} = require('./supplierProspectingOwnerService');
 
 const OWNER_COMMANDS = Object.freeze({
   CONTEXT_SYNC: 'context_sync',
@@ -30,6 +35,7 @@ const OWNER_COMMANDS = Object.freeze({
   WAHA_STATUS: 'waha_status',
   QUOTE_QUERY: 'quote_query',
   SEND_DESIGN_LINK: 'send_design_link',
+  SUPPLIER_PROSPECTING_START: 'supplier_prospecting_start',
   OWNER_OPS_PREPARE_DEPLOY: 'owner_ops_prepare_deploy',
   OWNER_OPS_CONFIRM: 'owner_ops_confirm',
   OWNER_OPS_STATUS: 'owner_ops_status'
@@ -97,6 +103,13 @@ function detectOwnerCommand(message) {
 
   const sendDesignLinkCommand = detectSendDesignLinkCommand(message, normalized);
   if (sendDesignLinkCommand) return sendDesignLinkCommand;
+
+  if (isSupplierProspectingRequest(message)) {
+    return Object.freeze({
+      type: OWNER_COMMANDS.SUPPLIER_PROSPECTING_START,
+      message: String(message || '').trim()
+    });
+  }
 
   if (CAPABILITY_PATTERN.test(normalized)) {
     return Object.freeze({ type: OWNER_COMMANDS.CAPABILITY_CATALOG });
@@ -217,6 +230,15 @@ async function executeOwnerCommand({ command, platform }) {
   if (type === OWNER_COMMANDS.SEND_DESIGN_LINK) {
     const sent = await sendDesignLink({ phone: command.phone });
     return { command: type, job: null, outputText: `Mensaje enviado correctamente a +${sent.phone}.\n\nEnlace: ${sent.link}`, delivery: sent };
+  }
+  if (type === OWNER_COMMANDS.SUPPLIER_PROSPECTING_START) {
+    const result = await startSupplierProspectingMission({ message: command.message });
+    return {
+      command: type,
+      job: null,
+      outputText: formatSupplierMissionStarted(result),
+      supplierProspecting: result
+    };
   }
   if (type === OWNER_COMMANDS.JOB_STATUS) {
     const job = await getJob(command.jobId);
