@@ -2,6 +2,7 @@
 
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const DEFAULT_WAHA_SESSION = 'ELANKAV';
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -86,13 +87,37 @@ function assertPublicUrl(value, errorCode) {
   }
 }
 
+function normalizedMime(value) {
+  return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
 function assertImageDeliveryInput({ imageUrl, mimeType }) {
   assertPublicUrl(imageUrl, 'WAHA_IMAGE_URL_REQUIRED');
 
-  const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  const normalizedMimeType = normalizedMime(mimeType);
   if (!SUPPORTED_IMAGE_MIME_TYPES.has(normalizedMimeType)) {
     const error = new Error('WAHA_IMAGE_MIME_UNSUPPORTED');
     error.code = 'WAHA_IMAGE_MIME_UNSUPPORTED';
+    throw error;
+  }
+}
+
+function assertImageBytes(bytes, mimeType) {
+  if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > MAX_IMAGE_BYTES) {
+    const error = new Error('WAHA_IMAGE_BYTES_INVALID');
+    error.code = 'WAHA_IMAGE_BYTES_INVALID';
+    throw error;
+  }
+
+  const mime = normalizedMime(mimeType);
+  const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const png = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const webp = bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  const valid = mime === 'image/jpeg' ? jpeg : mime === 'image/png' ? png : mime === 'image/webp' ? webp : false;
+
+  if (!valid) {
+    const error = new Error('WAHA_IMAGE_CONTENT_INVALID');
+    error.code = 'WAHA_IMAGE_CONTENT_INVALID';
     throw error;
   }
 }
@@ -106,7 +131,7 @@ function assertFileDeliveryInput({ fileUrl, fileName, mimeType }) {
     throw error;
   }
 
-  const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  const normalizedMimeType = normalizedMime(mimeType);
   if (!SUPPORTED_FILE_MIME_TYPES.has(normalizedMimeType)) {
     const error = new Error('WAHA_FILE_MIME_UNSUPPORTED');
     error.code = 'WAHA_FILE_MIME_UNSUPPORTED';
@@ -121,7 +146,7 @@ function assertVoiceDeliveryInput({ data, mimeType }) {
     throw error;
   }
 
-  const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  const normalizedMimeType = normalizedMime(mimeType);
   if (!SUPPORTED_VOICE_MIME_TYPES.has(normalizedMimeType)) {
     const error = new Error('WAHA_VOICE_MIME_UNSUPPORTED');
     error.code = 'WAHA_VOICE_MIME_UNSUPPORTED';
@@ -175,6 +200,31 @@ function createWahaDeliveryAdapter({
     return data;
   }
 
+  async function fetchImageBytes(imageUrl, mimeType) {
+    const response = await fetchImpl(assertPublicUrl(imageUrl, 'WAHA_IMAGE_URL_REQUIRED'), {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!response.ok) {
+      const error = new Error(`WAHA_IMAGE_FETCH_FAILED:${response.status}`);
+      error.code = 'WAHA_IMAGE_FETCH_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+
+    const declaredLength = Number(response.headers?.get?.('content-length') || 0);
+    if (declaredLength > MAX_IMAGE_BYTES) {
+      const error = new Error('WAHA_IMAGE_BYTES_INVALID');
+      error.code = 'WAHA_IMAGE_BYTES_INVALID';
+      throw error;
+    }
+
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assertImageBytes(bytes, mimeType);
+    return bytes;
+  }
+
   async function sendText({ phone, chatId, text }) {
     const resolvedChatId = resolveChatId({ phone, chatId });
     if (!String(text || '').trim()) {
@@ -199,15 +249,17 @@ function createWahaDeliveryAdapter({
   async function sendImage({ phone, chatId, imageUrl, caption, fileName, mimeType }) {
     const resolvedChatId = resolveChatId({ phone, chatId });
     assertImageDeliveryInput({ imageUrl, mimeType });
+    const normalizedMimeType = normalizedMime(mimeType);
+    const bytes = await fetchImageBytes(imageUrl, normalizedMimeType);
 
     const data = await requestWaha('/api/sendImage', {
       session,
       chatId: resolvedChatId,
       caption: String(caption || ''),
       file: {
-        url: String(imageUrl).trim(),
+        data: bytes.toString('base64'),
         filename: String(fileName || 'design-render.png'),
-        mimetype: String(mimeType || '').split(';')[0].trim().toLowerCase()
+        mimetype: normalizedMimeType
       }
     });
 
@@ -229,7 +281,7 @@ function createWahaDeliveryAdapter({
       file: {
         url: String(fileUrl).trim(),
         filename: String(fileName).trim(),
-        mimetype: String(mimeType).split(';')[0].trim().toLowerCase()
+        mimetype: normalizedMime(mimeType)
       }
     });
 
@@ -243,7 +295,7 @@ function createWahaDeliveryAdapter({
   async function sendVoice({ phone, chatId, data, mimeType }) {
     const resolvedChatId = resolveChatId({ phone, chatId });
     assertVoiceDeliveryInput({ data, mimeType });
-    const normalizedMimeType = String(mimeType).split(';')[0].trim().toLowerCase();
+    const normalizedMimeType = normalizedMime(mimeType);
 
     const response = await requestWaha('/api/sendVoice', {
       session,
@@ -268,7 +320,9 @@ function createWahaDeliveryAdapter({
 module.exports = {
   DEFAULT_WAHA_BASE_URL,
   DEFAULT_WAHA_SESSION,
+  MAX_IMAGE_BYTES,
   assertFileDeliveryInput,
+  assertImageBytes,
   assertImageDeliveryInput,
   assertVoiceDeliveryInput,
   buildChatId,
