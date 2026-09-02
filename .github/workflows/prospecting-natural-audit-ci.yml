@@ -24,15 +24,27 @@ jobs:
         run: npm install --ignore-scripts
       - name: Syntax
         run: |
+          node --check services/ownerTemplateApprovalService.js
           node --check services/ownerProspectingNaturalAuditService.js
           node --check services/ownerProspectingCommandService.js
           node --check services/ownerBusinessProcessMessageGateway.js
       - name: Natural Prospecting audit
         run: |
-          node --test             test/ownerProspectingNaturalAuditService.test.js             test/ownerProspectingCommandService.test.js             test/ownerProspectingOutreachCommandService.test.js
+          node --test \
+            test/ownerProspectingNaturalAuditService.test.js \
+            test/ownerProspectingCommandService.test.js \
+            test/ownerProspectingOutreachCommandService.test.js \
+            tests/ownerTemplateExactKeyPriority.test.js
       - name: Protected component registry
         run: |
-          node --test             test/protectedComponentRegistry.test.js             test/protectedConnectSourceContracts.test.js
+          node --test \
+            test/protectedComponentRegistry.test.js \
+            test/protectedConnectSourceContracts.test.js
       - name: WhatsApp and runtime regressions
         run: |
-          node --test             test/runtimeBootstrapPreloads.test.js             test/sellerBusinessRuntimeOwnerBypass.test.js             test/wahaWebhookApi.test.js             test/wahaLidAlternateIdentity.test.js             test/ownerOpsSupervisor.test.js
+          node --test \
+            test/runtimeBootstrapPreloads.test.js \
+            test/sellerBusinessRuntimeOwnerBypass.test.js \
+            test/wahaWebhookApi.test.js \
+            test/wahaLidAlternateIdentity.test.js \
+            test/ownerOpsSupervisor.test.js

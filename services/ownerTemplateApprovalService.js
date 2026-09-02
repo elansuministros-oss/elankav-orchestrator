@@ -93,7 +93,10 @@ function matchesAudience(row, input) {
 function chooseReview(reviews, input, { requireEvidence = true, approvedOnly = false } = {}) {
   let rows = (Array.isArray(reviews) ? reviews : []).filter(row => approvedOnly ? row?.approved === true : !row?.approved);
   if (requireEvidence) rows = rows.filter(hasCompletedEvidence);
-  if (input?.key) rows = rows.filter(row => String(row?.template?.key || '').toLowerCase() === String(input.key).toLowerCase());
+  if (input?.key) {
+    rows = rows.filter(row => String(row?.template?.key || '').toLowerCase() === String(input.key).toLowerCase());
+    return rows.length === 1 ? rows[0] : null;
+  }
   rows = rows.filter(row => matchesAudience(row, input));
   return rows.length === 1 ? rows[0] : null;
 }
