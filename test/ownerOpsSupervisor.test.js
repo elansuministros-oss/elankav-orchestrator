@@ -30,9 +30,11 @@ test.after(async () => {
   await fs.rm(tempBase, { recursive: true, force: true });
 });
 
-test('supervisor allowlist contains only CONNECT and Orchestrator', () => {
-  assert.deepEqual(Object.keys(TARGETS).sort(), ['connect', 'orchestrator']);
+test('supervisor allowlist contains CONNECT, Orchestrator and Langflow', () => {
+  assert.deepEqual(Object.keys(TARGETS).sort(), ['connect', 'langflow', 'orchestrator']);
   assert.equal(TARGETS.orchestrator.service, 'elankav-orchestrator.service');
+  assert.equal(TARGETS.langflow.deployMode, 'docker-compose');
+  assert.equal(TARGETS.langflow.port, 7860);
 });
 
 test('supervisor only auto-repairs CONNECT when HEAD is detached', () => {
@@ -133,6 +135,11 @@ test('supervisor refresh is scheduled only after successful Orchestrator reposit
   assert.equal(shouldRefreshSupervisorAfterRequest({
     capability: 'repository.deploy',
     target: 'connect'
+  }), false);
+
+  assert.equal(shouldRefreshSupervisorAfterRequest({
+    capability: 'repository.deploy',
+    target: 'langflow'
   }), false);
 
   assert.equal(shouldRefreshSupervisorAfterRequest({

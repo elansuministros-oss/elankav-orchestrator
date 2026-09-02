@@ -1,0 +1,45 @@
+services:
+  langflow:
+    image: langflowai/langflow:1.12.0
+    container_name: elankav-langflow
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7860:7860"
+    env_file:
+      - /var/lib/elankav-langflow/langflow.env
+    environment:
+      LANGFLOW_HOST: 0.0.0.0
+      LANGFLOW_PORT: 7860
+      LANGFLOW_DEPLOYMENT_PROFILE: prod
+      LANGFLOW_AUTO_LOGIN: "false"
+      LANGFLOW_ENABLE_SIGNUP: "false"
+      LANGFLOW_ENABLE_SUPERUSER_CLI: "false"
+      LANGFLOW_API_KEY_SOURCE: env
+      LANGFLOW_CONFIG_DIR: /app/langflow
+      LANGFLOW_SAVE_DB_IN_CONFIG_DIR: "true"
+      LANGFLOW_ALLOW_CUSTOM_COMPONENTS: "false"
+      LANGFLOW_ALLOW_COMPONENTS_PATHS_OVERRIDE: "false"
+      LANGFLOW_BLOCK_CODE_INTERPRETER_COMPONENTS: "true"
+      LANGFLOW_RESTRICT_LOCAL_FILE_ACCESS: "true"
+      LANGFLOW_MCP_SERVER_DOCKER_HARDENING: "true"
+      LANGFLOW_TWEAKS_POLICY: declared
+      LANGFLOW_REMOVE_API_KEYS: "true"
+      LANGFLOW_WORKERS: "1"
+      DO_NOT_TRACK: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/lib/elankav-langflow/data:/app/langflow
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import json,urllib.request;
+          x=json.load(urllib.request.urlopen('http://127.0.0.1:7860/health_check', timeout=5));
+          assert x.get('status') == 'ok' and x.get('chat') == 'ok' and x.get('db') == 'ok'"
+      interval: 30s
+      timeout: 8s
+      retries: 8
+      start_period: 60s

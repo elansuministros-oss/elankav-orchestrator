@@ -15,7 +15,7 @@ const {
 test('registro central contiene componentes críticos sin contratos arbitrarios', () => {
   const registry = loadProtectedComponentRegistry();
   assert.equal(registry.schemaVersion, 1);
-  assert.equal(registry.components.length, 6);
+  assert.equal(registry.components.length, 7);
 
   const ids = new Set(registry.components.map(item => item.id));
   for (const id of [
@@ -24,7 +24,8 @@ test('registro central contiene componentes críticos sin contratos arbitrarios'
     'PROVIDER_RECRUITMENT_ORCHESTRATOR',
     'PROSPECTING_RESEARCH_AUTOPILOT',
     'PROVIDER_RECRUITMENT_CONNECT',
-    'ELAN_GO_CONTROL'
+    'ELAN_GO_CONTROL',
+    'ELAN_LANGFLOW_POC'
   ]) {
     assert.equal(ids.has(id), true, id);
   }
@@ -39,6 +40,7 @@ test('registro central contiene componentes críticos sin contratos arbitrarios'
 test('cada despliegue protegido tiene contratos por target', () => {
   const orchestrator = getProtectedComponentsForTarget('orchestrator');
   const connect = getProtectedComponentsForTarget('connect');
+  const langflow = getProtectedComponentsForTarget('langflow');
 
   assert.deepEqual(
     orchestrator.map(item => item.id).sort(),
@@ -57,6 +59,8 @@ test('cada despliegue protegido tiene contratos por target', () => {
       'PROVIDER_RECRUITMENT_CONNECT'
     ].sort()
   );
+
+  assert.deepEqual(langflow.map(item => item.id), ['ELAN_LANGFLOW_POC']);
 });
 
 test('contrato no permitido falla cerrado', () => {

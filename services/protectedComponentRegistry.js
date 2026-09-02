@@ -4,14 +4,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const REGISTRY_PATH = path.join(__dirname, '..', 'config', 'protected-components.json');
-const ALLOWED_TARGETS = new Set(['orchestrator', 'connect']);
+const ALLOWED_TARGETS = new Set(['orchestrator', 'connect', 'langflow']);
 const ALLOWED_CONTRACTS = new Set([
   'owner_whatsapp_core',
   'owner_prospecting_bridge',
   'provider_recruitment_orchestrator',
   'prospecting_research_connect',
   'provider_recruitment_connect',
-  'elan_go_control_connect'
+  'elan_go_control_connect',
+  'langflow_poc_runtime'
 ]);
 
 function loadProtectedComponentRegistry(filePath = REGISTRY_PATH) {

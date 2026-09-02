@@ -52,6 +52,13 @@ const CONTRACT_SPECS = Object.freeze({
       'tests/marketplace-elan-go-control.test.ts',
       'tests/marketplace-runtime.test.ts'
     ])
+  }),
+  langflow_poc_runtime: Object.freeze({
+    kind: 'node_test',
+    label: 'ELAN_LANGFLOW_POC',
+    files: Object.freeze([
+      'test/langflowPocContract.test.js'
+    ])
   })
 });
 
