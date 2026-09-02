@@ -144,7 +144,13 @@ function isQuotationModeStartRequest(text) {
 function isQuotationModeStopRequest(text) {
   const value = normalize(text);
   if (!value) return false;
-  return /\b(cancelar|cancela|salir|cerrar|terminar|termina|detener|deten)\b.*\b(cotizacion|modo cotizacion)\b/.test(value);
+  return /\b(cancelar|cancela|sal|salir|cerrar|terminar|termina|detener|deten)\b.*\b(cotizacion|modo cotizacion)\b/.test(value);
+}
+
+function isQuotationModeBypassRequest(text) {
+  const value = normalize(text);
+  if (!value) return false;
+  return /\b(despliega|desplegar|deploy|estado|status|logs?|supervisor|commit|rama|branch|health|salud|reinicia|restart|owner ops|ops-|whatsapp core|waha)\b/.test(value);
 }
 
 function extractPhone(text) {
@@ -573,6 +579,10 @@ async function processQuotationModeText({ identity, text, metadata = {}, depende
   const state = await getState(identity, env);
   if (!state?.active) return { handled: false };
 
+  if (isQuotationModeBypassRequest(text)) {
+    return { handled: false, bypassed: true, mode: 'quotation' };
+  }
+
   if (isQuotationModeStopRequest(text)) {
     await clearState(identity, env);
     return {
@@ -806,6 +816,7 @@ module.exports = {
   freshState,
   getState,
   isNoImage,
+  isQuotationModeBypassRequest,
   isQuotationModeStartRequest,
   isQuotationModeStopRequest,
   nextMissingStep,
