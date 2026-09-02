@@ -291,6 +291,8 @@ async function executeOwnerProspectingOutreachCommand(
     };
   }
 
+  if (action !== 'preflight') assertControls(control, input.strategy || 'email_first');
+
   const missions = await requestImpl(
     '/api/v1/prospecting/missions?businessUnit=ELANVISUAL&limit=500',
     { method: 'GET' }
@@ -321,8 +323,6 @@ async function executeOwnerProspectingOutreachCommand(
       result: { action, preflight, mission, control }
     };
   }
-
-  assertControls(control, input.strategy || 'email_first');
 
   const maxTargets = Math.max(
     1,
