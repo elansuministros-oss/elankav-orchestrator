@@ -29,6 +29,25 @@ function normalize(value) {
     .replace(/\s+/g, ' ');
 }
 
+function stripHonorifics(value) {
+  return normalize(value)
+    .replace(/^(?:dr|dra|doctor|doctora|lic|licda|licenciado|licenciada|ing|ingeniero|ingeniera|arq|arquitecto|arquitecta|sr|sra|senor|senora)\.?\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function referenceVariants(value) {
+  const raw = String(value || '').trim();
+  const variants = [raw, stripHonorifics(raw)]
+    .map(item => String(item || '').trim())
+    .filter(Boolean);
+  return [...new Set(variants)];
+}
+
+function normalizedReference(value) {
+  return stripHonorifics(value);
+}
+
 function storePath(env = process.env) {
   return String(env.OWNER_QUOTATION_MODE_STORE_PATH || DEFAULT_STORE_PATH).trim() || DEFAULT_STORE_PATH;
 }
@@ -241,11 +260,16 @@ function chooseCustomer(rows, reference) {
     .filter(Boolean);
   if (!candidates.length) return { status: 'not_found', candidates: [] };
 
-  const wanted = normalize(reference);
+  const wanted = normalizedReference(reference);
   const phone = extractPhone(reference);
   const exact = candidates.filter(customer => {
     if (phone && customerPhone(customer) === phone) return true;
-    return customerNames(customer).some(name => normalize(name) === wanted);
+    return customerNames(customer).some(name => {
+      const normalizedName = normalizedReference(name);
+      return normalizedName === wanted ||
+        (wanted.length >= 4 && normalizedName.includes(wanted)) ||
+        (normalizedName.length >= 4 && wanted.includes(normalizedName));
+    });
   });
 
   if (exact.length === 1) return { status: 'selected', customer: exact[0], candidates };
@@ -265,8 +289,13 @@ function prospectRows(payload) {
 function chooseProspect(payload, reference) {
   const rows = prospectRows(payload);
   if (!rows.length) return { status: 'not_found', candidates: [] };
-  const wanted = normalize(reference);
-  const exact = rows.filter(row => normalize(row?.companyName) === wanted);
+  const wanted = normalizedReference(reference);
+  const exact = rows.filter(row => {
+    const company = normalizedReference(row?.companyName);
+    return company === wanted ||
+      (wanted.length >= 4 && company.includes(wanted)) ||
+      (company.length >= 4 && wanted.includes(company));
+  });
   if (exact.length === 1) return { status: 'selected', prospect: exact[0], candidates: rows };
   if (exact.length > 1) return { status: 'ambiguous', candidates: exact };
   if (rows.length === 1) return { status: 'selected', prospect: rows[0], candidates: rows };
@@ -318,9 +347,15 @@ async function resolvePartyReference(reference, dependencies = {}) {
   const searchCustomersImpl = dependencies.searchCustomers || searchCustomers;
   const searchProspectsImpl = dependencies.searchProspects || searchProspects;
   const getProspectTimelineImpl = dependencies.getProspectTimeline || getProspectTimeline;
+  const variants = referenceVariants(query);
 
-  const customerSearch = await searchCustomersImpl(query);
-  const customerChoice = chooseCustomer(customerSearch?.data?.results || customerSearch?.results || [], query);
+  let customerRows = [];
+  for (const variant of variants) {
+    const customerSearch = await searchCustomersImpl(variant);
+    const rows = customerSearch?.data?.results || customerSearch?.results || [];
+    if (Array.isArray(rows)) customerRows.push(...rows);
+  }
+  const customerChoice = chooseCustomer(customerRows, query);
   if (customerChoice.status === 'selected') {
     const customer = customerChoice.customer;
     const companyName = String(customer.companyName || '').trim();
@@ -344,8 +379,12 @@ async function resolvePartyReference(reference, dependencies = {}) {
     };
   }
 
-  const prospectSearch = await searchProspectsImpl(query);
-  const prospectChoice = chooseProspect(prospectSearch, query);
+  let prospectCandidates = [];
+  for (const variant of variants) {
+    const prospectSearch = await searchProspectsImpl(variant);
+    prospectCandidates.push(...prospectRows(prospectSearch));
+  }
+  const prospectChoice = chooseProspect(prospectCandidates, query);
   if (prospectChoice.status === 'selected') {
     const prospect = prospectChoice.prospect;
     let timeline = {};
@@ -777,9 +816,11 @@ module.exports = {
   processQuotationModeImage,
   processQuotationModeText,
   prospectRows,
+  referenceVariants,
   resolveOrCreateCustomer,
   resolvePartyReference,
   setState,
   stateKey,
+  stripHonorifics,
   summaryForState
 };

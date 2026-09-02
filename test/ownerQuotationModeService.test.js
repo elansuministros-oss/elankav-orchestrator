@@ -16,7 +16,9 @@ const {
   paymentTermsFromText,
   processQuotationModeImage,
   processQuotationModeText,
-  resolvePartyReference
+  referenceVariants,
+  resolvePartyReference,
+  stripHonorifics
 } = require('../services/ownerQuotationModeService');
 
 const identity = { externalUserId: '50588388940@c.us', phone: '50588388940', chatId: '50588388940@c.us' };
@@ -37,6 +39,47 @@ test('parsea condiciones de pago y precio', () => {
   assert.deepEqual(paymentTermsFromText('anticipo 50%'), { depositPercent: 50, balancePercent: 50 });
   assert.deepEqual(parsePrice('USD 325'), { mode: 'explicit', amountUsd: 325 });
   assert.deepEqual(parsePrice('usar precio de biblioteca'), { mode: 'catalog', amountUsd: null });
+});
+
+test('normaliza títulos profesionales para resolver el mismo cliente', () => {
+  assert.equal(stripHonorifics('Doctora Abigail'), 'abigail');
+  assert.equal(stripHonorifics('Dra. Abigail'), 'abigail');
+  assert.deepEqual(referenceVariants('Doctora Abigail'), ['Doctora Abigail', 'abigail']);
+});
+
+test('“Doctora Abigail” encuentra cliente aunque esté registrado como “Dra. Abigail”', async () => {
+  const queries = [];
+  const deps = {
+    async searchCustomers(query) {
+      queries.push(query);
+      if (query === 'abigail') {
+        return {
+          data: {
+            results: [{
+              customer: {
+                id: 'cust-abigail',
+                name: 'Dra. Abigail',
+                companyName: 'Clínica Abigail',
+                phone: '87770000',
+                address: 'Managua'
+              }
+            }]
+          }
+        };
+      }
+      return { data: { results: [] } };
+    },
+    async searchProspects() {
+      throw new Error('PROSPECT_SEARCH_SHOULD_NOT_RUN');
+    }
+  };
+
+  const resolved = await resolvePartyReference('Doctora Abigail', deps);
+  assert.equal(resolved.status, 'selected');
+  assert.equal(resolved.sourceType, 'customer');
+  assert.equal(resolved.sourceId, 'cust-abigail');
+  assert.equal(resolved.customerName, 'Dra. Abigail');
+  assert.deepEqual(queries, ['Doctora Abigail', 'abigail']);
 });
 
 test('cliente registrado se resuelve por nombre y reutiliza sus datos', async () => {
