@@ -35,15 +35,19 @@ function explicitTarget(raw) {
   return null;
 }
 
+function stripNegativeActions(raw) {
+  return normalize(raw)
+    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?connect\b/g, '')
+    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:orchestrator|orquestador)\b/g, '')
+    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:elanvisual|elanvisual-platform)\b/g, '')
+    .replace(/\bno\s+(?:reinicies?|reiniciar|reinicia|toques?|tocar)\s+(?:el\s+)?waha\b(?:\s+directamente)?/g, '');
+}
+
 function detectTarget(raw) {
   const explicit = explicitTarget(raw);
   if (explicit) return explicit;
 
-  const text = normalize(raw)
-    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?connect\b/g, '')
-    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:orchestrator|orquestador)\b/g, '')
-    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:elanvisual|elanvisual-platform)\b/g, '');
-
+  const text = stripNegativeActions(raw);
   const matches = [
     /\b(connect|elankav connect)\b/.test(text) ? 'connect' : null,
     /\b(orchestrator|orquestador)\b/.test(text) ? 'orchestrator' : null,
@@ -56,6 +60,7 @@ function detectTarget(raw) {
 function detectSupervisorCommand(message) {
   const raw = String(message || '');
   const normalized = normalize(raw);
+  const operationalText = stripNegativeActions(raw);
   const ops = raw.toUpperCase().match(OPS_ID_PATTERN);
 
   if (ops && /\b(estado|estatus|resultado|verifica|verificar|consulta|consultar)\b/.test(normalized)) {
@@ -63,18 +68,14 @@ function detectSupervisorCommand(message) {
   }
 
   const target = detectTarget(raw);
-  if (target === 'orchestrator' && /\b(reinicia|reiniciar|restart|rearranca|rearrancar)\b/.test(normalized)) {
-    return Object.freeze({
-      type: ownerCommands.OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
-      capability: 'service.restart', target: 'orchestrator', summary: 'Reiniciar Orchestrator',
-      impact: 'El supervisor externo reiniciará Orchestrator y verificará que vuelva a estado active.', parameters: Object.freeze({})
-    });
-  }
-
   const commit = raw.match(COMMIT_PATTERN)?.[0]?.toLowerCase() || null;
-  if (target && commit && /\b(despliega|desplegar|deploy|actualiza|actualizar)\b/.test(normalized)) {
+
+  // A deploy command with an exact commit always wins over incidental wording
+  // such as "No reiniciar WAHA". Otherwise a safety sentence can be mistaken
+  // for a restart request.
+  if (target && commit && /\b(despliega|desplegar|deploy|actualiza|actualizar)\b/.test(operationalText)) {
     const targetConfig = DEPLOY_TARGETS[target];
-    const cleanGeneratedCatalog = target === 'connect' && /\b(limpia|limpiar|limpieza|restaura|restaurar)\b/.test(normalized);
+    const cleanGeneratedCatalog = target === 'connect' && /\b(limpia|limpiar|limpieza|restaura|restaurar)\b/.test(operationalText);
     const parameters = {
       expectedCommit: commit,
       install: true,
@@ -104,6 +105,15 @@ function detectSupervisorCommand(message) {
       parameters: Object.freeze(parameters)
     });
   }
+
+  if (target === 'orchestrator' && /\b(reinicia|reiniciar|restart|rearranca|rearrancar)\b/.test(operationalText)) {
+    return Object.freeze({
+      type: ownerCommands.OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
+      capability: 'service.restart', target: 'orchestrator', summary: 'Reiniciar Orchestrator',
+      impact: 'El supervisor externo reiniciará Orchestrator y verificará que vuelva a estado active.', parameters: Object.freeze({})
+    });
+  }
+
   return null;
 }
 
@@ -138,4 +148,13 @@ async function executeOwnerCommand(input) {
 ownerCommands.detectOwnerCommand = detectOwnerCommand;
 ownerCommands.executeOwnerCommand = executeOwnerCommand;
 
-module.exports = { STATUS_TYPE, DEPLOY_TARGETS, detectOwnerCommand, detectSupervisorCommand, detectTarget, explicitTarget, formatSupervisorStatus };
+module.exports = {
+  STATUS_TYPE,
+  DEPLOY_TARGETS,
+  detectOwnerCommand,
+  detectSupervisorCommand,
+  detectTarget,
+  explicitTarget,
+  formatSupervisorStatus,
+  stripNegativeActions
+};

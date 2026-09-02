@@ -1,0 +1,21 @@
+name: Owner Ops Routing Regression CI
+
+on:
+  pull_request:
+    paths:
+      - 'services/ownerOpsSupervisorCommandPatch.js'
+      - 'services/inboundCommercialRoleMessagePatch.js'
+      - 'tests/ownerOpsOperationalBypass.test.js'
+      - 'tests/ownerOpsConfirmationBypassContract.test.js'
+      - '.github/workflows/owner-ops-routing-regression-ci.yml'
+
+jobs:
+  owner-ops-routing-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node tests/ownerOpsOperationalBypass.test.js
+      - run: node tests/ownerOpsConfirmationBypassContract.test.js
