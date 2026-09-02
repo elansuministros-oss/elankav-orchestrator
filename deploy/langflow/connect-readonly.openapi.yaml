@@ -1,0 +1,108 @@
+openapi: 3.1.0
+info:
+  title: ELANKAV CONNECT Read-Only POC
+  version: 0.1.0
+  description: >
+    Read-only/lookup surface for validating Langflow as ELAN reasoning and
+    tool-selection layer. CONNECT remains the source of truth. This contract
+    intentionally excludes messaging, campaign activation, destructive writes,
+    supplier promotion, deployments and WAHA operations.
+servers:
+  - url: http://host.docker.internal:4400
+paths:
+  /api/v1/business/vqs/owner-directory/customers:
+    get:
+      operationId: buscarClientes
+      summary: Buscar clientes oficiales
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Clientes encontrados
+
+  /api/v1/business/vqs/owner-directory/providers:
+    get:
+      operationId: buscarProveedores
+      summary: Buscar proveedores oficiales
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Proveedores encontrados
+
+  /api/v1/business/vqs/pricing/resolve:
+    post:
+      operationId: resolverPrecioAutorizado
+      summary: Resolver un precio comercial autorizado en CONNECT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+                width: { type: number }
+                height: { type: number }
+                quantity: { type: number, default: 1 }
+      responses:
+        "200":
+          description: Resultado real del motor de pricing de CONNECT
+
+  /api/v1/business/vqs/pricing/catalog-admin/search:
+    get:
+      operationId: buscarCatalogoPrecios
+      summary: Buscar precios publicados/autorizados
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Coincidencias del catálogo autorizado
+
+  /api/v1/business/vqs/quotations:
+    get:
+      operationId: listarCotizaciones
+      summary: Consultar cotizaciones oficiales
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        "200":
+          description: Cotizaciones oficiales
+
+  /api/v1/providers:
+    get:
+      operationId: listarProveedoresCanonicos
+      summary: Consultar proveedores canónicos
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema: { type: string, default: active }
+        - in: query
+          name: search
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Proveedores canónicos
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
