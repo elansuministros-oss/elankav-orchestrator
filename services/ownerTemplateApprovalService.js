@@ -132,24 +132,49 @@ function inlineImage(html) {
   return { bytes: Buffer.from(String(matches[0][2]), 'base64'), mimeType, extension };
 }
 
-async function uploadInlineImage(image, template, env = process.env, fetchImpl = globalThis.fetch) {
+function connectRequestConfig(env = process.env) {
   const baseUrl = String(env.CONNECT_BASE_URL || 'https://connect.elankav.com').trim().replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(baseUrl)) throw new OwnerTemplateApprovalError('CONNECT_BASE_URL_INVALID', 'CONNECT_BASE_URL no es válido.', 503);
-  const token = resolveInternalToken(env);
+  return { baseUrl, token: resolveInternalToken(env) };
+}
+
+function ownerHeaders(token, contentType = 'application/json') {
+  return {
+    'Content-Type': contentType,
+    'X-Elankav-Internal-Token': token,
+    'X-Elankav-Actor-Type': 'owner',
+    'X-Elankav-Actor-Role': 'owner',
+    'X-Elankav-Actor-Id': 'owner-whatsapp',
+    'X-Elankav-Platform': 'ELANVISUAL',
+    'X-Elankav-Source': 'OWNER_WHATSAPP'
+  };
+}
+
+async function fetchTemplateForOwner(templateId, env = process.env, fetchImpl = globalThis.fetch) {
+  const { baseUrl, token } = connectRequestConfig(env);
+  const response = await fetchImpl(`${baseUrl}/console/api/prospecting/templates/${encodeURIComponent(templateId)}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json', ...ownerHeaders(token) }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.id) {
+    throw new OwnerTemplateApprovalError(
+      String(payload?.error?.code || 'OWNER_DIRECT_PRESENTATION_TEMPLATE_FETCH_FAILED'),
+      String(payload?.error?.message || 'No fue posible cargar la plantilla aprobada.'),
+      response.status || 502
+    );
+  }
+  return payload;
+}
+
+async function uploadInlineImage(image, template, env = process.env, fetchImpl = globalThis.fetch) {
+  const { baseUrl, token } = connectRequestConfig(env);
   const bundleId = randomUUID();
   const fileName = `owner-direct-${String(template?.key || 'elanvisual')}-v${Number(template?.version || 1)}.${image.extension}`;
   const params = new URLSearchParams({ name: fileName, bundleId });
   const response = await fetchImpl(`${baseUrl}/console/api/prospecting/template-assets?${params.toString()}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': image.mimeType,
-      'X-Elankav-Internal-Token': token,
-      'X-Elankav-Actor-Type': 'owner',
-      'X-Elankav-Actor-Role': 'owner',
-      'X-Elankav-Actor-Id': 'owner-whatsapp',
-      'X-Elankav-Platform': 'ELANVISUAL',
-      'X-Elankav-Source': 'OWNER_WHATSAPP'
-    },
+    headers: ownerHeaders(token, image.mimeType),
     body: image.bytes
   });
   const payload = await response.json().catch(() => ({}));
@@ -163,12 +188,23 @@ async function uploadInlineImage(image, template, env = process.env, fetchImpl =
   return { publicUrl: String(payload.publicUrl), fileName, mimeType: image.mimeType };
 }
 
-async function sendDirectPresentation({ review, input, requestImpl, delivery, env, fetchImpl }) {
-  const template = await requestImpl(
-    '/console/api/prospecting/templates/' + encodeURIComponent(review.template.id),
-    { method: 'GET' }
-  );
+async function sendDirectPresentation({ review, input, delivery, env, fetchImpl }) {
+  const template = await fetchTemplateForOwner(review.template.id, env, fetchImpl);
   const rendered = renderDirectTemplate(template);
+  let uploaded = null;
+
+  if (input.phone) {
+    const image = inlineImage(rendered.html);
+    if (!image) {
+      throw new OwnerTemplateApprovalError(
+        'OWNER_DIRECT_PRESENTATION_WHATSAPP_IMAGE_REQUIRED',
+        'La plantilla aprobada no contiene una imagen oficial reutilizable para WhatsApp. No envié nada.',
+        409
+      );
+    }
+    uploaded = await uploadInlineImage(image, template, env, fetchImpl);
+  }
+
   const deliveries = [];
 
   if (input.email) {
@@ -183,16 +219,7 @@ async function sendDirectPresentation({ review, input, requestImpl, delivery, en
     deliveries.push({ channel: 'email', status: email.status, externalRef: email.externalRef || null });
   }
 
-  if (input.phone) {
-    const image = inlineImage(rendered.html);
-    if (!image) {
-      throw new OwnerTemplateApprovalError(
-        'OWNER_DIRECT_PRESENTATION_WHATSAPP_IMAGE_REQUIRED',
-        'La plantilla aprobada no contiene una imagen oficial reutilizable para WhatsApp. No envié el WhatsApp.',
-        409
-      );
-    }
-    const uploaded = await uploadInlineImage(image, template, env, fetchImpl);
+  if (input.phone && uploaded) {
     const waImage = await delivery.deliver({
       channel: 'whatsapp',
       phone: input.phone,
@@ -211,7 +238,7 @@ async function sendDirectPresentation({ review, input, requestImpl, delivery, en
     deliveries.push({ channel: 'whatsapp', status: 'SENT', externalRef: `${waImage.externalRef || ''}|${waText.externalRef || ''}` });
   }
 
-  return { template, rendered, deliveries };
+  return { template, deliveries };
 }
 
 async function executeOwnerTemplateApproval(
@@ -235,7 +262,7 @@ async function executeOwnerTemplateApproval(
         'No encontré una única plantilla aprobada para ese tipo de contacto. Primero validá y aprobá la plantilla, o indicá su clave exacta.'
       );
     }
-    const sent = await sendDirectPresentation({ review, input, requestImpl, delivery, env, fetchImpl });
+    const sent = await sendDirectPresentation({ review, input, delivery, env, fetchImpl });
     const channels = sent.deliveries.map(item => item.channel === 'email' ? 'correo' : 'WhatsApp').join(' + ');
     return {
       handled: true,
@@ -285,12 +312,15 @@ module.exports = {
   COMMAND_TYPE,
   OwnerTemplateApprovalError,
   chooseReview,
+  connectRequestConfig,
   detectOwnerTemplateApproval,
   executeOwnerTemplateApproval,
   extractDirectTarget,
+  fetchTemplateForOwner,
   hasCompletedEvidence,
   inlineImage,
   matchesAudience,
+  ownerHeaders,
   renderDirectTemplate,
   renderTemplateValue,
   sendDirectPresentation,
