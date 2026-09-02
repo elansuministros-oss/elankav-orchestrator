@@ -38,6 +38,9 @@ const {
 const {
   getElanGoControl
 } = require('./services/ownerBusinessConnectClient');
+const {
+  createProspectingEmailReplyWorker
+} = require('./services/prospectingResponseAttributionService');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -46,6 +49,7 @@ const VERSION = '0.4.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const handleChannelDeliveryApi = createChannelDeliveryApi();
 const handleMetaWebhookApi = createMetaWebhookApi();
+const prospectingEmailReplyWorker = createProspectingEmailReplyWorker();
 
 function sendFile(res, filename, contentType) {
   const filePath = path.join(PUBLIC_DIR, filename);
@@ -702,6 +706,7 @@ if (req.url === '/api/github') {
       job_persistence: jobPersistence,
       design_pipeline: getDesignPortalWorkerState(),
       marketplace_broker: getElanMarketplaceBrokerWorkerState(),
+      prospecting_email_replies: prospectingEmailReplyWorker.snapshot(),
       timestamp: new Date().toISOString()
     });
     return;
@@ -751,6 +756,7 @@ async function startServer() {
   startElanSelfAuditMonitor();
   startElanMarketplaceBrokerWorker();
   startProviderRecruitmentFollowupWorker();
+  prospectingEmailReplyWorker.start();
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
