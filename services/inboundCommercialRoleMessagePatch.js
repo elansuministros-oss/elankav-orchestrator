@@ -9,11 +9,22 @@ const {
 } = require('./inboundCommercialRoleService');
 
 const ORIGINAL_PROCESS = messageService.processMessage;
+const OWNER_OPS_CONTROL_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:confirmar\s+OPS-\d+-[A-Z0-9]{6}|(?:estado|estatus|resultado|consulta|consultar|verifica|verificar)\s+OPS-\d+-[A-Z0-9]{6})\b/i;
 
 async function processMessageRoleFirst(input = {}) {
   const channel = String(input.channel || '').trim().toLowerCase();
   const metadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
-  if (channel !== 'whatsapp' || metadata.ownerMode === true || metadata.isOwner === true) {
+  const message = String(input.message || '').trim();
+
+  // Owner Ops confirmations/status checks are control-plane commands. They must
+  // never be interpreted as a commercial sender classification, even if owner
+  // metadata is temporarily missing in the inbound envelope.
+  if (
+    channel !== 'whatsapp' ||
+    metadata.ownerMode === true ||
+    metadata.isOwner === true ||
+    OWNER_OPS_CONTROL_PATTERN.test(message)
+  ) {
     return ORIGINAL_PROCESS(input);
   }
 
@@ -69,5 +80,6 @@ async function processMessageRoleFirst(input = {}) {
 messageService.processMessage = processMessageRoleFirst;
 
 module.exports = {
+  OWNER_OPS_CONTROL_PATTERN,
   processMessageRoleFirst
 };
