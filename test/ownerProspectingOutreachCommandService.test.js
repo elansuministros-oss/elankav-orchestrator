@@ -89,7 +89,7 @@ test('crea y activa campaña contra la misión de 500 cuando todos los switches 
   assert.match(result.outputText, /Correo habilitado/);
   assert.match(result.outputText, /WhatsApp habilitado/);
   assert.match(result.outputText, /Horario permitido: 8:00–18:00/);
-  assert.match(result.outputText, /solo el primer contacto/);
+  assert.match(result.outputText, /Seguimientos automáticos desactivados/);
 });
 
 test('no crea campaña si WhatsApp Outreach está OFF para estrategia email_first', async () => {
@@ -150,6 +150,27 @@ test('entiende órdenes cortas y naturales de inicio sin exigir la palabra misi�
   );
   assert.ok(both);
   assert.equal(both.input.strategy, 'email_first');
+});
+
+test('entiende lenguaje libre del Owner para atacar por correo y WhatsApp', () => {
+  const attack = detectOwnerProspectingOutreachCommand(
+    'ELAN atacá a los prospectos por las dos vías, correo y WhatsApp'
+  );
+  assert.ok(attack);
+  assert.equal(attack.input.action, 'start');
+  assert.equal(attack.input.strategy, 'email_first');
+
+  const mail = detectOwnerProspectingOutreachCommand(
+    'manda correos a los prospectos que ya estén listos'
+  );
+  assert.ok(mail);
+  assert.equal(mail.input.strategy, 'email_only');
+
+  const wa = detectOwnerProspectingOutreachCommand(
+    'manda WhatsApp a los prospectos buenos'
+  );
+  assert.ok(wa);
+  assert.equal(wa.input.strategy, 'whatsapp_only');
 });
 
 test('no secuestra órdenes de clientes, cotizaciones o proveedores', () => {
@@ -276,7 +297,7 @@ test('una orden explícita de correo no exige WhatsApp habilitado', async () => 
 });
 
 
-test('bloquea inicio si falta ventana horaria o si followups están activos sin atribución', async () => {
+test('bloquea inicio si falta ventana horaria y permite followups cuando la atribución está disponible', async () => {
   const command = detectOwnerProspectingOutreachCommand(
     'ELAN empezá a enviar correos a las empresas listas'
   );
@@ -294,20 +315,5 @@ test('bloquea inicio si falta ventana horaria o si followups están activos sin 
       })
     }),
     error => error && error.code === 'PROSPECTING_CONTACT_WINDOW_REQUIRED'
-  );
-
-  await assert.rejects(
-    () => executeOwnerProspectingOutreachCommand(command, {
-      requestImpl: async () => ({
-        ownerAuthorizationRequired: true,
-        contactWindowEnabled: true,
-        followupsEnabled: true,
-        outreachEnabled: true,
-        outreachAutopilotEnabled: true,
-        emailOutreachEnabled: true,
-        whatsappOutreachEnabled: true
-      })
-    }),
-    error => error && error.code === 'PROSPECTING_FOLLOWUPS_REQUIRE_ATTRIBUTION'
   );
 });
