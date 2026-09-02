@@ -26,6 +26,7 @@ test('contactar a todos produce preflight y no crea campaña', async () => {
   const result = await executeOwnerProspectingOutreachCommand(command, { requestImpl });
   assert.match(result.outputText, /no envié nada/i);
   assert.match(result.outputText, /Recibirán correo: 9/);
+  assert.equal(calls.filter(path => path.endsWith('/outreach-preflight')).length, 1);
   assert.equal(calls.some(path => path.endsWith('/outreach-campaigns')), false);
 });
 
