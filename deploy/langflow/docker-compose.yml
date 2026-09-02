@@ -10,7 +10,9 @@ services:
     environment:
       LANGFLOW_HOST: 0.0.0.0
       LANGFLOW_PORT: 7860
-      LANGFLOW_DEPLOYMENT_PROFILE: prod
+      LANGFLOW_DEPLOYMENT_PROFILE: dev
+      LANGFLOW_DEV: "false"
+      LANGFLOW_STORAGE_TYPE: local
       LANGFLOW_AUTO_LOGIN: "false"
       LANGFLOW_ENABLE_SIGNUP: "false"
       LANGFLOW_ENABLE_SUPERUSER_CLI: "false"
