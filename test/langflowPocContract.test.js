@@ -8,6 +8,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const compose = fs.readFileSync(path.join(root, 'deploy/langflow/docker-compose.yml'), 'utf8');
 const spec = fs.readFileSync(path.join(root, 'deploy/langflow/connect-readonly.openapi.yaml'), 'utf8');
+const supervisor = fs.readFileSync(path.join(root, 'bin/owner-ops-supervisor.js'), 'utf8');
 
 test('Langflow POC stays pinned, authenticated and localhost-only', () => {
   assert.match(compose, /image:\s+langflowai\/langflow:1\.12\.0/);
@@ -43,4 +44,10 @@ test('CONNECT OpenAPI POC excludes messaging, campaigns, deploy and destructive 
   assert.doesNotMatch(spec, /\bdelete:/i);
   assert.doesNotMatch(spec, /\bpatch:/i);
   assert.doesNotMatch(spec, /\bput:/i);
+});
+
+
+test('Langflow bind mount is owned by official non-root runtime uid', () => {
+  assert.match(supervisor, /chown', \['-R', '1000:0', LANGFLOW_DATA_DIR\]/);
+  assert.match(supervisor, /PermissionError: \/app\/langflow\/secret_key/);
 });

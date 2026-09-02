@@ -568,6 +568,12 @@ function makeLangflowSecret(bytes = 32) {
 async function ensureLangflowRuntimeEnv() {
   await fs.mkdir(LANGFLOW_STATE_DIR, { recursive: true, mode: 0o700 });
   await fs.mkdir(LANGFLOW_DATA_DIR, { recursive: true, mode: 0o700 });
+
+  // Official Langflow image runs as uid=1000. A host bind mount created by
+  // root overrides /app/langflow ownership from the image and otherwise causes:
+  // PermissionError: /app/langflow/secret_key
+  await run('chown', ['-R', '1000:0', LANGFLOW_DATA_DIR], { timeout: 30_000 });
+
   try {
     const current = await fs.readFile(LANGFLOW_ENV_PATH, 'utf8');
     if (
