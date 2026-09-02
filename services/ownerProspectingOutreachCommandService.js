@@ -25,8 +25,10 @@ function normalize(value) {
 function strategyFromText(normalized) {
   const hasEmail = /\b(?:correo|correos|email|emails)\b/.test(normalized);
   const hasWhatsapp = /\b(?:whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?)\b/.test(normalized);
+  const bothChannels = /\b(?:ambos|ambas|los dos|las dos|dos vias|dos vias|dos canales|correo y whatsapp|whatsapp y correo|correo whatsapp|whatsapp correo)\b/.test(normalized);
 
   if (/\bsolo\s+(?:correo|correos|email|emails)\b/.test(normalized)) return 'email_only';
+  if (bothChannels) return /\bwhatsapp\b.*\bprimero\b|\bprimero\b.*\bwhatsapp\b/.test(normalized) ? 'whatsapp_first' : 'email_first';
   if (/\bsolo\s+(?:whatsapp|whatsap|wasap|wqasap|guasap)\b/.test(normalized)) return 'whatsapp_only';
   if (/\b(?:whatsapp|whatsap|wasap|wqasap|guasap)\s+(?:primero|antes)\b/.test(normalized)) return 'whatsapp_first';
   if (/\b(?:correo|correos|email|emails)\s+(?:primero|antes)\b/.test(normalized)) return 'email_first';
@@ -42,7 +44,7 @@ function detectOwnerProspectingOutreachCommand(message) {
   if (!raw) return null;
 
   const channelIntent =
-    /\b(correo|correos|email|emails|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?)\b/.test(normalized);
+    /\b(correo|correos|email|emails|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|dos vias|dos canales|ambos canales|ambas vias)\b/.test(normalized);
   const prospectScope =
     /\b(mision|prospectos?|empresas?|negocios?|investigacion|busqueda|encontradas?|listas?|decisores?|mercadeo|marketing|compras)\b/.test(normalized);
   const otherBusinessScope =
@@ -57,7 +59,7 @@ function detectOwnerProspectingOutreachCommand(message) {
     /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|campana|empresas?)\b/.test(normalized);
 
   const startIntent =
-    /\b(contacta|contactar|contactale|contactales|envia|enviar|enviale|enviales|escribe|escribir|escribile|escribiles|manda|mandar|mandale|mandales|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized) &&
+    /\b(contacta|contactar|contactale|contactales|envia|enviar|enviale|enviales|escribe|escribir|escribile|escribiles|manda|mandar|mandale|mandales|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar|ataca|atacar|prospecta|prospectar)\b/.test(normalized) &&
     channelIntent;
 
   if (pauseIntent && !otherBusinessScope) {
@@ -71,7 +73,7 @@ function detectOwnerProspectingOutreachCommand(message) {
   const implicitCurrentMission =
     startIntent &&
     !otherBusinessScope &&
-    /\b(empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar)\b/.test(normalized);
+    /\b(empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar|ataca|prospecta)\b/.test(normalized);
 
   if (!startIntent || otherBusinessScope || (!prospectScope && !implicitCurrentMission)) return null;
 
@@ -123,12 +125,6 @@ function assertControls(control, strategy) {
     throw new OwnerProspectingOutreachError(
       'PROSPECTING_CONTACT_WINDOW_REQUIRED',
       'CONNECT no confirmó la ventana horaria de contacto. No creé ni activé campaña.'
-    );
-  }
-  if (control?.followupsEnabled === true) {
-    throw new OwnerProspectingOutreachError(
-      'PROSPECTING_FOLLOWUPS_REQUIRE_ATTRIBUTION',
-      'Los seguimientos automáticos siguen bloqueados hasta completar la atribución de respuestas.'
     );
   }
   if (control?.outreachEnabled !== true) {
@@ -200,7 +196,7 @@ function formatCampaign(campaign, mission, control) {
       : '',
     control?.followupsEnabled === true
       ? 'Seguimientos automáticos habilitados.'
-      : 'Por ahora haré solo el primer contacto; los seguimientos automáticos siguen bloqueados hasta cerrar la atribución de respuestas.'
+      : 'Seguimientos automáticos desactivados; registraré respuestas y te reportaré qué prospectos requieren atención.'
   ].filter(Boolean).join('\n');
 }
 

@@ -150,7 +150,12 @@ function isQuotationModeStopRequest(text) {
 function isQuotationModeBypassRequest(text) {
   const value = normalize(text);
   if (!value) return false;
-  return /\b(despliega|desplegar|deploy|estado|status|logs?|supervisor|commit|rama|branch|health|salud|reinicia|restart|owner ops|ops-|whatsapp core|waha)\b/.test(value);
+  const operational =
+    /\b(despliega|desplegar|deploy|estado|status|logs?|supervisor|commit|rama|branch|health|salud|reinicia|restart|owner ops|ops-|whatsapp core|waha)\b/.test(value);
+  const prospecting =
+    /\b(prospectos?|empresas|campana|campanas|outreach|prospeccion)\b/.test(value) &&
+    /\b(correo|correos|email|emails|whatsapp|whatsap|wasap|mensajes?|contacta|contactar|manda|mandar|envia|enviar|ataca|pausa|reanuda|reporte|resumen)\b/.test(value);
+  return operational || prospecting;
 }
 
 function extractPhone(text) {
