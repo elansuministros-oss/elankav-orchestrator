@@ -43,6 +43,13 @@
       "contract": "elan_go_control_connect",
       "critical": true,
       "description": "ELAN GO control plane must retain explicit enable/search/outreach gates."
+    },
+    {
+      "id": "ELAN_LANGFLOW_POC",
+      "target": "langflow",
+      "contract": "langflow_poc_runtime",
+      "critical": true,
+      "description": "Langflow must remain localhost-only, authenticated, hardened and isolated from WAHA/campaign execution."
     }
   ]
 }
