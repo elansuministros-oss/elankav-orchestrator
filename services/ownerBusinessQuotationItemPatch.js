@@ -1,17 +1,22 @@
 'use strict';
 
 const gateway = require('./ownerBusinessProcessMessageGateway');
+const {
+  installOwnerSupplierProspectingPriorityPatch
+} = require('./ownerSupplierProspectingPriorityPatch');
 
 // Compatibilidad controlada:
-// este archivo sigue siendo el preload usado por npm/systemd bootstrap,
-// pero ya no modifica ownerSellerRegistrationService ni captura handlers internos.
-// Su única responsabilidad es instalar el gateway en el límite público de processMessage.
+// este archivo sigue siendo el preload usado por npm/systemd bootstrap.
+// Instala primero el gateway empresarial general y después la prioridad
+// explícita para misiones masivas de proveedores del Owner.
 gateway.installOwnerBusinessProcessMessageGateway();
+installOwnerSupplierProspectingPriorityPatch();
 
 module.exports = {
   QUOTATION_ITEM_ADD: gateway.QUOTATION_ITEM_ADD,
   createOwnerBusinessProcessMessage: gateway.createOwnerBusinessProcessMessage,
   detectOwnerBusinessCommand: gateway.detectOwnerBusinessCommand,
   executeOwnerBusinessCommand: gateway.executeOwnerBusinessCommand,
-  installOwnerBusinessProcessMessageGateway: gateway.installOwnerBusinessProcessMessageGateway
+  installOwnerBusinessProcessMessageGateway: gateway.installOwnerBusinessProcessMessageGateway,
+  installOwnerSupplierProspectingPriorityPatch
 };
