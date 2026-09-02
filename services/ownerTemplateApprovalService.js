@@ -22,16 +22,25 @@ function detectOwnerTemplateApproval(message) {
   const raw = String(message || '').trim().replace(/^elan[\s,;:.-]+/i, '').trim();
   const value = normalize(raw);
   if (!raw) return null;
-  const approval = /\b(apruebo|aprobar|aproba|aprobada|aprobado|autorizo|autorizar|autoriza|dale aprobala)\b/.test(value);
-  const template = /\b(plantilla|template|correo de prueba|mensaje de prueba|presentacion)\b/.test(value);
-  if (!approval || !template) return null;
+
+  const template = /\b(plantilla|plantillas|template|templates|correo de prueba|mensaje de prueba|presentacion|presentaciones)\b/.test(value);
+  if (!template) return null;
+
+  const approval = /\b(apruebo|aprobar|aproba|aprobala|aprobalo|aprobada|aprobado|autorizo|autorizar|autoriza|dale aprobala)\b/.test(value);
+  const preview = /\b(enviame|envia|enviar|mandame|manda|mandar|prueba|probar|validar|valida|revisar|revisa|mostrar|mostrame|ver)\b/.test(value) &&
+    /\b(prueba|plantilla|template|presentacion|correo|whatsapp|validar|revisar|ver)\b/.test(value);
+
+  if (!approval && !preview) return null;
+
   return {
     type: COMMAND_TYPE,
     input: {
+      action: approval ? 'approve' : 'preview',
       raw,
       normalized: value,
       supplier: /\b(proveedor|proveedores|supplier|suppliers)\b/.test(value),
       client: /\b(cliente|clientes|client|clients)\b/.test(value),
+      prospect: /\b(prospecto|prospectos|prospect|prospects)\b/.test(value),
       key: (raw.match(/\belanvisual-[a-z0-9._-]+\b/i) || [])[0] || null
     }
   };
@@ -44,18 +53,48 @@ function hasCompletedEvidence(review) {
   ));
 }
 
-function chooseReview(reviews, input) {
-  let rows = (Array.isArray(reviews) ? reviews : []).filter(row => !row?.approved && hasCompletedEvidence(row));
+function matchesAudience(row, input) {
+  const haystack = [row?.template?.key, row?.template?.name, row?.template?.segment, row?.template?.metadata?.audience]
+    .join(' ');
+  if (input?.supplier && !/supplier|proveedor/i.test(haystack)) return false;
+  if (input?.client && !/client|cliente/i.test(haystack)) return false;
+  if (input?.prospect && /supplier|proveedor|client|cliente/i.test(haystack)) return false;
+  return true;
+}
+
+function chooseReview(reviews, input, { requireEvidence = true } = {}) {
+  let rows = (Array.isArray(reviews) ? reviews : []).filter(row => !row?.approved);
+  if (requireEvidence) rows = rows.filter(hasCompletedEvidence);
   if (input?.key) rows = rows.filter(row => String(row?.template?.key || '').toLowerCase() === String(input.key).toLowerCase());
-  if (input?.supplier) rows = rows.filter(row => /supplier|proveedor/i.test([row?.template?.key, row?.template?.name, row?.template?.segment].join(' ')));
-  if (input?.client) rows = rows.filter(row => /client|cliente/i.test([row?.template?.key, row?.template?.name, row?.template?.segment].join(' ')));
+  rows = rows.filter(row => matchesAudience(row, input));
   return rows.length === 1 ? rows[0] : null;
 }
 
 async function executeOwnerTemplateApproval(command, { requestImpl = requestProspecting } = {}) {
   if (!command || command.type !== COMMAND_TYPE) return { handled: false, outputText: null, result: null };
+  const input = command.input || {};
   const reviews = await requestImpl('/api/v1/prospecting/owner-template-reviews', { method: 'GET' });
-  const review = chooseReview(reviews, command.input || {});
+
+  if (input.action === 'preview') {
+    const review = chooseReview(reviews, input, { requireEvidence: false });
+    if (!review) {
+      throw new OwnerTemplateApprovalError(
+        'OWNER_TEMPLATE_PREVIEW_TARGET_AMBIGUOUS',
+        'No encontré una única plantilla pendiente para esa descripción. Indicá si es de proveedores, prospectos o clientes, o escribí la clave exacta de la plantilla.'
+      );
+    }
+    const tested = await requestImpl(
+      '/console/api/prospecting/templates/' + encodeURIComponent(review.template.id) + '/owner-test',
+      { method: 'POST' }
+    );
+    return {
+      handled: true,
+      outputText: `✅ Prueba Owner enviada: ${review.template.name} · v${review.template.version}. Revisá tu correo y tu WhatsApp. No queda aprobada hasta que vos lo ordenés.`,
+      result: tested
+    };
+  }
+
+  const review = chooseReview(reviews, input, { requireEvidence: true });
   if (!review) {
     throw new OwnerTemplateApprovalError(
       'OWNER_TEMPLATE_APPROVAL_TARGET_AMBIGUOUS',
@@ -79,5 +118,6 @@ module.exports = {
   chooseReview,
   detectOwnerTemplateApproval,
   executeOwnerTemplateApproval,
-  hasCompletedEvidence
+  hasCompletedEvidence,
+  matchesAudience
 };
