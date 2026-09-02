@@ -1,10 +1,12 @@
 'use strict';
 
 require('./inboundCommercialRoleMessagePatch');
+require('./officialVoicePolicyPatch');
 
 const Module = require('node:module');
 const { PassThrough } = require('node:stream');
 const liveAccessService = require('./connectLiveAccessService');
+const connectConversationClient = require('./connectConversationClient');
 
 const createLiveSession =
   liveAccessService.createConnectLiveSession ||
@@ -36,6 +38,34 @@ function cloneRequest(req, rawBody) {
   return clone;
 }
 
+function withSingleAudioReplyPolicy(args, incoming) {
+  if (incoming?.messageType !== 'audio') return args;
+  const dependencies = args?.dependencies && typeof args.dependencies === 'object'
+    ? args.dependencies
+    : {};
+  const baseDecision = dependencies.requestConversationDecision || connectConversationClient.requestConversationDecision;
+  if (typeof baseDecision !== 'function') return args;
+
+  return {
+    ...args,
+    dependencies: {
+      ...dependencies,
+      requestConversationDecision: async input => {
+        const decision = await baseDecision(input);
+        if (!decision?.welcome?.send) return decision;
+        return {
+          ...decision,
+          welcome: {
+            ...decision.welcome,
+            send: false,
+            suppressedReason: 'audio_single_reply_policy'
+          }
+        };
+      }
+    }
+  };
+}
+
 Module._load = function elanLiveModuleLoad(request, parent, isMain) {
   const exported = originalLoad.apply(this, arguments);
   if (installed || !String(request).endsWith('/api/wahaWebhookApi')) return exported;
@@ -58,7 +88,11 @@ Module._load = function elanLiveModuleLoad(request, parent, isMain) {
     const incoming = exported.extractIncoming(body);
     const text = String(incoming?.text || '').trim();
     if (typeof isLiveModeRequest !== 'function' || !isLiveModeRequest(text)) {
-      return originalHandler({ ...args, req: cloneRequest(req, rawBody) });
+      const originalArgs = {
+        ...args,
+        req: cloneRequest(req, rawBody)
+      };
+      return originalHandler(withSingleAudioReplyPolicy(originalArgs, incoming));
     }
 
     try {
