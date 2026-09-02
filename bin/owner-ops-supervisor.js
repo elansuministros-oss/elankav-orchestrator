@@ -433,7 +433,7 @@ async function runWhatsappCoreWatchdog({ force = false, allowBootstrap = false }
       contract: 'WHATSAPP_CORE_CONTRACT_OK',
       health: 'OK',
       bridge: 'READY',
-      healthEndpoint: restart?.healthEndpoint || healthEndpoint,
+      healthEndpoint,
       bridgeEndpoint
     });
     return { status: 'bootstrapped', state: stored };

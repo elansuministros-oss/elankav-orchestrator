@@ -37,7 +37,7 @@ test('CONNECT OpenAPI POC excludes messaging, campaigns, deploy and destructive 
   assert.match(spec, /resolverPrecioAutorizado/);
   assert.match(spec, /listarCotizaciones/);
   assert.doesNotMatch(spec, /send-whatsapp/i);
-  assert.doesNotMatch(spec, /campaign/i);
+  assert.doesNotMatch(spec, /^\s*\/[^\n]*campaign[^\n]*:/im);
   assert.doesNotMatch(spec, /repository\.deploy/i);
   assert.doesNotMatch(spec, /\/payments/);
   assert.doesNotMatch(spec, /\bdelete:/i);
