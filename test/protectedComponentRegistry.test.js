@@ -15,7 +15,7 @@ const {
 test('registro central contiene componentes críticos sin contratos arbitrarios', () => {
   const registry = loadProtectedComponentRegistry();
   assert.equal(registry.schemaVersion, 1);
-  assert.equal(registry.components.length, 6);
+  assert.equal(registry.components.length, 7);
 
   const ids = new Set(registry.components.map(item => item.id));
   for (const id of [
@@ -39,6 +39,7 @@ test('registro central contiene componentes críticos sin contratos arbitrarios'
 test('cada despliegue protegido tiene contratos por target', () => {
   const orchestrator = getProtectedComponentsForTarget('orchestrator');
   const connect = getProtectedComponentsForTarget('connect');
+  const langflow = getProtectedComponentsForTarget('langflow');
 
   assert.deepEqual(
     orchestrator.map(item => item.id).sort(),
@@ -58,6 +59,8 @@ test('cada despliegue protegido tiene contratos por target', () => {
     ].sort()
   );
 
+  assert.deepEqual(langflow.map(item => item.id), ['ELAN_LANGFLOW_POC']);
+
 });
 
 test('contrato no permitido falla cerrado', () => {
@@ -68,9 +71,3 @@ test('contrato no permitido falla cerrado', () => {
 });
 
 
-test('bootstrap phase intentionally defers Langflow protected registry', () => {
-  const registry = loadProtectedComponentRegistry();
-  assert.equal(registry.components.some(item => item.id === 'ELAN_LANGFLOW_POC'), false);
-  // Runtime code may understand the future target already; the registry entry is
-  // deferred so the currently-running legacy supervisor can validate this commit.
-});
