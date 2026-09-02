@@ -140,6 +140,25 @@ function createChannelDeliveryService({
           503
         );
       }
+
+      if (clean(input.messageType).toLowerCase() === 'image') {
+        const result = await waha.sendImage({
+          phone: input.phone,
+          chatId: input.chatId,
+          imageUrl: input.imageUrl,
+          caption: clean(input.caption),
+          fileName: clean(input.fileName) || 'elan-preview.png',
+          mimeType: clean(input.mimeType) || 'image/png'
+        });
+        return {
+          channel,
+          status: 'SENT',
+          externalRef: result.messageId || null,
+          recipient: result.chatId,
+          messageType: 'image'
+        };
+      }
+
       const result = await waha.sendText({
         phone: input.phone,
         chatId: input.chatId,
