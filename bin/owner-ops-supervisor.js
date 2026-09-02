@@ -4,6 +4,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const net = require('node:net');
+const { randomBytes } = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
@@ -48,8 +49,23 @@ const TARGETS = Object.freeze({
     installMode: 'install',
     build: false,
     port: null
+  }),
+  langflow: Object.freeze({
+    service: 'docker:elankav-langflow',
+    repo: '/opt/elankav/orchestrator',
+    branch: 'stable/ORCHESTRATOR-WHATSAPP-CORE',
+    installMode: null,
+    build: false,
+    port: 7860,
+    deployMode: 'docker-compose'
   })
 });
+
+const LANGFLOW_STATE_DIR = process.env.LANGFLOW_STATE_DIR || '/var/lib/elankav-langflow';
+const LANGFLOW_ENV_PATH = path.join(LANGFLOW_STATE_DIR, 'langflow.env');
+const LANGFLOW_DATA_DIR = path.join(LANGFLOW_STATE_DIR, 'data');
+const LANGFLOW_COMPOSE_PATH = path.join(TARGETS.orchestrator.repo, 'deploy/langflow/docker-compose.yml');
+
 
 function sanitizeTechnicalError(value) {
   return String(value || '')
@@ -486,8 +502,135 @@ function assertRequest(request) {
   if (!TARGETS[request.target]) throw new Error('SUPERVISOR_TARGET_DENIED');
 }
 
+async function verifyLangflowHttpHealth(timeoutMs = 120_000) {
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch('http://127.0.0.1:7860/health_check', {
+        signal: AbortSignal.timeout(5_000)
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (
+        response.ok &&
+        payload?.status === 'ok' &&
+        payload?.chat === 'ok' &&
+        payload?.db === 'ok'
+      ) {
+        return 'http://127.0.0.1:7860/health_check';
+      }
+      lastError = new Error('LANGFLOW_HEALTH_INVALID');
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 2_000));
+  }
+  const error = new Error(lastError?.message || 'LANGFLOW_HEALTH_FAILED');
+  error.code = 'LANGFLOW_HEALTH_FAILED';
+  throw error;
+}
+
+async function readMemAvailableMb() {
+  const raw = await fs.readFile('/proc/meminfo', 'utf8');
+  const match = raw.match(/^MemAvailable:\s+(\d+)\s+kB$/m);
+  if (!match) return null;
+  return Math.floor(Number(match[1]) / 1024);
+}
+
+async function verifyLangflowHostPreflight() {
+  await run('docker', ['version', '--format', '{{.Server.Version}}'], { timeout: 15_000 });
+  await run('docker', ['compose', 'version'], { timeout: 15_000 });
+  const memoryAvailableMb = await readMemAvailableMb();
+  if (Number.isFinite(memoryAvailableMb) && memoryAvailableMb < 900) {
+    const error = new Error(`LANGFLOW_HOST_MEMORY_LOW:${memoryAvailableMb}MB`);
+    error.code = 'LANGFLOW_HOST_MEMORY_LOW';
+    throw error;
+  }
+  const disk = await run('df', ['-Pk', LANGFLOW_STATE_DIR], { timeout: 15_000 }).catch(async () => {
+    await fs.mkdir(LANGFLOW_STATE_DIR, { recursive: true, mode: 0o700 });
+    return run('df', ['-Pk', LANGFLOW_STATE_DIR], { timeout: 15_000 });
+  });
+  const lines = disk.stdoutRaw.trim().split('\n');
+  const cols = lines[lines.length - 1].trim().split(/\s+/);
+  const availableKb = Number(cols[3]);
+  if (Number.isFinite(availableKb) && availableKb < 2 * 1024 * 1024) {
+    const error = new Error('LANGFLOW_HOST_DISK_LOW');
+    error.code = 'LANGFLOW_HOST_DISK_LOW';
+    throw error;
+  }
+  return { memoryAvailableMb, diskAvailableKb: availableKb };
+}
+
+function makeLangflowSecret(bytes = 32) {
+  return randomBytes(bytes).toString('base64url');
+}
+
+async function ensureLangflowRuntimeEnv() {
+  await fs.mkdir(LANGFLOW_STATE_DIR, { recursive: true, mode: 0o700 });
+  await fs.mkdir(LANGFLOW_DATA_DIR, { recursive: true, mode: 0o700 });
+  try {
+    const current = await fs.readFile(LANGFLOW_ENV_PATH, 'utf8');
+    if (
+      /LANGFLOW_SUPERUSER_PASSWORD=\S+/.test(current) &&
+      /LANGFLOW_SECRET_KEY=\S+/.test(current) &&
+      /LANGFLOW_API_KEY=\S+/.test(current)
+    ) {
+      return { created: false, path: LANGFLOW_ENV_PATH };
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+
+  const payload = [
+    'LANGFLOW_SUPERUSER=elan-admin',
+    `LANGFLOW_SUPERUSER_PASSWORD=${makeLangflowSecret(24)}`,
+    `LANGFLOW_SECRET_KEY=${makeLangflowSecret(32)}`,
+    'LANGFLOW_API_KEY_SOURCE=env',
+    `LANGFLOW_API_KEY=${makeLangflowSecret(32)}`,
+    'LANGFLOW_AUTO_LOGIN=false',
+    'LANGFLOW_ENABLE_SIGNUP=false',
+    'LANGFLOW_ENABLE_SUPERUSER_CLI=false',
+    ''
+  ].join('\n');
+  const tempPath = `${LANGFLOW_ENV_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tempPath, payload, { mode: 0o600 });
+  await fs.rename(tempPath, LANGFLOW_ENV_PATH);
+  await fs.chmod(LANGFLOW_ENV_PATH, 0o600);
+  return { created: true, path: LANGFLOW_ENV_PATH };
+}
+
+async function deployLangflowComponent() {
+  const preflight = await verifyLangflowHostPreflight();
+  const runtimeEnv = await ensureLangflowRuntimeEnv();
+  await run('docker', ['compose', '-f', LANGFLOW_COMPOSE_PATH, 'pull', 'langflow'], {
+    cwd: TARGETS.orchestrator.repo,
+    timeout: 300_000
+  });
+  await run('docker', ['compose', '-f', LANGFLOW_COMPOSE_PATH, 'up', '-d', '--remove-orphans', 'langflow'], {
+    cwd: TARGETS.orchestrator.repo,
+    timeout: 180_000
+  });
+  const healthEndpoint = await verifyLangflowHttpHealth();
+  const listening = await verifyPort(7860, 30_000);
+  return {
+    capability: 'service.restart',
+    target: 'langflow',
+    service: TARGETS.langflow.service,
+    status: 'active',
+    listening,
+    healthEndpoint,
+    runtimeEnvCreated: runtimeEnv.created,
+    runtimeEnvPath: runtimeEnv.path,
+    preflight
+  };
+}
+
 async function verifyService(target) {
   const config = TARGETS[target];
+  if (config?.deployMode === 'docker-compose') {
+    const state = await run('docker', ['inspect', '-f', '{{.State.Running}}', 'elankav-langflow'], { timeout: 15_000 });
+    return state.stdout === 'true' ? 'active' : 'inactive';
+  }
   const state = await run('systemctl', ['is-active', config.service]);
   return state.stdout;
 }
@@ -521,6 +664,7 @@ async function verifyPort(port, timeoutMs = 8_000) {
 
 async function restartService(target) {
   const config = TARGETS[target];
+  if (config?.deployMode === 'docker-compose') return deployLangflowComponent();
   await run('systemctl', ['restart', config.service], { timeout: 30_000 });
   await new Promise(resolve => setTimeout(resolve, 1500));
   const state = await verifyService(target);
@@ -788,6 +932,8 @@ async function deployRepository(target, parameters = {}) {
         cause.message = `${cause.message || cause.code || 'CONNECT_DEPLOY_FAILED'};PROTECTED_COMPONENT_ROLLBACK_FAILED:${sanitizeTechnicalError(rollbackError.message || rollbackError.code)}`;
         cause.code = 'SUPERVISOR_PROTECTED_COMPONENT_ROLLBACK_FAILED';
       }
+    } else if (target === 'langflow') {
+      cause.message = `${cause.message || cause.code || 'LANGFLOW_DEPLOY_FAILED'};ORCHESTRATOR_UNCHANGED`;
     }
     throw cause;
   }
@@ -936,6 +1082,10 @@ module.exports = {
   sanitizeTechnicalError,
   shouldRefreshSupervisorAfterRequest,
   verifyOrchestratorHttpHealth,
+  verifyLangflowHttpHealth,
+  verifyLangflowHostPreflight,
+  ensureLangflowRuntimeEnv,
+  deployLangflowComponent,
   verifyPort,
   verifyService,
   verifyWhatsappBridgeHealth,
