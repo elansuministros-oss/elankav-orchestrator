@@ -43,6 +43,9 @@ const {
   processQuotationModeText
 } = require('../services/ownerQuotationModeService');
 const {
+  attributeWhatsappResponseSafely
+} = require('../services/prospectingResponseAttributionService');
+const {
   publishConversationEventSafely,
   requestConversationDecision
 } = require('../services/connectConversationClient');
@@ -492,7 +495,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
   if (req.method === 'GET') {
-    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-15' });
+    sendJson(res, 200, { ok: true, service: 'ELANKAV WAHA Inbound Bridge', status: 'READY', version: 'ORCH-WAHA-INBOUND-PROVIDER-16' });
     return true;
   }
   if (req.method !== 'POST') {
@@ -515,6 +518,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const getQuotationModeStateImpl = dependencies.getQuotationModeState || getQuotationModeState;
   const processQuotationModeImageImpl = dependencies.processQuotationModeImage || processQuotationModeImage;
   const processQuotationModeTextImpl = dependencies.processQuotationModeText || processQuotationModeText;
+  const attributeWhatsappResponseSafelyImpl = dependencies.attributeWhatsappResponseSafely || attributeWhatsappResponseSafely;
   const buildCreativeBriefImpl = dependencies.buildCreativeBrief || buildCreativeBrief;
   const isCreativeBriefRequestImpl = dependencies.isCreativeBriefRequest || isCreativeBriefRequest;
   let incoming = null;
@@ -790,6 +794,26 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     if (incoming.messageType === 'audio') logVoiceEvent('VOICE_INBOUND_RECEIVED', { ...incoming, mimeType: incoming.media?.mimeType || null });
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
+
+    if (!ownerIdentity.isOwner && ['text', 'audio'].includes(incoming.messageType)) {
+      const attribution = await attributeWhatsappResponseSafelyImpl({
+        phone: incoming.phone || incoming.senderRaw || incoming.chatId,
+        text: resolvedMessage,
+        messageId: incoming.messageId || null,
+        occurredAt: incoming.timestamp ? new Date(Number(incoming.timestamp) * 1000).toISOString() : new Date().toISOString(),
+        metadata: {
+          chatId: incoming.chatId || null,
+          senderRaw: incoming.senderRaw || null,
+          messageType: incoming.messageType
+        }
+      });
+      if (attribution?.matched) {
+        incoming = {
+          ...incoming,
+          prospectingResponse: attribution
+        };
+      }
+    }
 
     if (ownerIdentity.isOwner && ['text', 'audio'].includes(incoming.messageType)) {
       const outcome = await processQuotationModeTextImpl({
