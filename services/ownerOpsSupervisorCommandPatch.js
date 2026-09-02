@@ -9,6 +9,16 @@ const STATUS_TYPE = 'owner_ops_supervisor_status';
 const OPS_ID_PATTERN = /\bOPS-\d+-[A-Z0-9]{6}\b/i;
 const COMMIT_PATTERN = /\b[0-9a-f]{40}\b/i;
 
+const DEPLOY_TARGETS = Object.freeze({
+  connect: Object.freeze({ label: 'CONNECT' }),
+  orchestrator: Object.freeze({ label: 'Orchestrator' }),
+  elanvisual: Object.freeze({
+    label: 'ELANVISUAL',
+    repositoryFullName: 'elansuministros-oss/elanvisual-platform',
+    canonicalBranch: 'elanvisual-desde-elanpet'
+  })
+});
+
 function normalize(value) {
   return String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 }
@@ -17,7 +27,8 @@ function explicitTarget(raw) {
   const lines = String(raw || '').split(/\r?\n/);
   for (const line of lines) {
     const normalized = normalize(line);
-    if (!/^(repositorio(?: exacto)?|objetivo|target)\s*:/.test(normalized)) continue;
+    if (!/^(repositorio(?: exacto)?|objetivo(?: exacto)?|target)\s*:/.test(normalized)) continue;
+    if (/elanvisual-platform|\belanvisual\b/.test(normalized)) return 'elanvisual';
     if (/elankav-orchestrator|\borchestrator\b|\borquestador\b/.test(normalized)) return 'orchestrator';
     if (/elankav-connect|\bconnect\b/.test(normalized)) return 'connect';
   }
@@ -30,11 +41,16 @@ function detectTarget(raw) {
 
   const text = normalize(raw)
     .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?connect\b/g, '')
-    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:orchestrator|orquestador)\b/g, '');
-  const hasConnect = /\b(connect|elankav connect)\b/.test(text);
-  const hasOrchestrator = /\b(orchestrator|orquestador)\b/.test(text);
-  if (hasConnect === hasOrchestrator) return null;
-  return hasConnect ? 'connect' : 'orchestrator';
+    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:orchestrator|orquestador)\b/g, '')
+    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:elanvisual|elanvisual-platform)\b/g, '');
+
+  const matches = [
+    /\b(connect|elankav connect)\b/.test(text) ? 'connect' : null,
+    /\b(orchestrator|orquestador)\b/.test(text) ? 'orchestrator' : null,
+    /\b(elanvisual|elanvisual-platform)\b/.test(text) ? 'elanvisual' : null
+  ].filter(Boolean);
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function detectSupervisorCommand(message) {
@@ -57,17 +73,35 @@ function detectSupervisorCommand(message) {
 
   const commit = raw.match(COMMIT_PATTERN)?.[0]?.toLowerCase() || null;
   if (target && commit && /\b(despliega|desplegar|deploy|actualiza|actualizar)\b/.test(normalized)) {
+    const targetConfig = DEPLOY_TARGETS[target];
     const cleanGeneratedCatalog = target === 'connect' && /\b(limpia|limpiar|limpieza|restaura|restaurar)\b/.test(normalized);
+    const parameters = {
+      expectedCommit: commit,
+      install: true,
+      restart: target !== 'elanvisual'
+    };
+
+    if (cleanGeneratedCatalog) parameters.cleanGeneratedCatalog = true;
+    if (targetConfig?.repositoryFullName) parameters.repositoryFullName = targetConfig.repositoryFullName;
+    if (targetConfig?.canonicalBranch) parameters.canonicalBranch = targetConfig.canonicalBranch;
+
+    const impact = target === 'connect'
+      ? cleanGeneratedCatalog
+        ? 'El supervisor verificará que el único cambio local sea el catálogo generado autorizado, guardará respaldo, restaurará únicamente ese archivo al HEAD actual, exigirá repositorio limpio y después hará fast-forward al commit remoto exacto, npm ci, build, reinicio y verificación del puerto 4400.'
+        : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, npm ci con dependencias de desarrollo, build TypeScript, reinicio y verificación del servicio y puerto 4400.'
+      : target === 'elanvisual'
+        ? 'El supervisor debe desplegar exclusivamente ELANVISUAL desde el repositorio y rama canónicos indicados, al commit remoto exacto, sin tocar CONNECT, Orchestrator ni WAHA.'
+        : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio. El supervisor externo se refrescará automáticamente después del despliegue.';
+
     return Object.freeze({
       type: ownerCommands.OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
-      capability: 'repository.deploy', target,
-      summary: cleanGeneratedCatalog ? `Limpiar catálogo generado y desplegar CONNECT al commit ${commit.slice(0, 7)}` : `Desplegar ${target === 'connect' ? 'CONNECT' : 'Orchestrator'} al commit ${commit.slice(0, 7)}`,
-      impact: target === 'connect'
-        ? cleanGeneratedCatalog
-          ? 'El supervisor verificará que el único cambio local sea el catálogo generado autorizado, guardará respaldo, restaurará únicamente ese archivo al HEAD actual, exigirá repositorio limpio y después hará fast-forward al commit remoto exacto, npm ci, build, reinicio y verificación del puerto 4400.'
-          : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, npm ci con dependencias de desarrollo, build TypeScript, reinicio y verificación del servicio y puerto 4400.'
-        : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio. El supervisor externo se refrescará automáticamente después del despliegue.',
-      parameters: Object.freeze({ expectedCommit: commit, install: true, restart: true, ...(cleanGeneratedCatalog ? { cleanGeneratedCatalog: true } : {}) })
+      capability: 'repository.deploy',
+      target,
+      summary: cleanGeneratedCatalog
+        ? `Limpiar catálogo generado y desplegar CONNECT al commit ${commit.slice(0, 7)}`
+        : `Desplegar ${targetConfig?.label || target} al commit ${commit.slice(0, 7)}`,
+      impact,
+      parameters: Object.freeze(parameters)
     });
   }
   return null;
@@ -104,4 +138,4 @@ async function executeOwnerCommand(input) {
 ownerCommands.detectOwnerCommand = detectOwnerCommand;
 ownerCommands.executeOwnerCommand = executeOwnerCommand;
 
-module.exports = { STATUS_TYPE, detectOwnerCommand, detectSupervisorCommand, detectTarget, formatSupervisorStatus };
+module.exports = { STATUS_TYPE, DEPLOY_TARGETS, detectOwnerCommand, detectSupervisorCommand, detectTarget, explicitTarget, formatSupervisorStatus };
