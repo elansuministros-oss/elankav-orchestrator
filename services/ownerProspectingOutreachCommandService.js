@@ -49,6 +49,7 @@ function detectOwnerProspectingOutreachCommand(message) {
     /\b(mision|prospectos?|empresas?|negocios?|investigacion|busqueda|encontradas?|listas?|decisores?|mercadeo|marketing|compras)\b/.test(normalized);
   const otherBusinessScope =
     /\b(cotizaci(?:on|ones)|facturas?|recibos?|proveedores?|vendedores?|clientes?|pedidos?|orden(?:es)?\s+de\s+trabajo)\b/.test(normalized);
+  const allEligibleIntent = /\b(todos|todas)\b/.test(normalized) && /\b(prospectos?|empresas?|elegibles?)\b/.test(normalized);
 
   const pauseIntent =
     /\b(pausa|pausar|detene|detener|suspende|suspender|frena|frenar)\b/.test(normalized) &&
@@ -56,11 +57,12 @@ function detectOwnerProspectingOutreachCommand(message) {
 
   const resumeIntent =
     /\b(reanuda|reanudar|continua|continuar|segui|seguir|retoma|retomar)\b/.test(normalized) &&
-    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|campana|empresas?)\b/.test(normalized);
+    /\b(envios?|correos?|emails?|whatsapp|whatsap|wasap|wqasap|guasap|mensajes?|mesajes?|campana)\b/.test(normalized) &&
+    !/\b(prueba|pruebas|plantilla|plantillas|preview|vista previa)\b/.test(normalized);
 
   const startIntent =
     /\b(contacta|contactar|contactale|contactales|envia|enviar|enviale|enviales|escribe|escribir|escribile|escribiles|manda|mandar|mandale|mandales|empieza|empezar|empeza|comenza|comenzar|inicia|iniciar|arranca|arrancar|ataca|atacar|prospecta|prospectar)\b/.test(normalized) &&
-    channelIntent;
+    (channelIntent || allEligibleIntent);
 
   if (pauseIntent && !otherBusinessScope) {
     return { type: COMMAND_TYPE, input: { action: 'pause', raw } };
@@ -96,7 +98,7 @@ function detectOwnerProspectingOutreachCommand(message) {
   return {
     type: COMMAND_TYPE,
     input: {
-      action: 'start',
+      action: allEligibleIntent ? 'preflight' : 'start',
       ...(missionIdMatch ? { missionId: missionIdMatch[0] } : {}),
       ...(Number.isInteger(missionTarget) ? { missionTarget } : {}),
       ...(Number.isInteger(maxTargets) ? { maxTargets } : {}),
@@ -212,6 +214,22 @@ function formatResumed(campaign) {
     : 'No encontré una campaña pausada para reanudar.';
 }
 
+function formatPreflight(preflight, mission) {
+  return [
+    '📋 Preflight obligatorio; no envié nada.',
+    `Total prospectos: ${Number(preflight?.totalProspects || 0)}.`,
+    `Con correo: ${Number(preflight?.withEmail || 0)}.`,
+    `Con WhatsApp: ${Number(preflight?.withWhatsapp || 0)}.`,
+    `Decisores/contactos utilizables: ${Number(preflight?.usableDecisionContacts || 0)}.`,
+    `Duplicados bloqueados: ${Number(preflight?.duplicateContacts || 0)}; duplicados descartados en investigación: ${Number(mission?.duplicatesDiscarded || 0)}.`,
+    `Bloqueados / no contactar: ${Number(preflight?.blocked || 0)}.`,
+    `Elegibles exactos: ${Number(preflight?.eligibleProspects || 0)}.`,
+    `Recibirán correo: ${Number(preflight?.emailRecipients || 0)}.`,
+    `Recibirán WhatsApp: ${Number(preflight?.whatsappRecipients || 0)}.`,
+    `Para ejecutar, autorizá en una orden separada la cantidad exacta (${Number(preflight?.eligibleProspects || 0)}) y los canales.`
+  ].join('\n');
+}
+
 async function executeOwnerProspectingOutreachCommand(
   command,
   { requestImpl = requestProspecting } = {}
@@ -273,7 +291,7 @@ async function executeOwnerProspectingOutreachCommand(
     };
   }
 
-  assertControls(control, input.strategy || 'email_first');
+  if (action !== 'preflight') assertControls(control, input.strategy || 'email_first');
 
   const missions = await requestImpl(
     '/api/v1/prospecting/missions?businessUnit=ELANVISUAL&limit=500',
@@ -286,6 +304,24 @@ async function executeOwnerProspectingOutreachCommand(
       'No encontré una investigación comercial activa que coincida con la orden.',
       404
     );
+  }
+
+  if (action === 'preflight') {
+    const preflight = await requestImpl('/api/v1/prospecting/outreach-preflight', {
+      method: 'POST',
+      body: {
+        missionId: mission.id,
+        strategy: input.strategy || 'email_first',
+        maxTargets: 500,
+        minPriority: input.minPriority || 'MEDIA PRIORIDAD',
+        requireDecisionMaker: true
+      }
+    });
+    return {
+      handled: true,
+      outputText: formatPreflight(preflight, mission),
+      result: { action, preflight, mission, control }
+    };
   }
 
   const maxTargets = Math.max(
@@ -340,6 +376,7 @@ module.exports = {
   executeOwnerProspectingOutreachCommand,
   formatCampaign,
   formatPaused,
+  formatPreflight,
   formatResumed,
   requestedChannels,
   strategyFromText

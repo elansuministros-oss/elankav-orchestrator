@@ -33,6 +33,11 @@ const {
   executeOwnerProspectingNaturalAudit
 } = require('./ownerProspectingNaturalAuditService');
 const {
+  COMMAND_TYPE: OWNER_TEMPLATE_APPROVAL,
+  detectOwnerTemplateApproval,
+  executeOwnerTemplateApproval
+} = require('./ownerTemplateApprovalService');
+const {
   COMMAND_TYPE: SELLER_ACCESS_DELIVERY,
   detectOwnerSellerAccessDeliveryCommand,
   executeOwnerSellerAccessDeliveryCommand,
@@ -62,6 +67,9 @@ function detectOwnerBusinessCommand(message) {
   const sellerRead = detectOwnerSellerReadCommand(message);
   if (sellerRead) return sellerRead;
 
+  const templateApproval = detectOwnerTemplateApproval(message);
+  if (templateApproval) return templateApproval;
+
   const prospectingOutreach = detectOwnerProspectingOutreachCommand(message);
   if (prospectingOutreach) return prospectingOutreach;
 
@@ -81,6 +89,7 @@ async function executeOwnerBusinessCommand(command) {
   if (command?.type === CONNECT_RUNTIME_AUDIT) return executeConnectRuntimeAudit(command.query || null);
   if (command?.type === SELLER_ACCESS_DELIVERY) return executeOwnerSellerAccessDeliveryCommand(command);
   if (command?.type === SELLER_READ) return executeOwnerSellerReadCommand(command);
+  if (command?.type === OWNER_TEMPLATE_APPROVAL) return executeOwnerTemplateApproval(command);
   if (command?.type === PROSPECTING_OUTREACH_AUTOPILOT) return executeOwnerProspectingOutreachCommand(command);
   if (command?.type === PROSPECTING_NATURAL_AUDIT) return executeOwnerProspectingNaturalAudit(command);
   if (command?.type === PROSPECTING_AUTOPILOT) return executeOwnerProspectingCommand(command);
@@ -295,6 +304,7 @@ function installOwnerBusinessProcessMessageGateway(messageService = require('./m
     prospectingAutopilot: true,
     prospectingOutreachAutopilot: true,
     prospectingNaturalAudit: true,
+    ownerTemplateApproval: true,
     sellerOnboarding: true,
     sellerBusinessTransactions: true
   });
@@ -307,6 +317,7 @@ module.exports = {
   PROSPECTING_AUTOPILOT,
   PROSPECTING_OUTREACH_AUTOPILOT,
   PROSPECTING_NATURAL_AUDIT,
+  OWNER_TEMPLATE_APPROVAL,
   QUOTATION_ITEM_ADD,
   SELLER_ACCESS_DELIVERY,
   SELLER_READ,

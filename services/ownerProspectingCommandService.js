@@ -119,7 +119,10 @@ function assertAllowedRequest(path, method) {
     (path === '/api/v1/prospecting/control-status' && normalizedMethod === 'GET') ||
     (path.startsWith('/api/v1/prospecting/audit') && normalizedMethod === 'GET') ||
     (path.startsWith('/api/v1/prospecting/missions') && ['GET', 'POST'].includes(normalizedMethod)) ||
-    (path.startsWith('/api/v1/prospecting/outreach-campaigns') && ['GET', 'POST', 'PATCH'].includes(normalizedMethod));
+    (path.startsWith('/api/v1/prospecting/outreach-campaigns') && ['GET', 'POST', 'PATCH'].includes(normalizedMethod)) ||
+    (path === '/api/v1/prospecting/outreach-preflight' && normalizedMethod === 'POST') ||
+    (path === '/api/v1/prospecting/owner-template-reviews' && normalizedMethod === 'GET') ||
+    (/^\/api\/v1\/prospecting\/templates\/[0-9a-f-]+\/owner-approve$/i.test(path) && normalizedMethod === 'POST');
 
   if (!allowed) {
     throw new OwnerProspectingError(
