@@ -17,5 +17,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - run: npm install --cache "$RUNNER_TEMP/npm-cache"
       - run: node tests/ownerOpsOperationalBypass.test.js
       - run: node tests/ownerOpsConfirmationBypassContract.test.js
