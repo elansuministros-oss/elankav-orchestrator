@@ -12,6 +12,7 @@ const COMMIT_PATTERN = /\b[0-9a-f]{40}\b/i;
 const DEPLOY_TARGETS = Object.freeze({
   connect: Object.freeze({ label: 'CONNECT' }),
   orchestrator: Object.freeze({ label: 'Orchestrator' }),
+  langflow: Object.freeze({ label: 'Langflow' }),
   elanvisual: Object.freeze({
     label: 'ELANVISUAL',
     repositoryFullName: 'elansuministros-oss/elanvisual-platform',
@@ -30,6 +31,7 @@ function explicitTarget(raw) {
     if (!/^(repositorio(?: exacto)?|objetivo(?: exacto)?|target)\s*:/.test(normalized)) continue;
     if (/elanvisual-platform|\belanvisual\b/.test(normalized)) return 'elanvisual';
     if (/elankav-orchestrator|\borchestrator\b|\borquestador\b/.test(normalized)) return 'orchestrator';
+    if (/\blangflow\b/.test(normalized)) return 'langflow';
     if (/elankav-connect|\bconnect\b/.test(normalized)) return 'connect';
   }
   return null;
@@ -39,6 +41,7 @@ function stripNegativeActions(raw) {
   return normalize(raw)
     .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?connect\b/g, '')
     .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:orchestrator|orquestador)\b/g, '')
+    .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?langflow\b/g, '')
     .replace(/\bno\s+(?:despliegues?|desplegar|reinicies?|reiniciar|reinicia|toques?|tocar|modifiques?|modificar)\s+(?:el\s+)?(?:elanvisual|elanvisual-platform)\b/g, '')
     .replace(/\bno\s+(?:reinicies?|reiniciar|reinicia|toques?|tocar)\s+(?:el\s+)?waha\b(?:\s+directamente)?/g, '');
 }
@@ -51,6 +54,7 @@ function detectTarget(raw) {
   const matches = [
     /\b(connect|elankav connect)\b/.test(text) ? 'connect' : null,
     /\b(orchestrator|orquestador)\b/.test(text) ? 'orchestrator' : null,
+    /\blangflow\b/.test(text) ? 'langflow' : null,
     /\b(elanvisual|elanvisual-platform)\b/.test(text) ? 'elanvisual' : null
   ].filter(Boolean);
 
@@ -78,7 +82,7 @@ function detectSupervisorCommand(message) {
     const cleanGeneratedCatalog = target === 'connect' && /\b(limpia|limpiar|limpieza|restaura|restaurar)\b/.test(operationalText);
     const parameters = {
       expectedCommit: commit,
-      install: true,
+      install: target !== 'langflow',
       restart: target !== 'elanvisual'
     };
 
@@ -92,7 +96,9 @@ function detectSupervisorCommand(message) {
         : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, npm ci con dependencias de desarrollo, build TypeScript, reinicio y verificación del servicio y puerto 4400.'
       : target === 'elanvisual'
         ? 'El supervisor debe desplegar exclusivamente ELANVISUAL desde el repositorio y rama canónicos indicados, al commit remoto exacto, sin tocar CONNECT, Orchestrator ni WAHA.'
-        : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio. El supervisor externo se refrescará automáticamente después del despliegue.';
+        : target === 'langflow'
+          ? 'El supervisor validará Docker, memoria y disco; generará secretos fuera de Git; levantará solo Langflow en 127.0.0.1:7860 y exigirá /health_check OK. No reinicia Orchestrator ni toca WAHA.'
+          : 'Se exige repositorio limpio, fast-forward, commit remoto exacto, backup previo, instalación de dependencias y verificación del servicio. El supervisor externo se refrescará automáticamente después del despliegue.';
 
     return Object.freeze({
       type: ownerCommands.OWNER_COMMANDS.OWNER_OPS_PREPARE_SENSITIVE,
@@ -132,7 +138,7 @@ function formatSupervisorStatus(result) {
     execution.listening ? `Puerto verificado: ${execution.listening}` : null,
     execution.whatsappCoreProtected === true ? 'WhatsApp Core: PROTECTED' : null,
     execution.whatsappCoreContract ? `Contrato WhatsApp: ${execution.whatsappCoreContract}` : null,
-    execution.healthEndpoint ? 'Orchestrator health: OK' : null, execution.bridgeEndpoint ? 'WAHA inbound bridge: READY' : null
+    execution.healthEndpoint ? (execution.target === 'langflow' ? 'Langflow health: OK' : 'Orchestrator health: OK') : null, execution.bridgeEndpoint ? 'WAHA inbound bridge: READY' : null
   ].filter(Boolean).join('\n');
 }
 
