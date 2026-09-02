@@ -1,5 +1,7 @@
 'use strict';
 
+require('./inboundCommercialRoleMessagePatch');
+
 const Module = require('node:module');
 const { PassThrough } = require('node:stream');
 const liveAccessService = require('./connectLiveAccessService');
