@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 
 const messageService = fs.readFileSync('services/messageService.js', 'utf8');
 const runtimeService = fs.readFileSync('services/connectAiRuntimeService.js', 'utf8');
+const openaiService = fs.readFileSync('services/openaiService.js', 'utf8');
 const waha = fs.readFileSync('api/wahaWebhookApi.js', 'utf8');
 const lock = fs.readFileSync('docs/CONNECT_AI_RUNTIME_AUTHORITY_LOCK.md', 'utf8');
 
@@ -32,6 +33,13 @@ test('candado: el runtime valida autoridad y el OFF llega hasta WAHA', () => {
   assert.match(runtimeService, /x-elankav-internal-token/);
   assert.match(waha, /r\?\.suppressed===true/);
   assert.match(waha, /replySent:false/);
+});
+
+test('candado: OpenAI no impone una conversación comercial paralela cuando CONNECT gobierna', () => {
+  assert.match(openaiService, /CONNECT_AI_PLATFORMS/);
+  assert.match(openaiService, /gobierna exclusivamente la configuración publicada de CONNECT/);
+  assert.doesNotMatch(openaiService, /Respondé primero la pregunta del cliente y luego hacé como máximo/);
+  assert.doesNotMatch(openaiService, /No vuelvas a preguntar medida, ambiente, iluminación/);
 });
 
 test('candado: diseño no conserva URL operativa hardcodeada en messageService', () => {
