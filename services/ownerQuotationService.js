@@ -864,7 +864,7 @@ async function prepareAndCreateQuotation(input) {
     if (currency !== 'USD') return { ready: false, question: `El precio indicado está en ${currency}. El VQS oficial consolida el total principal en USD; necesito una conversión oficial antes de crear la cotización.` };
 
     const logisticsAmount = Number(logisticsResult.amount || 0);
-    if (logisticsAmount > 0 && logisticsResult.currency !== currency) return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. No voy a inventar un tipo de cambio.` };
+    if (logisticsAmount > 0 && logisticsResult.currency !== currency) return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. Necesito el tipo de cambio autorizado para consolidar la cotización.` };
 
     const baseSubtotal = explicit ? Number(explicit.amount) : Number(pricing.calculation.subtotal || 0);
     const total = Number((baseSubtotal + logisticsAmount).toFixed(2));
@@ -897,7 +897,7 @@ async function prepareAndCreateQuotation(input) {
       customerSnapshot: { customerId: customer.customerId || customer.id, name: customer.name || customer.companyName, companyName: customer.companyName || '', phone: customer.phone || '', email: customer.email || '', address: customer.address || '', city: customer.city || '' },
       executiveSnapshot: { executiveId: 'owner-whatsapp', name: 'ELAN Owner' },
       items,
-      pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total },
+      pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total, source: explicit ? 'OWNER_EXPLICIT_PRICE' : String(pricing.source || 'COMMERCIAL_PRODUCTS'), authority: explicit ? 'OWNER' : String(pricing.authority || 'CONNECT_COMMERCIAL_PRODUCTS') },
       paymentTerms: { depositPercent: terms.depositPercent, balancePercent: terms.balancePercent, depositUsd, balanceUsd },
       ownerCommercialOverride: explicit ? { applied: true, amountUsd: baseSubtotal, includesLogistics: Boolean(input.priceIncludesLogistics), source: 'owner-whatsapp' } : undefined,
       contractVersion: '1.0.0'
