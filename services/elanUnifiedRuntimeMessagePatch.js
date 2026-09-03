@@ -21,12 +21,36 @@ const {
   shouldResolveOwnerSemanticIntent
 } = require('./ownerSemanticIntentService');
 const { detectOwnerUnifiedCommand, executeOwnerUnifiedCommand } = require('./elanUnifiedOwnerCommandService');
+const { getToolManifest } = require('./elanUnifiedToolRegistry');
+const { langflowPlannerService } = require('./langflowPlannerService');
 const {
   handleOwnerEntityCreateContinuity,
   clearPendingEntityCreate
 } = require('./ownerEntityCreateContinuityService');
 
 const INSTALL_MARK = Symbol.for('elankav.elanUnifiedRuntimeMessagePatch.installed');
+
+const LANGFLOW_READ_TOOLS = new Set([
+  'buscar_material_catalogo',
+  'buscar_precio_autorizado',
+  'listar_precios_autorizados',
+  'buscar_cliente',
+  'buscar_proveedor',
+  'buscar_vendedor',
+  'buscar_familiar',
+  'buscar_contacto',
+  'buscar_cotizacion',
+  'buscar_orden_trabajo',
+  'consultar_pago'
+]);
+
+function langflowReadTools(actor) {
+  return getToolManifest(actor).filter(tool => LANGFLOW_READ_TOOLS.has(String(tool?.name || '')));
+}
+
+function hasExplicitMutationIntent(message) {
+  return /\b(crea|crear|agrega|agregar|registra|registrar|edita|editar|actualiza|actualizar|cambia|cambiar|modifica|modificar|desactiva|desactivar|elimina|eliminar|borra|borrar|envia|enviar|manda|mandar|publica|publicar|aprueba|aprobar|paga|pagar|compra|comprar)\b/i.test(String(message || ''));
+}
 
 function normalized(value){return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ')}
 function detectAuthorizedPriceLookup(message){
@@ -152,6 +176,38 @@ async function executeGenericOwnerCommand({command,context,args}){
   catch(error){console.error('[ELAN_UNIFIED_OWNER_COMMAND_FAILED]',{code:error?.code||null,message:error?.message||null});return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude completar la operación en CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No hice cambios alternativos.`,command:command?.tool||'elan_unified_runtime'})}
 }
 
+async function executeLangflowReadPlanner({context,args,memory}){
+  const actor=ownerActor(context,args);
+  const allowedTools=langflowReadTools(actor);
+  if(!allowedTools.length||hasExplicitMutationIntent(args?.message))return null;
+  const planned=await langflowPlannerService.plan({
+    message:args?.message,
+    actor,
+    platform:platformOf(context,args),
+    channel:channelOf(context,args),
+    history:memory?.history||[],
+    allowedTools
+  });
+  if(!planned?.available){
+    console.error('[LANGFLOW_PLANNER_UNAVAILABLE]',{code:planned?.errorCode||'LANGFLOW_PLANNER_UNAVAILABLE'});
+    return null;
+  }
+  const plan=planned.plan||{};
+  if(!plan.tool||Number(plan.confidence||0)<0.55)return null;
+  const result=await executeGenericOwnerCommand({
+    command:{tool:plan.tool,arguments:plan.arguments||{}},
+    context,
+    args
+  });
+  if(!result)return null;
+  console.log('[LANGFLOW_PLANNER_EXECUTE]',{
+    tool:plan.tool,
+    confidence:Number(plan.confidence||0),
+    flowId:planned.flowId||null
+  });
+  return result;
+}
+
 async function executeEntityCreateContinuity({continuity,context,args}){
   if(!continuity?.handled)return null;
   if(!continuity.command){return runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:continuity.reply||'Necesito un dato adicional para completar el registro.',command:'owner_entity_create_continuity'})}
@@ -192,6 +248,23 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
 
     try{
       const memory=await loadConversationMemory({actor:ownerActor(context,args),platform:platformOf(context,args),limit:30});
+      const plannedResult=await executeLangflowReadPlanner({context,args,memory});
+      if(plannedResult){
+        const previousState=memory?.workingState&&typeof memory.workingState==='object'?memory.workingState:{};
+        await persistUnifiedWorkingState({
+          actor:ownerActor(context,args),
+          platform:platformOf(context,args),
+          workingState:{
+            ...previousState,
+            lastIntent:'langflow_read_plan',
+            lastUserMessage:String(args.message||'').trim(),
+            lastActionAt:new Date().toISOString()
+          },
+          safe:true
+        });
+        await persistOwnerTurn({context,args,direction:'outbound',text:plannedResult.reply});
+        return plannedResult;
+      }
       if(shouldResolveOwnerSemanticIntent(args.message,memory?.history||[])){
         const semantic=await resolveOwnerSemanticIntent({message:args.message,history:memory?.history||[]});
         const semanticCommand=semanticIntentToBusinessCommand(semantic);
@@ -260,4 +333,4 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete',entityCreateContinuity:true});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,installElanUnifiedRuntimeMessagePatch,resolveRuntimeActor,persistRuntimeTurn};
+module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,executeLangflowReadPlanner,hasExplicitMutationIntent,installElanUnifiedRuntimeMessagePatch,langflowReadTools,resolveRuntimeActor,persistRuntimeTurn};
