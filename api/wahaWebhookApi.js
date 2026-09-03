@@ -13,6 +13,7 @@ const {
   resolveRegisteredProvider
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
+const { createConnectLiveSession } = require('../services/connectLiveAccessService');
 const {
   canonicalizeWahaMediaUrl,
   composeLibraryInstruction,
@@ -170,6 +171,17 @@ function isPresentationAudioRequest(text) {
     || normalized === '/demo audio'
     || /(?:env[ií]ame|manda(?:me)?|quiero|muestra).*audio.*presentaci[oó]n/.test(normalized)
     || /(?:pres[eé]ntate|bienvenida).*(?:audio|voz)/.test(normalized);
+}
+
+function isLiveModeRequest(text) {
+  const normalized = String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+  return /(?:elan\s*)?(?:activa(?:te)?|abre|abrime|inicia|entrar|dame acceso).*(?:modo\s*)?(?:copiloto|live)/.test(normalized)
+    || /^(?:modo\s*)?(?:copiloto|elan live)$/.test(normalized);
 }
 
 function extractPayload(body = {}) {
@@ -507,6 +519,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
   const processMessageImpl = dependencies.processMessage || processMessage;
   const sendWahaTextImpl = dependencies.sendWahaText || sendWahaText;
   const sendWahaVoiceImpl = dependencies.sendWahaVoice || sendWahaVoice;
+  const createConnectLiveSessionImpl = dependencies.createConnectLiveSession || createConnectLiveSession;
   const synthesizeImpl = dependencies.synthesizeSpeech || synthesizeSpeech;
   const persistConversationEventImpl = dependencies.persistConversationEvent || publishConversationEventSafely;
   const resolveProviderImpl = dependencies.resolveRegisteredProvider || resolveRegisteredProvider;
@@ -794,6 +807,47 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     if (incoming.messageType === 'audio') logVoiceEvent('VOICE_INBOUND_RECEIVED', { ...incoming, mimeType: incoming.media?.mimeType || null });
     const resolvedMessage = await resolveIncomingMessage(incoming, dependencies);
     if (!resolvedMessage) throw new Error('MESSAGE_TRANSCRIPTION_EMPTY');
+
+    if (isLiveModeRequest(resolvedMessage)) {
+      try {
+        const live = await createConnectLiveSessionImpl({
+          phone: incoming.phone,
+          identity: incoming.senderRaw,
+          platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL'
+        });
+        await sendWahaTextImpl({
+          session: incoming.session,
+          chatId: incoming.chatId,
+          text: `ELAN Copiloto listo. Abrí tu sesión segura:\n${live.url}\n\nLa sesión vence en 15 minutos.`
+        });
+        sendJson(res, 200, {
+          ok: true,
+          processed: true,
+          replySent: true,
+          replyType: 'text',
+          ownerMode: live?.identity?.role === 'owner',
+          elanLive: true
+        });
+        return true;
+      } catch (error) {
+        const denied = error?.status === 403;
+        await sendWahaTextImpl({
+          session: incoming.session,
+          chatId: incoming.chatId,
+          text: denied
+            ? 'Este número no tiene acceso autorizado a ELAN Copiloto.'
+            : 'No pude crear la sesión de ELAN Copiloto en este momento.'
+        });
+        sendJson(res, 200, {
+          ok: false,
+          processed: true,
+          replySent: true,
+          elanLive: true,
+          code: error?.code || null
+        });
+        return true;
+      }
+    }
 
     if (!ownerIdentity.isOwner && ['text', 'audio'].includes(incoming.messageType)) {
       const attribution = await attributeWhatsappResponseSafelyImpl({
@@ -1447,6 +1501,7 @@ module.exports = {
   extractMessageType,
   clearWahaInboundDedupe,
   handleWahaWebhookApi,
+  isLiveModeRequest,
   isPresentationAudioRequest,
   normalizePhone,
   resolveIncomingMessage,
