@@ -230,13 +230,13 @@ function buildPlannerFlow(example) {
   }
 
   return {
-    name: 'ELAN Semantic Planner',
-    description: `ELANKAV_ORCHESTRATOR_PLANNER:${PLANNER_VERSION}`,
+    name: 'ELAN Conversation Brain',
+    description: `ELANKAV_CONVERSATION_BRAIN:${PLANNER_VERSION}`,
     data: graph,
     is_component: false,
     webhook: false,
     endpoint_name: PLANNER_ENDPOINT,
-    tags: ['elan', 'orchestrator', 'semantic-planner']
+    tags: ['elan', 'orchestrator', 'conversation-brain', 'semantic-planner']
   };
 }
 
@@ -334,8 +334,8 @@ class LangflowPlannerService {
 
   async ensurePlannerFlow(token) {
     const current = flowCollection(await this.bearerRequest(token, '/api/v1/flows/'));
-    const existing = current.find(flow => text(flow?.endpoint_name) === PLANNER_ENDPOINT || text(flow?.name) === 'ELAN Semantic Planner');
-    const desiredDescription = `ELANKAV_ORCHESTRATOR_PLANNER:${PLANNER_VERSION}`;
+    const existing = current.find(flow => text(flow?.endpoint_name) === PLANNER_ENDPOINT || ['ELAN Semantic Planner','ELAN Conversation Brain'].includes(text(flow?.name)));
+    const desiredDescription = `ELANKAV_CONVERSATION_BRAIN:${PLANNER_VERSION}`;
 
     if (existing?.id) {
       if (text(existing?.description) !== desiredDescription) {
@@ -343,8 +343,10 @@ class LangflowPlannerService {
         await this.bearerRequest(token, `/api/v1/flows/${encodeURIComponent(existing.id)}`, {
           method: 'PATCH',
           body: JSON.stringify({
+            name: 'ELAN Conversation Brain',
             description: desiredDescription,
-            data: updatedGraph.data
+            data: updatedGraph.data,
+            tags: ['elan', 'orchestrator', 'conversation-brain', 'semantic-planner']
           }),
           timeoutMs: 60_000
         });
