@@ -11,6 +11,10 @@ on:
       - 'adapters/openaiAdapter.js'
       - 'services/ownerCommercialIntelligenceService.js'
       - 'services/openaiService.js'
+      - 'services/ownerBusinessConnectClient.js'
+      - 'services/ownerQuotationService.js'
+      - 'services/sellerBusinessConnectClient.js'
+      - 'tests/commercialProductsQuotationAuthority.test.js'
       - 'tests/ownerCommercialIntelligenceService.test.js'
       - 'tests/crmContextAdapter.test.js'
       - '.github/workflows/orchestrator-commercial-intelligence-safe-ci.yml'
@@ -20,6 +24,10 @@ on:
       - 'adapters/openaiAdapter.js'
       - 'services/ownerCommercialIntelligenceService.js'
       - 'services/openaiService.js'
+      - 'services/ownerBusinessConnectClient.js'
+      - 'services/ownerQuotationService.js'
+      - 'services/sellerBusinessConnectClient.js'
+      - 'tests/commercialProductsQuotationAuthority.test.js'
       - 'tests/ownerCommercialIntelligenceService.test.js'
 
 jobs:
@@ -49,6 +57,10 @@ jobs:
           node --check adapters/openaiAdapter.js
           node --check services/ownerCommercialIntelligenceService.js
           node --check services/openaiService.js
+          node --check services/ownerBusinessConnectClient.js
+          node --check services/ownerQuotationService.js
+          node --check services/sellerBusinessConnectClient.js
+          node --check tests/commercialProductsQuotationAuthority.test.js
           node --check tests/ownerCommercialIntelligenceService.test.js
 
       - name: Commercial intelligence tests
@@ -71,6 +83,7 @@ jobs:
           node --test tests/ownerQuotationLookupSend.test.js
           node --test tests/ownerQuotationSplit.test.js
           node --test tests/ownerQuotationSplitSend.test.js
+          node --test tests/commercialProductsQuotationAuthority.test.js
 
       - name: Diff check
         run: git diff --check 7b6b12c755366170e52a73ee5341692e0b592202...HEAD
