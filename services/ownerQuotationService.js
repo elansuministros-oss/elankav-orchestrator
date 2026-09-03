@@ -831,7 +831,7 @@ async function prepareAndCreateQuotation(input) {
     try {
       const pricingResponse = await resolveCatalogPricing({ query: input.productQuery, width: input.width, height: input.height, quantity: input.quantity });
       pricing = pricingResponse.data || {};
-      trace('pricing-resolved', { status: pricing.status || null });
+      trace('pricing-resolved', { status: pricing.status || null, source: pricing.source || null, authority: pricing.authority || null });
     } catch (error) {
       trace('pricing-error', errorDetails(error));
       if (!input.explicitPrice) throw error;
@@ -849,13 +849,13 @@ async function prepareAndCreateQuotation(input) {
     }
 
     if (!input.explicitPrice) {
-      if (pricing.status === 'NOT_FOUND') return { ready: false, question: `No encontré “${input.productQuery}” en la biblioteca oficial. Necesito identificar el producto o servicio correcto antes de cotizar.` };
+      if (pricing.status === 'NOT_FOUND') return { ready: false, question: `No tengo una tarifa publicada para “${input.productQuery}”. Indicame el servicio correcto o agregamos esa tarifa al catálogo comercial.` };
       if (pricing.status === 'MULTIPLE') {
         const names = (pricing.matches || []).slice(0, 5).map(item => item.name).filter(Boolean);
-        return { ready: false, question: `Encontré varias opciones en la biblioteca: ${names.join(', ')}. Indicame cuál corresponde.` };
+        return { ready: false, question: `Encontré varias opciones: ${names.join(', ')}. Indicame cuál corresponde.` };
       }
       if (pricing.status === 'REQUIRES_INPUT') return { ready: false, question: 'Faltan medidas necesarias para calcular el precio de este producto.' };
-      if (pricing.status !== 'FOUND') return { ready: false, question: 'El producto existe, pero no tiene un precio de venta vigente en la biblioteca oficial.' };
+      if (pricing.status !== 'FOUND') return { ready: false, question: 'Ese servicio todavía no tiene una tarifa de venta publicada y vigente.' };
     }
 
     const explicit = input.explicitPrice || null;
@@ -881,7 +881,9 @@ async function prepareAndCreateQuotation(input) {
       unit: item.unit || 'servicio',
       unitPriceUsd: explicit ? baseSubtotal : Number(item.unitPrice),
       subtotalUsd: baseSubtotal,
-      source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
+      source: explicit ? 'OWNER_EXPLICIT_PRICE' : String(pricing.source || 'COMMERCIAL_PRODUCTS'),
+      pricingAuthority: explicit ? 'OWNER' : String(pricing.authority || 'CONNECT_COMMERCIAL_PRODUCTS'),
+      pricingMatchRule: explicit ? null : String(pricing.matchRule || '') || null
     }];
     if (logisticsAmount > 0) items.push({ itemId: `LOG-${randomUUID()}`, title: logisticsResult.description || 'Logística', description: logisticsResult.description || 'Logística', quantity: 1, unit: 'servicio', unitPriceUsd: logisticsAmount, subtotalUsd: logisticsAmount, source: 'LOGISTICS_LIBRARY' });
 
@@ -905,7 +907,8 @@ async function prepareAndCreateQuotation(input) {
       customerId: customer.customerId || customer.id || null,
       totalUsd: total,
       itemCount: items.length,
-      source: explicit ? 'OWNER_EXPLICIT_PRICE' : 'MASTER_CATALOG'
+      source: explicit ? 'OWNER_EXPLICIT_PRICE' : String(pricing.source || 'COMMERCIAL_PRODUCTS'),
+      authority: explicit ? 'OWNER' : String(pricing.authority || 'CONNECT_COMMERCIAL_PRODUCTS')
     });
 
     const createdResponse = await createQuotation(document, `owner-${randomUUID()}`);
