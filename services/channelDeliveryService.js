@@ -181,6 +181,24 @@ function createChannelDeliveryService({
         };
       }
 
+      if (clean(input.messageType).toLowerCase() === 'file') {
+        const result = await waha.sendFile({
+          phone: input.phone,
+          chatId: input.chatId,
+          fileUrl: input.fileUrl,
+          caption: clean(input.caption || text),
+          fileName: clean(input.fileName) || 'documento.pdf',
+          mimeType: clean(input.mimeType) || 'application/pdf'
+        });
+        return {
+          channel,
+          status: 'SENT',
+          externalRef: result.messageId || null,
+          recipient: result.chatId,
+          messageType: 'file'
+        };
+      }
+
       const result = await waha.sendText({
         phone: input.phone,
         chatId: input.chatId,
@@ -205,7 +223,8 @@ function createChannelDeliveryService({
         threadId: input.threadId,
         inReplyTo: input.inReplyTo,
         references: input.references,
-        fromIdentity: input.fromIdentity
+        fromIdentity: input.fromIdentity,
+        attachments: Array.isArray(input.attachments) ? input.attachments : []
       });
       return {
         channel,
