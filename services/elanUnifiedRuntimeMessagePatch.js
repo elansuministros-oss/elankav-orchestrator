@@ -49,7 +49,8 @@ function langflowReadTools(actor) {
 }
 
 function hasExplicitMutationIntent(message) {
-  return /\b(crea|crear|agrega|agregar|registra|registrar|edita|editar|actualiza|actualizar|cambia|cambiar|modifica|modificar|desactiva|desactivar|elimina|eliminar|borra|borrar|envia|enviar|manda|mandar|publica|publicar|aprueba|aprobar|paga|pagar|compra|comprar)\b/i.test(String(message || ''));
+  const value=normalized(message);
+  return /\b(crea|crear|agrega|agregar|registra|registrar|edita|editar|actualiza|actualizar|cambia|cambiar|modifica|modificar|desactiva|desactivar|elimina|eliminar|borra|borrar|envia|enviar|manda|mandar|publica|publicar|aprueba|aprobar|paga|pagar|compra|comprar|cotiza|cotizar|cotizame|disena|disenar|disename|genera|generar|generame|haceme|hazme|despliega|desplegar|reinicia|reiniciar|restart|deploy|fusiona|fusionar|merge|owner ops|supervisor)\b/.test(value);
 }
 
 function normalized(value){return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ')}
