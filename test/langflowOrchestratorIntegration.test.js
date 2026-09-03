@@ -99,5 +99,5 @@ test('planner never enables Langflow OpenAPI dangerous requests', () => {
   assert.doesNotMatch(planner, /allow_dangerous_requests/i);
   assert.doesNotMatch(planner, /OpenAPI Agent/i);
   assert.match(fs.readFileSync(path.join(root, 'services/elanUnifiedOwnerCommandService.js'), 'utf8'), /row\?\.suppliers/);
-  assert.match(planner, /nunca ejecutes acciones/i);
+  assert.match(planner, /nunca ejecut(?:es|ás) acciones/i);
 });
