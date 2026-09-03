@@ -136,8 +136,13 @@ function buildDesignPortalLink({ runtime } = {}) {
 
 function buildDesignPortalText({ runtime, link } = {}) {
   const configured = normalizeMessage(runtime?.platform?.responseRules?.designRequest?.text);
-  if (configured) return configured;
-  return `Completá tu solicitud de diseño en el sitio oficial de ELANVISUAL:\n${link}\n\nAl enviarla recibirás un código de seguimiento.`;
+  const platformName = String(runtime?.platform?.platformId || 'ELANVISUAL').trim().toUpperCase();
+  if (configured) {
+    return configured.includes(link)
+      ? configured
+      : `${configured}\n${link}`;
+  }
+  return `Completá tu solicitud de diseño en el sitio oficial de ${platformName}:\n${link}\n\nAl enviarla recibirás un código de seguimiento.`;
 }
 
 async function handleDesignIntent({
@@ -440,7 +445,8 @@ async function processMessage({
             id: null,
             status: designFollowup.completed ? 'completed' : 'in_progress',
             usage: null,
-            designAction: true
+            designAction: true,
+            aiRuntime
           };
         }
       }
@@ -458,7 +464,7 @@ async function processMessage({
         });
 
       if (designConversation.handled) {
-        return designConversation;
+        return { ...designConversation, aiRuntime };
       }
 
       let crm = null;
@@ -483,13 +489,13 @@ async function processMessage({
           previousState: commercialState,
           message: normalizedMessage,
           commercial,
-          platform: 'ELANVISUAL'
+          platform: context.platform || platform || 'ELANVISUAL'
         });
         await savePersistentCommercialState(
           context.commercial?.stateKey,
           commercialState,
           {
-            platform: 'ELANVISUAL',
+            platform: context.platform || platform || 'ELANVISUAL',
             channel: context.channel || channel || 'whatsapp',
             externalUserId: context.externalUserId || externalUserId || null,
             phone: context.phone || phone || null
@@ -564,7 +570,7 @@ async function processMessage({
         });
       }
 
-      return commercialResponse;
+      return { ...commercialResponse, aiRuntime };
     }
   );
 
