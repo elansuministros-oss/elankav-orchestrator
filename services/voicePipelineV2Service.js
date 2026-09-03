@@ -2,6 +2,10 @@
 
 const { downloadWahaMedia, resolveAudioMimeType, synthesizeSpeech, transcribeAudio } = require('./connectVoiceService');
 const { processMessage } = require('./messageService');
+const {
+  normalizeReplyForTextDelivery,
+  replyContainsNavigableLink
+} = require('./voiceReplyDeliveryPolicy');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
 const { createWahaVoiceMediaAdapterV2 } = require('../adapters/wahaVoiceMediaAdapterV2');
 const { publishConversationEventSafely } = require('./connectConversationClient');
@@ -131,6 +135,41 @@ async function runVoicePipelineV2(event, dependencies = {}) {
       throw Object.assign(new Error('VOICE_AI_REPLY_EMPTY'), { code: 'VOICE_AI_REPLY_EMPTY' });
     }
     log('AI_COMPLETED', event);
+
+    if (replyContainsNavigableLink(reply)) {
+      const textReply = normalizeReplyForTextDelivery(reply);
+      await delivery.sendText({ chatId: event.chatId, text: textReply });
+      await publishConversationEventSafely({
+        platform: runtimeEnv.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL',
+        channel: 'whatsapp',
+        externalUserId: event.senderRaw,
+        phone: event.phone,
+        chatId: event.chatId,
+        direction: 'outbound',
+        text: textReply,
+        messageType: 'text',
+        externalMessageId: null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: {
+          source: 'waha',
+          pipeline: 'voice-v2',
+          session: event.session,
+          replyType: 'text',
+          forcedTextFromAudio: true,
+          reason: 'reply_contains_link'
+        }
+      }, { env: runtimeEnv });
+      log('LINK_TEXT_SENT', event);
+      complete(lock.key);
+      log('COMPLETED', event);
+      return {
+        processed: true,
+        replySent: true,
+        replyType: 'text',
+        audioLinkTextDelivery: true
+      };
+    }
 
     try {
       log('SPEECH_STARTED', event);
