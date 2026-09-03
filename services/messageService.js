@@ -347,7 +347,7 @@ async function processMessage({
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
 
-      if (!ownerMode && context.actorIdentity?.available !== true) {
+      if (!ownerMode && context.channel === 'whatsapp' && context.actorIdentity?.available !== true) {
         console.error('[CONNECT_ACTOR_IDENTITY_FAIL_CLOSED]', {
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
