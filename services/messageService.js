@@ -32,30 +32,9 @@ const {
 const {
   processDesignFollowup
 } = require('./designFollowupService');
-
-const DESIGN_PORTAL_URL = 'https://visual.elankav.com/diseno/whatsapp';
-
-const CUSTOMER_INSTRUCTIONS = [
-  'Sos ELAN IA, asistente comercial de atención al cliente del ecosistema ELANKAV.',
-  'Respondé en español natural, amable, breve y profesional.',
-  'Atendé primero la solicitud concreta del cliente y no conviertas una explicación en un formulario.',
-  'Hacé como máximo una pregunta por respuesta y solo cuando sea indispensable para avanzar.',
-  'No repitas datos que el cliente ya proporcionó.',
-  'No exijas nombre, logotipo, fotografía ni archivo para brindar una orientación o precio autorizado.',
-  'Si el cliente ya indicó producto, medida y si es interior o exterior, no hagas preguntas adicionales innecesarias.',
-  'Si pregunta por precio, respondé con el precio únicamente cuando esté presente en el contexto verificado; nunca inventes precios.',
-  'Cuando falte un precio verificado, indicá que debe revisarse en el cotizador y continuá ayudando con la información disponible.',
-  'Cuando exista contexto comercial verificado, usá el nombre, las medidas, el precio y la modalidad exactos de ese contexto.',
-  'Usá únicamente sitios web y ubicaciones presentes en el contexto oficial verificado; nunca inventes, completes ni adivines dominios o ubicaciones.',
-  'No presentes la página principal como catálogo. Solo afirmes que existe un catálogo cuando el contexto incluya un enlace exacto y verificado al catálogo solicitado.',
-  'Si no existe un enlace exacto al catálogo, indicá que podés orientar con muestras verificadas sin inventar enlaces.',
-  'Decí “desde” únicamente cuando la oferta verificada sea starting-at y aclará que el precio es aproximado cuando así se indique.',
-  'Después de orientar el precio, hacé una sola pregunta útil para acercar al cliente a la cotización o al cierre.',
-  'No hables de Orchestrator, repositorios, herramientas internas, permisos técnicos ni programación con clientes.',
-  'No trates al cliente como proveedor ni inicies flujos CRM internos por una explicación general.',
-  'No prometas fabricación, instalación, entrega o disponibilidad sin datos confirmados.',
-  'Respondé únicamente al mensaje recibido y mantené el contexto de la plataforma indicada.'
-].join(' ');
+const {
+  loadConnectAiRuntimeSafely
+} = require('./connectAiRuntimeService');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -76,23 +55,89 @@ function normalizeMessage(value) {
     : '';
 }
 
-function resolveMessageInstructions({
-  ownerMode,
-  customInstructions
-}) {
-  const normalizedCustom = normalizeMessage(customInstructions);
+function buildRuntimeInstructions(runtime) {
+  const platform = runtime?.platform && typeof runtime.platform === 'object'
+    ? runtime.platform
+    : {};
+  const responseRules = platform.responseRules && typeof platform.responseRules === 'object'
+    ? platform.responseRules
+    : {};
+  const websiteInvitation = responseRules.websiteInvitation && typeof responseRules.websiteInvitation === 'object'
+    ? responseRules.websiteInvitation
+    : {};
+  const designRequest = responseRules.designRequest && typeof responseRules.designRequest === 'object'
+    ? responseRules.designRequest
+    : {};
 
-  if (normalizedCustom) {
-    return normalizedCustom;
-  }
+  const lines = [
+    'AUTORIDAD DE COMPORTAMIENTO: CONNECT /console/ai-platforms.',
+    platform.initialMessage
+      ? `IDENTIDAD PUBLICADA: ${String(platform.initialMessage).trim()}`
+      : null,
+    platform.instructions
+      ? `INSTRUCCIONES PUBLICADAS: ${String(platform.instructions).trim()}`
+      : null,
+    `REGLAS PUBLICADAS: ${JSON.stringify(responseRules)}.`,
+    websiteInvitation.enabled === true && websiteInvitation.url
+      ? `INVITACIÓN WEB HABILITADA: URL=${websiteInvitation.url}; texto=${String(websiteInvitation.text || '').trim() || 'sin texto personalizado'}.`
+      : 'INVITACIÓN WEB DESHABILITADA.',
+    designRequest.enabled === true && designRequest.url
+      ? `SOLICITUD DE DISEÑO HABILITADA: URL=${designRequest.url}; texto=${String(designRequest.text || '').trim() || 'sin texto personalizado'}.`
+      : 'SOLICITUD DE DISEÑO POR ENLACE DESHABILITADA.',
+    'No sustituyas esta identidad ni estas reglas con una configuración comercial alternativa del Orchestrator.'
+  ].filter(Boolean);
 
-  return ownerMode
-    ? OWNER_INSTRUCTIONS
-    : CUSTOMER_INSTRUCTIONS;
+  return lines.join('\n\n');
 }
 
-function buildDesignPortalLink() {
-  return DESIGN_PORTAL_URL;
+function resolveMessageInstructions({
+  ownerMode,
+  customInstructions,
+  runtime
+}) {
+  if (ownerMode) {
+    const normalizedCustom = normalizeMessage(customInstructions);
+    return normalizedCustom || OWNER_INSTRUCTIONS;
+  }
+
+  return buildRuntimeInstructions(runtime);
+}
+
+function resolveRuntimeHistory(runtime, history) {
+  const continuity = runtime?.platform?.continuity && typeof runtime.platform.continuity === 'object'
+    ? runtime.platform.continuity
+    : {};
+
+  if (continuity.enabled === false) return [];
+
+  const source = Array.isArray(history) ? history : [];
+  const requestedLimit = Number(continuity.historyLimit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(Math.floor(requestedLimit), 20)
+    : 12;
+
+  return source.slice(-limit);
+}
+
+function runtimeCatalogEnabled(runtime) {
+  const catalogAccess = runtime?.platform?.catalogAccess;
+  if (!catalogAccess || typeof catalogAccess !== 'object') return true;
+  return catalogAccess.enabled !== false;
+}
+
+function buildDesignPortalLink({ runtime } = {}) {
+  const designRequest = runtime?.platform?.responseRules?.designRequest;
+  if (!designRequest || typeof designRequest !== 'object') return null;
+  if (designRequest.enabled !== true) return null;
+
+  const url = normalizeMessage(designRequest.url);
+  return /^https:\/\//i.test(url) ? url : null;
+}
+
+function buildDesignPortalText({ runtime, link } = {}) {
+  const configured = normalizeMessage(runtime?.platform?.responseRules?.designRequest?.text);
+  if (configured) return configured;
+  return `Completá tu solicitud de diseño en el sitio oficial de ELANVISUAL:\n${link}\n\nAl enviarla recibirás un código de seguimiento.`;
 }
 
 async function handleDesignIntent({
@@ -102,7 +147,8 @@ async function handleDesignIntent({
   channel,
   externalUserId,
   phone,
-  metadata
+  metadata,
+  aiRuntime
 } = {}) {
   const history = Array.isArray(metadata?.conversationHistory)
     ? metadata.conversationHistory
@@ -139,21 +185,15 @@ async function handleDesignIntent({
   }
 
   const resolvedChannel = context.channel || channel || null;
+  const link = buildDesignPortalLink({ runtime: aiRuntime });
   const usePortal =
+    Boolean(link) &&
     String(resolvedChannel || '').toLowerCase() === 'whatsapp' &&
     metadata?.designPortalBypass !== true;
 
   if (usePortal) {
-    const link = buildDesignPortalLink({
-      message,
-      history,
-      phone: context.phone || phone || null,
-      externalUserId: context.externalUserId || externalUserId || null,
-      conversationRef: metadata?.conversationRef || metadata?.requestId || null
-    });
-
     return {
-      outputText: `Completá tu solicitud de diseño en el sitio oficial de ELANVISUAL:\n${link}\n\nAl enviarla recibirás un código de seguimiento.`,
+      outputText: buildDesignPortalText({ runtime: aiRuntime, link }),
       model: 'elankav-design-portal',
       id: null,
       status: 'needs_information',
@@ -295,7 +335,7 @@ async function processMessage({
       phone,
       metadata: {
         ...(metadata && typeof metadata === 'object' ? metadata : {}),
-        instructions: normalizedInstructions || CUSTOMER_INSTRUCTIONS
+        instructions: normalizedInstructions || null
       }
     },
     async context => {
@@ -342,6 +382,50 @@ async function processMessage({
         }
       }
 
+      let aiRuntime = null;
+
+      if (!ownerMode) {
+        const runtimeState = await loadConnectAiRuntimeSafely({
+          platform: context.platform || platform || 'ELANVISUAL'
+        });
+
+        if (!runtimeState.available || !runtimeState.runtime) {
+          console.error('[CONNECT_AI_RUNTIME_FAIL_CLOSED]', {
+            platform: context.platform || platform || null,
+            reason: runtimeState.error || 'CONNECT_AI_RUNTIME_UNAVAILABLE'
+          });
+          return {
+            outputText: '',
+            model: 'elankav-connect-runtime-gate',
+            id: null,
+            status: 'suppressed',
+            usage: null,
+            suppressed: true,
+            suppressReason: 'CONNECT_AI_RUNTIME_UNAVAILABLE',
+            aiRuntime: null
+          };
+        }
+
+        aiRuntime = runtimeState.runtime;
+
+        if (aiRuntime.execution?.shouldRespond !== true) {
+          console.info('[CONNECT_AI_RUNTIME_RESPONSES_OFF]', {
+            platform: aiRuntime.platform?.platformId || context.platform || platform || null,
+            version: aiRuntime.version || null
+          });
+          return {
+            outputText: '',
+            model: 'elankav-connect-runtime-gate',
+            id: null,
+            status: 'suppressed',
+            usage: null,
+            suppressed: true,
+            suppressReason: 'CONNECT_PLATFORM_RESPONSES_DISABLED',
+            aiRuntime
+          };
+        }
+      }
+
       if (!ownerMode) {
         const designFollowup = await processDesignFollowup({
           message: normalizedMessage,
@@ -369,7 +453,8 @@ async function processMessage({
           channel,
           externalUserId,
           phone,
-          metadata
+          metadata,
+          aiRuntime
         });
 
       if (designConversation.handled) {
@@ -386,11 +471,12 @@ async function processMessage({
           loadCrmContext(),
           loadEcosystemContext()
         ]);
-      } else {
+      } else if (runtimeCatalogEnabled(aiRuntime)) {
+        const runtimeHistory = resolveRuntimeHistory(aiRuntime, metadata?.conversationHistory);
         commercial = await loadCommercialContext({
           message: normalizedMessage,
-          history: metadata?.conversationHistory,
-          platform: 'ELANVISUAL',
+          history: runtimeHistory,
+          platform: context.platform || platform || 'ELANVISUAL',
           commercialState
         });
         commercialState = updateCommercialState({
@@ -418,14 +504,17 @@ async function processMessage({
         }
       }
 
+      const runtimeHistory = ownerMode
+        ? []
+        : resolveRuntimeHistory(aiRuntime, metadata?.conversationHistory);
+
       const generatedResponse = await generateText({
         input: normalizedMessage,
-        history: ownerMode
-          ? []
-          : metadata?.conversationHistory,
+        history: runtimeHistory,
         instructions: resolveMessageInstructions({
           ownerMode,
-          customInstructions: normalizedInstructions
+          customInstructions: normalizedInstructions,
+          runtime: aiRuntime
         }),
         context: {
           ownerMode,
@@ -437,13 +526,14 @@ async function processMessage({
           crm,
           ecosystem,
           commercial,
-          commercialState
+          commercialState,
+          aiRuntime
         }
       });
 
       const commercialResponse = applyVerifiedCommercialReply({
         message: normalizedMessage,
-        history: metadata?.conversationHistory,
+        history: runtimeHistory,
         commercialState,
         commercial,
         response: generatedResponse
@@ -480,12 +570,13 @@ async function processMessage({
 
   return {
     message: normalizedMessage,
-    reply: response.outputText.trim(),
+    reply: String(response.outputText || '').trim(),
     provider:
       response.ownerCommand ||
       response.crmAction ||
       response.designAction ||
-      response.commercialAction
+      response.commercialAction ||
+      response.suppressed
         ? 'elankav'
         : 'openai',
     model: response.model,
@@ -495,12 +586,16 @@ async function processMessage({
     design: response.design || null,
     command: response.ownerCommand || null,
     jobId: response.jobId || null,
+    suppressed: response.suppressed === true,
+    suppressReason: response.suppressReason || null,
     context: {
       version: resolvedContext?.version || null,
       platform: resolvedContext?.platform || null,
       channel: resolvedContext?.channel || null,
       externalUserId: resolvedContext?.externalUserId || null,
       ownerMode: Boolean(resolvedContext?.owner?.isOwner),
+      aiRuntimeAuthority: response.aiRuntime?.authority || null,
+      aiRuntimeVersion: response.aiRuntime?.version || null,
       commercialState: response.commercialState ||
         resolvedContext?.commercial?.state ||
         null
@@ -510,11 +605,14 @@ async function processMessage({
 }
 
 module.exports = {
-  CUSTOMER_INSTRUCTIONS,
   OWNER_INSTRUCTIONS,
   buildDesignPortalLink,
+  buildDesignPortalText,
+  buildRuntimeInstructions,
   normalizeMessage,
   resolveMessageInstructions,
+  resolveRuntimeHistory,
+  runtimeCatalogEnabled,
   handleDesignIntent,
   processMessage
 };
