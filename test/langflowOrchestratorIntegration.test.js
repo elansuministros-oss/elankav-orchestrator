@@ -44,10 +44,10 @@ test('material search is a single read-only CONNECT capability', () => {
   assert.match(registry, /name:'buscar_material_catalogo'/);
   assert.match(registry, /case'buscar_material_catalogo'/);
   assert.match(registry, /quién vende|quien vende|quién.*material|quien.*material/i);
-  assert.match(connectClient, /\/api\/v1\/catalog\/materials/);
+  assert.match(connectClient, /\/api\/v1\/catalog\/items/);
   assert.match(connectClient, /providerMap/);
   assert.match(connectClient, /suppliers/);
-  assert.match(connectClient, /startsWith\('\/api\/v1\/catalog\/materials'\)&&method==='GET'/);
+  assert.match(connectClient, /startsWith\('\/api\/v1\/catalog\/items'\)&&method==='GET'/);
   assert.doesNotMatch(connectClient, /startsWith\('\/api\/v1\/catalog\/'\)&&method!=='GET'/);
 });
 

@@ -28,7 +28,7 @@ function prospectingInternalToken(env = process.env) {
     .update('ELANKAV_CHANNEL_INTERNAL_V1')
     .digest('hex');
 }
-function assertAllowedPath(path, method) { const normalizedPath=String(path||''); if(normalizedPath.startsWith('/api/v1/business/vqs/'))return; if(normalizedPath.startsWith('/api/v1/providers')&&method==='GET')return; if(normalizedPath.startsWith('/api/v1/prospecting/')&&method==='GET')return; if(normalizedPath.startsWith('/api/v1/catalog/materials')&&method==='GET')return; throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED','Ruta no autorizada para Owner Business Gateway.',403); }
+function assertAllowedPath(path, method) { const normalizedPath=String(path||''); if(normalizedPath.startsWith('/api/v1/business/vqs/'))return; if(normalizedPath.startsWith('/api/v1/providers')&&method==='GET')return; if(normalizedPath.startsWith('/api/v1/prospecting/')&&method==='GET')return; if(normalizedPath.startsWith('/api/v1/catalog/items')&&method==='GET')return; throw new OwnerBusinessConnectError('CONNECT_PATH_NOT_ALLOWED','Ruta no autorizada para Owner Business Gateway.',403); }
 async function requestConnect(path, options = {}, env = process.env) {
   const { baseUrl, token }=config(env); const method=String(options.method||'GET').toUpperCase();
   if(!['GET','POST','PATCH','DELETE','PUT'].includes(method))throw new OwnerBusinessConnectError('CONNECT_METHOD_NOT_ALLOWED','Método no autorizado para Owner Business Gateway.',405);
@@ -91,7 +91,7 @@ async function searchCatalogMaterials(input={},env){
   const platform=String(input.platform||'ELANVISUAL').trim().toUpperCase()||'ELANVISUAL';
   const q=String(input.query||'').trim();
   const limit=Math.max(1,Math.min(Number(input.limit)||50,200));
-  const materials=await requestConnect(`/api/v1/catalog/materials${paramsFrom({platform,q:q||undefined,limit})}`,{},env);
+  const materials=await requestConnect(`/api/v1/catalog/items${paramsFrom({platform,q:q||undefined,limit})}`,{},env);
   if(!Array.isArray(materials)||!materials.length)return materials;
   const providers=await listProviders({},env);
   const providerRows=Array.isArray(providers)?providers:Array.isArray(providers?.data)?providers.data:[];
