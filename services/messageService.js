@@ -20,7 +20,7 @@ const {
 const { resolveCommercialActorSafely } = require('./connectActorIdentityService');
 const { resolveAccessPolicy } = require('./accessPolicyService');
 const { isLiveModeRequest, requestLiveSession } = require('./connectLiveAccessService');
-const { loadConversationMemory } = require('./elanUnifiedRuntimeService');
+const { loadConversationMemory, persistUnifiedContext } = require('./elanUnifiedRuntimeService');
 
 const OWNER_INSTRUCTIONS = [
   'Sos el asistente ejecutivo interno de Erick Cano.',
@@ -167,6 +167,54 @@ async function checkHumanTakeover({
   return true;
 }
 
+function unifiedActorFromCommercialActor(actor, context, externalUserId, phone) {
+  return {
+    role: actor?.role || 'prospect',
+    actorId: actor?.actorId || actor?.sellerId || actor?.customerId || actor?.providerId || actor?.prospectId || context?.externalUserId || externalUserId || null,
+    sellerId: actor?.sellerId || null,
+    sellerName: actor?.displayName || null,
+    registered: actor?.registered === true,
+    platformAllowed: actor?.platformAllowed !== false,
+    scopes: Array.isArray(actor?.scopes) ? actor.scopes : [],
+    authority: actor?.authority || null,
+    phone: actor?.canonicalPhone || context?.phone || phone || null
+  };
+}
+
+async function persistRequiredUnifiedTurn({ actor, platform, channel, direction, text, messageType, externalMessageId }) {
+  try {
+    const result = await persistUnifiedContext({
+      actor,
+      platform,
+      channel,
+      direction,
+      text,
+      messageType,
+      externalMessageId
+    });
+    if (!result?.ok) {
+      const error = new Error(result?.reason || 'UNIFIED_MEMORY_WRITE_NOT_CONFIRMED');
+      error.code = 'ELAN_UNIFIED_MEMORY_WRITE_NOT_CONFIRMED';
+      throw error;
+    }
+    return result;
+  } catch (error) {
+    console.error('[ELAN_UNIFIED_MEMORY_REQUIRED_WRITE_FAILED]', {
+      platform,
+      channel,
+      direction,
+      role: actor?.role || 'unknown',
+      code: error?.code || null,
+      message: error?.message || String(error)
+    });
+    const required = new Error('No puedo continuar sin guardar el contexto unificado de esta conversación.');
+    required.code = 'ELAN_UNIFIED_MEMORY_REQUIRED';
+    required.status = 503;
+    required.cause = error;
+    throw required;
+  }
+}
+
 async function processCustomerMessage({ normalizedMessage, context, platform, channel, externalUserId, phone }) {
   const decision = context?.metadata?.connectDecision || await requestConversationDecision({
     identity: externalUserId || context?.metadata?.senderRaw || context?.metadata?.chatId,
@@ -206,20 +254,28 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     actorRole: actor?.role,
     actorScopes: actor?.scopes
   });
+  const unifiedActor = unifiedActorFromCommercialActor(actor, context, externalUserId, phone);
+  const sourceChannel = String(context?.channel || channel || 'whatsapp').trim().toLowerCase() || 'whatsapp';
+  const inboundMessageType = String(context?.metadata?.messageType || 'text').trim().toLowerCase() || 'text';
+  const inboundExternalMessageId = context?.metadata?.messageId || context?.metadata?.webhookMessageId || null;
+
+  // Mandatory continuity lock: every customer-facing turn is persisted to the
+  // same actor+platform memory before OpenAI sees it. Channel and modality are
+  // metadata only; they never create a parallel memory.
+  await persistRequiredUnifiedTurn({
+    actor: unifiedActor,
+    platform: platformId,
+    channel: sourceChannel,
+    direction: 'inbound',
+    text: normalizedMessage,
+    messageType: inboundMessageType,
+    externalMessageId: inboundExternalMessageId
+  });
+
   let unifiedMemory = { history: [], workingState: {} };
   try {
     unifiedMemory = await loadConversationMemory({
-      actor: {
-        role: actor?.role || 'prospect',
-        actorId: actor?.actorId || actor?.sellerId || actor?.customerId || actor?.providerId || actor?.prospectId || context.externalUserId || externalUserId || null,
-        sellerId: actor?.sellerId || null,
-        sellerName: actor?.displayName || null,
-        registered: actor?.registered === true,
-        platformAllowed: actor?.platformAllowed !== false,
-        scopes: Array.isArray(actor?.scopes) ? actor.scopes : [],
-        authority: actor?.authority || null,
-        phone: actor?.canonicalPhone || context.phone || phone || null
-      },
+      actor: unifiedActor,
       platform: platformId,
       limit: 30
     });
@@ -229,6 +285,11 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       code: error?.code || null,
       message: error?.message || String(error)
     });
+    const required = new Error('No puedo continuar sin recuperar el contexto unificado de esta conversación.');
+    required.code = 'ELAN_UNIFIED_MEMORY_REQUIRED';
+    required.status = 503;
+    required.cause = error;
+    throw required;
   }
 
   const history = normalizeHistory(
@@ -258,13 +319,24 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
       error: knowledge?.error || 'OFFICIAL_KNOWLEDGE_UNAVAILABLE'
     });
 
+    const outputText = [
+      'En este momento no pude consultar la información oficial de',
+      platformId.toUpperCase() + '.',
+      'Para no darte información incorrecta, dejaré tu consulta pendiente',
+      'hasta recuperar la conexión con la plataforma.'
+    ].join(' ');
+
+    await persistRequiredUnifiedTurn({
+      actor: unifiedActor,
+      platform: platformId,
+      channel: sourceChannel,
+      direction: 'outbound',
+      text: outputText,
+      messageType: 'text'
+    });
+
     return {
-      outputText: [
-        'En este momento no pude consultar la información oficial de',
-        platformId.toUpperCase() + '.',
-        'Para no darte información incorrecta, dejaré tu consulta pendiente',
-        'hasta recuperar la conexión con la plataforma.'
-      ].join(' '),
+      outputText,
       model: 'elankav-official-knowledge-unavailable',
       id: null,
       status: 'knowledge_unavailable',
@@ -315,6 +387,19 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
     }
   });
 
+  const outputText = String(generated?.outputText || '').trim();
+  if (outputText) {
+    await persistRequiredUnifiedTurn({
+      actor: unifiedActor,
+      platform: platformId,
+      channel: sourceChannel,
+      direction: 'outbound',
+      text: outputText,
+      messageType: 'text',
+      externalMessageId: generated?.id ? `openai:${generated.id}` : null
+    });
+  }
+
   return {
     ...generated,
     status: generated.status || 'completed',
@@ -351,6 +436,25 @@ async function processMessage({ message, platform, channel, externalUserId, phon
     async context => {
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
+
+      if (ownerMode) {
+        await persistRequiredUnifiedTurn({
+          actor: {
+            role: 'owner',
+            actorId: 'owner',
+            authority: 'owner_identity',
+            phone: context.phone || phone || null,
+            scopes: ['*'],
+            platforms: ['*']
+          },
+          platform: context.platform || platform || 'ELANVISUAL',
+          channel: context.channel || channel || 'whatsapp',
+          direction: 'inbound',
+          text: normalizedMessage,
+          messageType: String(metadata?.messageType || 'text').toLowerCase() || 'text',
+          externalMessageId: metadata?.messageId || metadata?.webhookMessageId || null
+        });
+      }
 
       if (String(context.channel || channel || '').toLowerCase() === 'whatsapp' && isLiveModeRequest(normalizedMessage)) {
         try {
@@ -526,6 +630,28 @@ async function processMessage({ message, platform, channel, externalUserId, phon
   );
 
   const suppressDelivery = response.suppressDelivery === true;
+
+  if (resolvedContext?.owner?.isOwner && !suppressDelivery) {
+    const ownerOutput = String(response.outputText || '').trim();
+    if (ownerOutput) {
+      await persistRequiredUnifiedTurn({
+        actor: {
+          role: 'owner',
+          actorId: 'owner',
+          authority: 'owner_identity',
+          phone: resolvedContext.phone || phone || null,
+          scopes: ['*'],
+          platforms: ['*']
+        },
+        platform: resolvedContext.platform || platform || 'ELANVISUAL',
+        channel: resolvedContext.channel || channel || 'whatsapp',
+        direction: 'outbound',
+        text: ownerOutput,
+        messageType: 'text',
+        externalMessageId: response.id ? `owner-out:${response.id}` : null
+      });
+    }
+  }
 
   return {
     message: normalizedMessage,
