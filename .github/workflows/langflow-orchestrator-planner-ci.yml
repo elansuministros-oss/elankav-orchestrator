@@ -1,0 +1,45 @@
+name: Langflow Orchestrator Planner CI
+
+on:
+  pull_request:
+    branches:
+      - stable/ORCHESTRATOR-WHATSAPP-CORE
+    paths:
+      - 'services/langflowPlannerService.js'
+      - 'services/elanUnifiedRuntimeMessagePatch.js'
+      - 'services/elanUnifiedToolRegistry.js'
+      - 'services/elanUnifiedOwnerCommandService.js'
+      - 'services/ownerBusinessConnectClient.js'
+      - 'server.js'
+      - 'test/langflow*.test.js'
+      - '.github/workflows/langflow-orchestrator-planner-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  planner:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: /tmp/elankav-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check services/langflowPlannerService.js
+          node --check services/elanUnifiedRuntimeMessagePatch.js
+          node --check services/elanUnifiedToolRegistry.js
+          node --check services/elanUnifiedOwnerCommandService.js
+          node --check services/ownerBusinessConnectClient.js
+          node --check server.js
+          node --check test/langflowPlannerService.test.js
+          node --check test/langflowOrchestratorIntegration.test.js
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Langflow planner tests
+        run: |
+          node --test             test/langflowPlannerService.test.js             test/langflowOrchestratorIntegration.test.js             test/langflowPocContract.test.js
+      - name: Unified runtime regressions
+        run: |
+          node --test tests/ownerBusinessProcessMessageIntegration.test.js tests/ownerEntityCreateContinuity.test.js test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js
