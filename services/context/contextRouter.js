@@ -19,13 +19,20 @@ async function routeContext(input, next) {
   }
 
   const baseContext = buildContext(input);
-  const actorIdentity = await loadConnectActorIdentitySafely({
-    identity: input.externalUserId,
-    externalUserId: input.externalUserId,
-    phone: input.phone,
-    chatId: input.metadata?.chatId,
-    platform: baseContext.platform
-  });
+  const actorIdentity = baseContext.channel === 'whatsapp'
+    ? await loadConnectActorIdentitySafely({
+        identity: input.externalUserId,
+        externalUserId: input.externalUserId,
+        phone: input.phone,
+        chatId: input.metadata?.chatId,
+        platform: baseContext.platform
+      })
+    : {
+        available: true,
+        authority: 'CONNECT_ACTOR_IDENTITY',
+        identity: null,
+        notRequired: true
+      };
 
   const verified = actorIdentity.available ? actorIdentity.identity : null;
   const verifiedPhone = clean(verified?.canonicalPhone || verified?.phone);
