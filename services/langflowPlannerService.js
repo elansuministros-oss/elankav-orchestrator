@@ -7,7 +7,7 @@ const DEFAULT_BASE_URL = 'http://127.0.0.1:7860';
 const DEFAULT_ENV_PATH = '/var/lib/elankav-langflow/langflow.env';
 const DEFAULT_STATE_PATH = '/var/lib/elankav/orchestrator/langflow-planner.json';
 const PLANNER_ENDPOINT = 'elan-semantic-planner';
-const PLANNER_VERSION = '1.0.0';
+const PLANNER_VERSION = '1.1.0';
 const PLANNER_MODEL = 'gpt-5.6-sol';
 
 const PLANNER_SYSTEM_PROMPT = [
@@ -15,7 +15,10 @@ const PLANNER_SYSTEM_PROMPT = [
   'Recibís un JSON con user_message, context, history y allowed_tools.',
   'Elegí como máximo UNA herramienta de allowed_tools. No inventes nombres de herramientas, IDs, clientes, proveedores, precios ni parámetros.',
   'Para preguntas de materiales, insumos, inventario o catálogo usá una herramienta de catálogo/materiales si está disponible.',
-  'Para buscar personas/empresas/proveedores usá la herramienta de directorio correspondiente.',
+  'IMPORTANTE: si el usuario pregunta qué proveedor tiene, vende o suministra un material/insumo, usá buscar_material_catalogo. NO uses buscar_proveedor para esa pregunta.',
+  'buscar_proveedor sirve para localizar un proveedor por su nombre, ciudad, contacto o datos propios; no para descubrir quién vende un material.',
+  'Ejemplo: "buscá materiales de acrílico y decime qué proveedor los tiene" => buscar_material_catalogo con query "acrílico".',
+  'Para buscar personas/empresas/proveedores por identidad o datos propios usá la herramienta de directorio correspondiente.',
   'Si faltan datos esenciales o ninguna herramienta aplica, devolvé tool=null.',
   'No conviertas una consulta informativa en una mutación, envío, eliminación, aprobación o compra.',
   'Respondé SOLAMENTE JSON válido, sin markdown ni texto adicional, con esta forma:',
@@ -283,7 +286,20 @@ class LangflowPlannerService {
   async ensurePlannerFlow(token) {
     const current = flowCollection(await this.bearerRequest(token, '/api/v1/flows/'));
     const existing = current.find(flow => text(flow?.endpoint_name) === PLANNER_ENDPOINT || text(flow?.name) === 'ELAN Semantic Planner');
+    const desiredDescription = `ELANKAV_ORCHESTRATOR_PLANNER:${PLANNER_VERSION}`;
+
     if (existing?.id) {
+      if (text(existing?.description) !== desiredDescription) {
+        const updatedGraph = buildPlannerFlow(existing);
+        await this.bearerRequest(token, `/api/v1/flows/${encodeURIComponent(existing.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            description: desiredDescription,
+            data: updatedGraph.data
+          }),
+          timeoutMs: 60_000
+        });
+      }
       return { flowId: text(existing.id), endpointName: text(existing.endpoint_name || PLANNER_ENDPOINT) };
     }
 
@@ -318,19 +334,20 @@ class LangflowPlannerService {
 
   async bootstrap() {
     const existing = await this.readState();
-    if (existing) return existing;
+    if (existing && text(existing.version) === PLANNER_VERSION) return existing;
     if (this.bootstrapPromise) return this.bootstrapPromise;
 
     this.bootstrapPromise = (async () => {
       const token = await this.login();
       const flow = await this.ensurePlannerFlow(token);
-      const apiKey = await this.createRuntimeApiKey(token);
+      const apiKey = text(existing?.apiKey) || await this.createRuntimeApiKey(token);
       const state = {
         version: PLANNER_VERSION,
         flowId: flow.flowId,
         endpointName: flow.endpointName,
         apiKey,
-        createdAt: new Date().toISOString()
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
       await this.writeState(state);
       return state;

@@ -75,6 +75,8 @@ test('planner flow is tool-free, stateless and pinned to the configured OpenAI m
   }]);
   assert.equal(model.data.node.template.temperature.value, 0);
   assert.match(prompt.data.node.template.template.value, /nunca ejecutes acciones/i);
+  assert.match(prompt.data.node.template.template.value, /qué proveedor tiene, vende o suministra/i);
+  assert.match(prompt.data.node.template.template.value, /buscar_material_catalogo/i);
   assert.equal(input.data.node.template.should_store_message.value, false);
   assert.equal(output.data.node.template.should_store_message.value, false);
 });
@@ -170,6 +172,66 @@ test('planner bootstraps Langflow internally and runs without a user tunnel', as
 
   const runCall = calls.find(call => call.url.endsWith('/api/v1/run/planner-flow-1'));
   assert.equal(runCall.headers['x-api-key'], 'runtime-key');
+});
+
+
+test('planner upgrades an existing persisted flow automatically without user PC', async () => {
+  const calls = [];
+  const existingFlow = {
+    id: 'planner-existing',
+    name: 'ELAN Semantic Planner',
+    endpoint_name: 'elan-semantic-planner',
+    description: 'ELANKAV_ORCHESTRATOR_PLANNER:1.0.0',
+    ...minimalBasicPrompting()
+  };
+  let savedState = JSON.stringify({
+    version: '1.0.0',
+    flowId: 'planner-existing',
+    endpointName: 'elan-semantic-planner',
+    apiKey: 'runtime-key-old',
+    createdAt: '2026-09-02T00:00:00.000Z'
+  });
+  const fakeFs = {
+    async readFile(file) {
+      if (String(file).endsWith('langflow.env')) {
+        return 'LANGFLOW_SUPERUSER=elan-admin\nLANGFLOW_SUPERUSER_PASSWORD=local-secret\n';
+      }
+      if (String(file).endsWith('planner.json')) return savedState;
+      const error = new Error('missing');
+      error.code = 'ENOENT';
+      throw error;
+    },
+    async mkdir() {},
+    async writeFile(_file, content) { savedState = content; },
+    async rename() {},
+    async unlink() {}
+  };
+
+  const fakeFetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || 'GET', body: options.body || '' });
+    if (url.endsWith('/api/v1/login')) return response(200, { access_token: 'jwt-token' });
+    if (url.endsWith('/api/v1/flows/')) return response(200, [existingFlow]);
+    if (url.endsWith('/api/v1/flows/planner-existing') && options.method === 'PATCH') {
+      return response(200, { ...existingFlow, description: 'ELANKAV_ORCHESTRATOR_PLANNER:1.1.0' });
+    }
+    return response(404, { error: 'unexpected' });
+  };
+
+  const service = new LangflowPlannerService({
+    fetchImpl: fakeFetch,
+    fsImpl: fakeFs,
+    baseUrl: 'http://127.0.0.1:7860',
+    envPath: '/var/lib/elankav-langflow/langflow.env',
+    statePath: '/tmp/planner.json'
+  });
+
+  const state = await service.bootstrap();
+  assert.equal(state.version, '1.1.0');
+  assert.equal(state.apiKey, 'runtime-key-old');
+  const patchCall = calls.find(call => call.url.endsWith('/api/v1/flows/planner-existing') && call.method === 'PATCH');
+  assert.ok(patchCall);
+  assert.match(patchCall.body, /ELANKAV_ORCHESTRATOR_PLANNER:1\.1\.0/);
+  assert.match(patchCall.body, /buscar_material_catalogo/);
 });
 
 test('planner fails open when Langflow bootstrap is unavailable', async () => {

@@ -53,6 +53,22 @@ function hasExplicitMutationIntent(message) {
   return /\b(crea|crear|agrega|agregar|registra|registrar|edita|editar|actualiza|actualizar|cambia|cambiar|modifica|modificar|desactiva|desactivar|elimina|eliminar|borra|borrar|envia|enviar|manda|mandar|publica|publicar|aprueba|aprobar|paga|pagar|compra|comprar|cotiza|cotizar|cotizame|disena|disenar|disename|genera|generar|generame|haceme|hazme|despliega|desplegar|reinicia|reiniciar|restart|deploy|fusiona|fusionar|merge|owner ops|supervisor)\b/.test(value);
 }
 
+function materialSupplierReadIntent(message){
+  const value=normalized(message);
+  if(!value)return false;
+  const material=/\b(material|materiales|insumo|insumos|acrilico|pvc|vinil|vinilo|lamina|laminas|wpc|acm|led|lona|microperforado|aluminio|policarbonato|madera|melamina)\b/.test(value);
+  const supplier=/\b(proveedor|proveedores|quien|quienes|tiene|tienen|vende|venden|suministra|suministran|consigue|consiguen|maneja|manejan)\b/.test(value);
+  return material&&supplier;
+}
+
+function materialQueryFromMessage(message){
+  const raw=String(message||'').trim();
+  const direct=raw.match(/\b(?:material|materiales|insumo|insumos)\s+(?:de\s+)?(.+?)(?=\s+(?:en\s+ELANVISUAL|y\s+|que\s+|qué\s+|con\s+|del\s+proveedor|por\s+proveedor)|[?.!,;]|$)/i);
+  if(direct?.[1])return direct[1].trim();
+  const known=raw.match(/\b(acr[ií]lico|pvc|vinil(?:o)?|wpc|acm|led|lona|microperforado|aluminio|policarbonato|melamina)\b/i);
+  return known?.[1]?.trim()||'';
+}
+
 function normalized(value){return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ')}
 function detectAuthorizedPriceLookup(message){
   const text=String(message||'').trim();if(!text)return null;const lower=text.toLowerCase();
@@ -193,7 +209,26 @@ async function executeLangflowReadPlanner({context,args,memory}){
     console.error('[LANGFLOW_PLANNER_UNAVAILABLE]',{code:planned?.errorCode||'LANGFLOW_PLANNER_UNAVAILABLE'});
     return null;
   }
-  const plan=planned.plan||{};
+  let plan=planned.plan||{};
+  if(
+    materialSupplierReadIntent(args?.message)
+    && plan.tool==='buscar_proveedor'
+    && allowedTools.some(tool=>tool?.name==='buscar_material_catalogo')
+  ){
+    const query=String(plan?.arguments?.query||materialQueryFromMessage(args?.message)||'').trim();
+    if(query){
+      plan={
+        ...plan,
+        tool:'buscar_material_catalogo',
+        arguments:{
+          query,
+          platform:platformOf(context,args)
+        },
+        confidence:Math.max(Number(plan.confidence||0),0.9),
+        reason:'material_supplier_catalog_guard'
+      };
+    }
+  }
   if(!plan.tool||Number(plan.confidence||0)<0.55)return null;
   const result=await executeGenericOwnerCommand({
     command:{tool:plan.tool,arguments:plan.arguments||{}},
@@ -334,4 +369,4 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
   Object.defineProperty(messageService,INSTALL_MARK,{value:true,enumerable:false,configurable:false,writable:false});console.log('[ELAN_UNIFIED_RUNTIME_INSTALLED]',{boundary:'processMessage',channels:['whatsapp','copilot'],authority:'CONNECT',ownerTools:'complete',entityCreateContinuity:true});return messageService.processMessage;
 }
 
-module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,executeLangflowReadPlanner,hasExplicitMutationIntent,installElanUnifiedRuntimeMessagePatch,langflowReadTools,resolveRuntimeActor,persistRuntimeTurn};
+module.exports={detectAuthorizedPriceLookup,detectPriceMeasureFollowUp,detectQuotationImageIntent,detectDesignSendFollowUp,executeEntityCreateContinuity,executeLangflowReadPlanner,hasExplicitMutationIntent,installElanUnifiedRuntimeMessagePatch,langflowReadTools,materialQueryFromMessage,materialSupplierReadIntent,resolveRuntimeActor,persistRuntimeTurn};

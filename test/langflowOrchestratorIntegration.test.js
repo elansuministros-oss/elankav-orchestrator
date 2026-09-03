@@ -36,11 +36,14 @@ test('Langflow planner is semantic-only and cannot select write or delivery tool
   assert.doesNotMatch(readSet, /eliminar_/);
   assert.doesNotMatch(readSet, /enviar_/);
   assert.match(runtimePatch, /hasExplicitMutationIntent/);
+  assert.match(runtimePatch, /materialSupplierReadIntent/);
+  assert.match(runtimePatch, /material_supplier_catalog_guard/);
 });
 
 test('material search is a single read-only CONNECT capability', () => {
   assert.match(registry, /name:'buscar_material_catalogo'/);
   assert.match(registry, /case'buscar_material_catalogo'/);
+  assert.match(registry, /quién vende|quien vende|quién.*material|quien.*material/i);
   assert.match(connectClient, /\/api\/v1\/catalog\/materials/);
   assert.match(connectClient, /providerMap/);
   assert.match(connectClient, /suppliers/);
