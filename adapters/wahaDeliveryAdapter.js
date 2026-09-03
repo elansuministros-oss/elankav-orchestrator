@@ -246,6 +246,39 @@ function createWahaDeliveryAdapter({
     });
   }
 
+  async function sendImageData({ phone, chatId, data, caption, fileName, mimeType }) {
+    const resolvedChatId = resolveChatId({ phone, chatId });
+    const normalizedMimeType = normalizedMime(mimeType);
+    const raw = String(data || '').trim();
+    const base64 = raw.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '');
+    let bytes;
+    try {
+      bytes = Buffer.from(base64, 'base64');
+    } catch {
+      const error = new Error('WAHA_IMAGE_DATA_INVALID');
+      error.code = 'WAHA_IMAGE_DATA_INVALID';
+      throw error;
+    }
+    assertImageBytes(bytes, normalizedMimeType);
+
+    const response = await requestWaha('/api/sendImage', {
+      session,
+      chatId: resolvedChatId,
+      caption: String(caption || ''),
+      file: {
+        data: bytes.toString('base64'),
+        filename: String(fileName || 'captura-campo.jpg'),
+        mimetype: normalizedMimeType
+      }
+    });
+
+    return Object.freeze({
+      chatId: resolvedChatId,
+      messageId: extractMessageId(response),
+      response
+    });
+  }
+
   async function sendImage({ phone, chatId, imageUrl, caption, fileName, mimeType }) {
     const resolvedChatId = resolveChatId({ phone, chatId });
     assertImageDeliveryInput({ imageUrl, mimeType });
@@ -314,7 +347,7 @@ function createWahaDeliveryAdapter({
     });
   }
 
-  return Object.freeze({ sendFile, sendImage, sendText, sendVoice });
+  return Object.freeze({ sendFile, sendImage, sendImageData, sendText, sendVoice });
 }
 
 module.exports = {
