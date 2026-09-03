@@ -354,6 +354,14 @@ async function sendQuotationWhatsApp(projectId, actor, body = {}, env) {
   }, env);
 }
 
+async function sendQuotationEmail(projectId, actor, body = {}, env) {
+  await getQuotation(projectId, actor, env);
+  return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/send-email`, actor, {
+    method: 'POST',
+    body
+  }, env);
+}
+
 module.exports = {
   SellerBusinessConnectError,
   createQuotation,
@@ -368,6 +376,7 @@ module.exports = {
   resolveAuthorizedItems,
   resolveCatalogPricing,
   sellerIdentity,
+  sendQuotationEmail,
   sendQuotationWhatsApp,
   updateQuotation,
   updateSellerCustomer
