@@ -288,7 +288,7 @@ class LangflowPlannerService {
     }
 
     const examples = flowCollection(await this.bearerRequest(token, '/api/v1/flows/basic_examples/'));
-    const basic = examples.find(flow => text(flow?.name).toLowerCase() === 'basic prompting');
+    const basic = examples.find(flow => text(flow?.name_key).toLowerCase() === 'basic_prompting' || text(flow?.name).toLowerCase() === 'basic prompting');
     if (!basic) {
       throw Object.assign(new Error('No se encontró la plantilla Basic Prompting en Langflow.'), {
         code: 'LANGFLOW_BASIC_TEMPLATE_NOT_FOUND'
