@@ -86,6 +86,7 @@ function buildKnowledgeQuery(history, currentMessage) {
 
 function actorInstructions(actor, policy) {
   const role = String(actor?.role || policy?.role || 'prospect').toLowerCase();
+  const commercialRole = String(actor?.commercialRole || '').trim().toLowerCase();
   const scopes = Array.isArray(policy?.scopes) ? policy.scopes.join(', ') : '';
   const common = [
     `Identidad comercial verificada por CONNECT: ${role}.`,
@@ -111,10 +112,29 @@ function actorInstructions(actor, policy) {
       'Solo puede consultar o aportar información correspondiente a su propia relación comercial y a sus permisos efectivos.',
       'No le concedas permisos de vendedor, cliente u Owner y no expongas información comercial de otros proveedores.'
     );
+  } else if (role === 'prospect') {
+    if (commercialRole === 'client_prospect') {
+      common.push(
+        'Este número corresponde a un prospecto cliente previamente contactado por ELANVISUAL.',
+        'Tratà el mensaje como continuidad de esa prospección; no repitas la presentación inicial.',
+        'No preguntes de forma directa si es cliente o proveedor.'
+      );
+    } else if (commercialRole === 'supplier_prospect') {
+      common.push(
+        'Este número corresponde a un prospecto proveedor previamente contactado por ELANVISUAL.',
+        'Tratà el mensaje como seguimiento de esa relación de proveedor y no como prospecto cliente.',
+        'No preguntes de forma directa si es cliente o proveedor.'
+      );
+    } else {
+      common.push(
+        'CONNECT validó al remitente como prospecto, pero no existe evidencia suficiente para clasificarlo como cliente potencial o proveedor potencial.',
+        'No inventes esa relación. Respondé primero a la intención del mensaje y, solo si hace falta, pedí contexto de forma natural y no binaria.',
+        'No preguntes de forma directa si es cliente o proveedor.'
+      );
+    }
   } else {
     common.push(
-      'Tratá al remitente como prospecto/no registrado.',
-      'Puede recibir precios autorizados; una cotización formal requiere el flujo de autorización Owner salvo formalización por depósito.'
+      'Tratá al remitente según el rol verificado por CONNECT y limitate a sus permisos efectivos.'
     );
   }
 
@@ -296,6 +316,8 @@ async function processCustomerMessage({ normalizedMessage, context, platform, ch
         providerId: actor?.providerId || null,
         prospectId: actor?.prospectId || null,
         displayName: actor?.displayName || null,
+        commercialRole: actor?.commercialRole || null,
+        relationshipAuthority: actor?.relationshipAuthority || null,
         registered: actor?.registered === true,
         platformAllowed: actor?.platformAllowed !== false,
         authority: actor?.authority || null,
