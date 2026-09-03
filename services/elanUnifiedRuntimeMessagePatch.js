@@ -23,6 +23,7 @@ const {
 const { detectOwnerUnifiedCommand, executeOwnerUnifiedCommand } = require('./elanUnifiedOwnerCommandService');
 const { getToolManifest } = require('./elanUnifiedToolRegistry');
 const { langflowPlannerService } = require('./langflowPlannerService');
+const { mergeCommercialState } = require('./elanConversationPolicyService');
 const {
   handleOwnerEntityCreateContinuity,
   clearPendingEntityCreate
@@ -203,6 +204,7 @@ async function executeLangflowReadPlanner({context,args,memory}){
     platform:platformOf(context,args),
     channel:channelOf(context,args),
     history:memory?.history||[],
+    workingState:memory?.workingState||{},
     allowedTools
   });
   if(!planned?.available){
@@ -236,10 +238,26 @@ async function executeLangflowReadPlanner({context,args,memory}){
     args
   });
   if(!result)return null;
+
+  const composed=await langflowPlannerService.composeReply({
+    message:args?.message,
+    approvedReply:result.reply,
+    actor,
+    platform:platformOf(context,args),
+    channel:channelOf(context,args),
+    history:memory?.history||[],
+    workingState:mergeCommercialState(memory?.workingState||{},plan.statePatch||{}),
+    tool:plan.tool
+  });
+  if(composed?.reply)result.reply=composed.reply;
+  result.conversationStatePatch=plan.statePatch||{};
+
   console.log('[LANGFLOW_PLANNER_EXECUTE]',{
     tool:plan.tool,
     confidence:Number(plan.confidence||0),
-    flowId:planned.flowId||null
+    flowId:planned.flowId||null,
+    composed:composed?.available===true,
+    statePatchFields:Object.keys(plan.statePatch||{}).length
   });
   return result;
 }
@@ -327,7 +345,7 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
           actor:ownerActor(context,args),
           platform:platformOf(context,args),
           workingState:{
-            ...previousState,
+            ...mergeCommercialState(previousState,plannedResult.conversationStatePatch||{}),
             lastIntent:'langflow_read_plan',
             lastUserMessage:String(args.message||'').trim(),
             lastActionAt:new Date().toISOString()
