@@ -51,6 +51,24 @@ test('material search is a single read-only CONNECT capability', () => {
   assert.doesNotMatch(connectClient, /startsWith\('\/api\/v1\/catalog\/'\)&&method!=='GET'/);
 });
 
+
+test('clear material plus supplier question is routed before Langflow and provider regex fallbacks', () => {
+  const phrase = 'ELAN, buscá materiales de acrílico en ELANVISUAL y decime qué proveedor los tiene.';
+  const runtime = require('../services/elanUnifiedRuntimeMessagePatch');
+  assert.equal(runtime.materialSupplierReadIntent(phrase), true);
+  assert.equal(runtime.materialQueryFromMessage(phrase), 'acrílico');
+
+  const fastPathIndex = runtimePatch.indexOf("if(materialSupplierReadIntent(args.message))");
+  const plannerIndex = runtimePatch.indexOf("executeLangflowReadPlanner({context,args,memory})");
+  const deterministicIndex = runtimePatch.indexOf("detectOwnerUnifiedCommand(args.message)");
+
+  assert.ok(fastPathIndex >= 0, 'material supplier fast path must exist');
+  assert.ok(plannerIndex > fastPathIndex, 'fast path must run before Langflow planner');
+  assert.ok(deterministicIndex > fastPathIndex, 'fast path must run before provider/entity regex fallback');
+  assert.match(runtimePatch, /tool:'buscar_material_catalogo'/);
+  assert.match(runtimePatch, /lastIntent:'material_supplier_catalog_lookup'/);
+});
+
 test('planner never enables Langflow OpenAPI dangerous requests', () => {
   assert.doesNotMatch(planner, /allow_dangerous_requests/i);
   assert.doesNotMatch(planner, /OpenAPI Agent/i);
