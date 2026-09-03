@@ -292,10 +292,12 @@ async function generateText({
   ownerCommercialResponder = answerOwnerCommercialQuery,
   ownerCommercialDetector = looksLikeCommercialIntelligenceQuery
 }) {
-  const conversationPolicy = buildConversationInstructions({
-    actorRole: context?.ownerMode === true ? 'owner' : context?.actor?.role || 'unknown',
-    ownerMode: context?.ownerMode === true
-  });
+  const conversationPolicy = context?.ownerMode === true
+    ? buildConversationInstructions({
+        actorRole: 'owner',
+        ownerMode: true
+      })
+    : '';
   const verifiedActorResponse = buildVerifiedActorDirectResponse({ input, context });
 
   if (verifiedActorResponse) {
@@ -351,6 +353,9 @@ async function generateText({
   }
 
   const contextInstructions = buildContextInstructions(context);
+  // Customer-facing identity and conversation behavior come from CONNECT's
+  // published decision payload. Orchestrator only adds verified context and
+  // owner-only operational policy; it must not inject a parallel customer policy.
   const resolvedInstructions = [instructions, conversationPolicy, contextInstructions]
     .filter(value => typeof value === 'string' && value.trim())
     .join('\n\n');
