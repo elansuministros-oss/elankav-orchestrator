@@ -231,7 +231,12 @@ async function executeLangflowReadPlanner({context,args,memory}){
       };
     }
   }
-  if(!plan.tool||Number(plan.confidence||0)<0.55)return null;
+  if(!plan.tool||Number(plan.confidence||0)<0.55){
+    const statePatch=plan.statePatch||{};
+    return Object.keys(statePatch).length
+      ? { conversationStatePatch: statePatch, stateOnly: true }
+      : null;
+  }
   const result=await executeGenericOwnerCommand({
     command:{tool:plan.tool,arguments:plan.arguments||{}},
     context,
@@ -341,19 +346,25 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
       const plannedResult=await executeLangflowReadPlanner({context,args,memory});
       if(plannedResult){
         const previousState=memory?.workingState&&typeof memory.workingState==='object'?memory.workingState:{};
+        const nextState={
+          ...mergeCommercialState(previousState,plannedResult.conversationStatePatch||{}),
+          lastIntent:plannedResult.stateOnly
+            ? (previousState.lastIntent||'conversation_state_update')
+            : 'langflow_read_plan',
+          lastUserMessage:String(args.message||'').trim(),
+          lastActionAt:new Date().toISOString()
+        };
         await persistUnifiedWorkingState({
           actor:ownerActor(context,args),
           platform:platformOf(context,args),
-          workingState:{
-            ...mergeCommercialState(previousState,plannedResult.conversationStatePatch||{}),
-            lastIntent:'langflow_read_plan',
-            lastUserMessage:String(args.message||'').trim(),
-            lastActionAt:new Date().toISOString()
-          },
+          workingState:nextState,
           safe:true
         });
-        await persistOwnerTurn({context,args,direction:'outbound',text:plannedResult.reply});
-        return plannedResult;
+        if(!plannedResult.stateOnly&&plannedResult.reply){
+          await persistOwnerTurn({context,args,direction:'outbound',text:plannedResult.reply});
+          return plannedResult;
+        }
+        memory.workingState=nextState;
       }
       if(shouldResolveOwnerSemanticIntent(args.message,memory?.history||[])){
         const semantic=await resolveOwnerSemanticIntent({message:args.message,history:memory?.history||[]});
