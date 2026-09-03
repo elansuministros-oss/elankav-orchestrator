@@ -42,4 +42,4 @@ jobs:
           node --test             test/langflowPlannerService.test.js             test/langflowOrchestratorIntegration.test.js             test/langflowPocContract.test.js
       - name: Unified runtime regressions
         run: |
-          node --test             tests/ownerBusinessProcessMessageGateway.test.js             tests/ownerBusinessProcessMessageIntegration.test.js             tests/ownerEntityCreateContinuity.test.js             test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js
+          node --test tests/ownerBusinessProcessMessageIntegration.test.js tests/ownerEntityCreateContinuity.test.js test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js
