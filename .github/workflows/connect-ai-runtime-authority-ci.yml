@@ -5,6 +5,7 @@ on:
     paths:
       - 'services/connectAiRuntimeService.js'
       - 'services/messageService.js'
+      - 'services/openaiService.js'
       - 'api/wahaWebhookApi.js'
       - 'tests/connectAiRuntimeService.test.js'
       - 'tests/connectAiRuntimeBehavior.test.js'
@@ -22,6 +23,7 @@ on:
     paths:
       - 'services/connectAiRuntimeService.js'
       - 'services/messageService.js'
+      - 'services/openaiService.js'
       - 'api/wahaWebhookApi.js'
       - 'tests/connectAiRuntimeService.test.js'
       - 'tests/connectAiRuntimeBehavior.test.js'
@@ -51,6 +53,7 @@ jobs:
         run: |
           node --check services/connectAiRuntimeService.js
           node --check services/messageService.js
+          node --check services/openaiService.js
           node --check api/wahaWebhookApi.js
           node --check tests/connectAiRuntimeService.test.js
           node --check tests/connectAiRuntimeBehavior.test.js
