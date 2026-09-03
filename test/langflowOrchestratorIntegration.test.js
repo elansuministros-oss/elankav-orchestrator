@@ -11,6 +11,8 @@ const runtimePatch = fs.readFileSync(path.join(root, 'services/elanUnifiedRuntim
 const registry = fs.readFileSync(path.join(root, 'services/elanUnifiedToolRegistry.js'), 'utf8');
 const connectClient = fs.readFileSync(path.join(root, 'services/ownerBusinessConnectClient.js'), 'utf8');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const openaiService = fs.readFileSync(path.join(root, 'services/openaiService.js'), 'utf8');
+const conversationPolicy = fs.readFileSync(path.join(root, 'services/elanConversationPolicyService.js'), 'utf8');
 
 test('Orchestrator owns Langflow runtime access and does not depend on an SSH tunnel', () => {
   assert.match(planner, /http:\/\/127\.0\.0\.1:7860/);
@@ -67,6 +69,28 @@ test('clear material plus supplier question is routed before Langflow and provid
   assert.ok(deterministicIndex > fastPathIndex, 'fast path must run before provider/entity regex fallback');
   assert.match(runtimePatch, /tool:'buscar_material_catalogo'/);
   assert.match(runtimePatch, /lastIntent:'material_supplier_catalog_lookup'/);
+});
+
+
+test('conversation brain carries working state and composes only approved read replies', () => {
+  assert.match(planner, /task:\s*'plan'/);
+  assert.match(planner, /task:\s*'compose'/);
+  assert.match(planner, /working_state/);
+  assert.match(planner, /approved_reply/);
+  assert.match(runtimePatch, /workingState:memory\?\.workingState\|\|\{\}/);
+  assert.match(runtimePatch, /composeReply\(\{/);
+  assert.match(runtimePatch, /conversationStatePatch/);
+  assert.match(runtimePatch, /mergeCommercialState/);
+});
+
+test('official conversation policy is applied to normal OpenAI replies and preserves voice separation', () => {
+  assert.match(openaiService, /buildConversationInstructions/);
+  assert.match(openaiService, /conversationPolicy/);
+  assert.match(conversationPolicy, /máximo una pregunta/i);
+  assert.match(conversationPolicy, /Estado Comercial Persistente/i);
+  assert.match(conversationPolicy, /voice:\s*'cedar'/);
+  assert.match(conversationPolicy, /model:\s*'gpt-4o-mini-tts'/);
+  assert.doesNotMatch(planner, /sendVoice|audio\/speech|gpt-4o-mini-tts/);
 });
 
 test('planner never enables Langflow OpenAPI dangerous requests', () => {
