@@ -1,0 +1,68 @@
+name: CONNECT AI Runtime Authority CI
+
+on:
+  pull_request:
+    paths:
+      - 'services/connectAiRuntimeService.js'
+      - 'services/messageService.js'
+      - 'api/wahaWebhookApi.js'
+      - 'tests/connectAiRuntimeService.test.js'
+      - 'tests/connectAiRuntimeBehavior.test.js'
+      - 'tests/connectAiRuntimeAuthorityLock.test.js'
+      - 'tests/client001aCommercialResponsePolicy.test.js'
+      - 'tests/messageServiceDesignRouting.test.js'
+      - 'tests/sales01CommercialContext.test.js'
+      - 'test/wahaWebhookApi.test.js'
+      - 'docs/CONNECT_AI_RUNTIME_AUTHORITY_LOCK.md'
+      - '.github/workflows/connect-ai-runtime-authority-ci.yml'
+  push:
+    branches:
+      - main
+      - orchestrator-next
+    paths:
+      - 'services/connectAiRuntimeService.js'
+      - 'services/messageService.js'
+      - 'api/wahaWebhookApi.js'
+      - 'tests/connectAiRuntimeService.test.js'
+      - 'tests/connectAiRuntimeBehavior.test.js'
+      - 'tests/connectAiRuntimeAuthorityLock.test.js'
+      - 'tests/client001aCommercialResponsePolicy.test.js'
+      - 'tests/messageServiceDesignRouting.test.js'
+      - 'tests/sales01CommercialContext.test.js'
+      - 'test/wahaWebhookApi.test.js'
+      - 'docs/CONNECT_AI_RUNTIME_AUTHORITY_LOCK.md'
+      - '.github/workflows/connect-ai-runtime-authority-ci.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax
+        run: |
+          node --check services/connectAiRuntimeService.js
+          node --check services/messageService.js
+          node --check api/wahaWebhookApi.js
+          node --check tests/connectAiRuntimeService.test.js
+          node --check tests/connectAiRuntimeBehavior.test.js
+          node --check tests/connectAiRuntimeAuthorityLock.test.js
+          node --check tests/client001aCommercialResponsePolicy.test.js
+          node --check tests/messageServiceDesignRouting.test.js
+          node --check tests/sales01CommercialContext.test.js
+          node --check test/wahaWebhookApi.test.js
+
+      - name: Runtime authority regressions
+        run: |
+          node --test             tests/connectAiRuntimeService.test.js             tests/connectAiRuntimeBehavior.test.js             tests/connectAiRuntimeAuthorityLock.test.js             tests/client001aCommercialResponsePolicy.test.js             tests/messageServiceDesignRouting.test.js             tests/sales01CommercialContext.test.js
+
+      - name: WAHA OFF gate regression
+        run: node --test --test-name-pattern="CONNECT OFF procesa el mensaje pero no envía respuesta automática" test/wahaWebhookApi.test.js
