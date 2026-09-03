@@ -46,7 +46,8 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'consultar_propuesta_diseno', description:'Consulta estado y resultado de una propuesta de diseño.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},accessToken:{type:'string'}},required:['requestCode','accessToken'],additionalProperties:false}},
   { name:'revisar_propuesta_diseno', description:'Solicita revisión o render de una propuesta existente.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},accessToken:{type:'string'},action:{type:'string'},instructions:{type:'string'}},required:['requestCode','accessToken','action','instructions'],additionalProperties:false}},
   { name:'enviar_propuesta_diseno', description:'Envía por WhatsApp una propuesta de diseño ya generada usando su código interno de solicitud y el teléfono destino.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},phone:{type:'string'},caption:{type:'string'}},required:['requestCode','phone'],additionalProperties:false}},
-  { name:'buscar_orden_trabajo', description:'Lista órdenes de trabajo de una cotización/proyecto.', scope:'work_order.read', parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
+  { name:'buscar_orden_trabajo', description:'Lista órdenes de trabajo de una cotización/proyecto. Para vendedor solo permite proyectos de sus propias cotizaciones.', scope:'work_order.read', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
+  { name:'resumen_comercial', description:'Genera un resumen comercial usando únicamente datos autorizados del actor. Owner obtiene alcance global; vendedor solo sus clientes y cotizaciones.', scope:'report.read', sellerAllowed:true, parameters:{type:'object',properties:{},additionalProperties:false}},
   { name:'marketplace_gestionar_necesidad', description:'ELAN registra una necesidad en CONNECT, ejecuta matching y, si no existe candidato, busca ofertas externas de forma autónoma.', ownerOnly:true, parameters:{type:'object',properties:{requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},title:{type:'string'},description:{type:'string'},category:{type:'string'},subcategory:{type:'string'},intent:{type:'string'},budget:{type:'object'},preferredLocation:{type:'object'},requirements:{type:'object'},priority:{type:'string'},source:{type:'string'},expiresAt:{type:'string'}},required:['title','category','subcategory','intent'],additionalProperties:false}},
   { name:'marketplace_crear_consulta', description:'Registra en CONNECT el interés real de una identidad existente sobre un activo público. ELAN no inventa identidades.', ownerOnly:true, parameters:{type:'object',properties:{assetCode:{type:'string'},requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},action:{type:'string',enum:['request_information','make_offer','want_to_buy','want_to_rent','schedule_visit','talk_to_elan']},offerAmount:{type:'object'},message:{type:'string'}},required:['assetCode','action'],additionalProperties:false}},
   { name:'consultar_pago', description:'Consulta pagos oficiales de una cotización/proyecto.', scope:'payment.read', parameters:{type:'object',properties:{projectId:{type:'string'},paymentId:{type:'string'}},required:['projectId'],additionalProperties:false}}
@@ -67,6 +68,46 @@ function getToolManifest(actor={}){return TOOL_DEFINITIONS.filter(definition=>is
 function requiredText(value,field){const normalized=String(value||'').trim();if(!normalized){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return normalized}
 function requiredObject(value,field='data'){if(!value||typeof value!=='object'||Array.isArray(value)){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return value}
 function optionalText(value){return String(value||'').trim()}
+function resultRows(payload){
+  const data=payload&&typeof payload==='object'&&Object.prototype.hasOwnProperty.call(payload,'data')?payload.data:payload;
+  if(Array.isArray(data))return data;
+  if(data&&typeof data==='object'&&Array.isArray(data.results))return data.results;
+  return[];
+}
+function quoteTotalUsd(row={}){
+  const direct=Number(row.totalUsd??row.total_usd);
+  if(Number.isFinite(direct))return direct;
+  const doc=row.quotation_document&&typeof row.quotation_document==='object'?row.quotation_document:{};
+  const pub=doc.publicDocument&&typeof doc.publicDocument==='object'?doc.publicDocument:{};
+  const totals=pub.totals&&typeof pub.totals==='object'?pub.totals:{};
+  const nested=Number(totals.totalUsd??totals.total_usd??totals.total);
+  return Number.isFinite(nested)?nested:0;
+}
+async function commercialSummary(actor={},env=process.env){
+  const sellerActor=isSeller(actor);
+  const [quotesPayload,customersPayload]=await Promise.all([
+    sellerActor?seller.listQuotations(actor,env):connect.listQuotations(env),
+    sellerActor?seller.listSellerCustomers(actor,'',env):connect.listOwnerCustomers('',env)
+  ]);
+  const quotations=resultRows(quotesPayload);
+  const customers=resultRows(customersPayload);
+  const byStatus={};
+  let quotedUsd=0;
+  for(const row of quotations){
+    const status=String(row?.status||'unknown').trim().toLowerCase()||'unknown';
+    byStatus[status]=(byStatus[status]||0)+1;
+    quotedUsd+=quoteTotalUsd(row||{});
+  }
+  return{
+    authority:'CONNECT',
+    dataScope:sellerActor?'OWN':'ALL',
+    actorId:String(actor.actorId||actor.sellerId||'owner'),
+    customers:customers.length,
+    quotations:quotations.length,
+    quotedUsd:Number(quotedUsd.toFixed(2)),
+    quotationsByStatus:byStatus
+  };
+}
 
 async function executeTool({actor={},tool,arguments:args={},env=process.env}={}){
   const name=String(tool||'').trim();const definition=TOOL_DEFINITIONS.find(candidate=>candidate.name===name);
@@ -110,7 +151,8 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
     case'consultar_propuesta_diseno':return connect.getDesignRequest(requiredText(args.requestCode,'requestCode'),requiredText(args.accessToken,'accessToken'),env);
     case'revisar_propuesta_diseno':return connect.reviseDesignRequest(requiredText(args.requestCode,'requestCode'),requiredText(args.accessToken,'accessToken'),requiredText(args.action,'action'),requiredText(args.instructions,'instructions'),env);
     case'enviar_propuesta_diseno':return connect.sendDesignWhatsApp(requiredText(args.requestCode,'requestCode'),'',requiredText(args.phone,'phone'),optionalText(args.caption),env);
-    case'buscar_orden_trabajo':return connect.listWorkOrders(requiredText(args.projectId,'projectId'),env);
+    case'buscar_orden_trabajo':return sellerActor?seller.listWorkOrders(requiredText(args.projectId,'projectId'),actor,env):connect.listWorkOrders(requiredText(args.projectId,'projectId'),env);
+    case'resumen_comercial':return commercialSummary(actor,env);
     case'marketplace_gestionar_necesidad':return marketplaceAutonomy.manageMarketplaceNeed(requiredObject(args,'arguments'),env);
     case'marketplace_crear_consulta':return marketplaceAutonomy.createMarketplaceInquiry(requiredObject(args,'arguments'),env);
     case'consultar_pago':{const projectId=requiredText(args.projectId,'projectId');return args.paymentId?connect.getPayment(projectId,requiredText(args.paymentId,'paymentId'),env):connect.listPayments(projectId,env)}
