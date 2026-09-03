@@ -9,6 +9,7 @@ const {
   answerOwnerCommercialQuery,
   looksLikeCommercialIntelligenceQuery
 } = require('./ownerCommercialIntelligenceService');
+const { buildConversationInstructions } = require('./elanConversationPolicyService');
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_MESSAGE_LENGTH = 4000;
@@ -291,6 +292,10 @@ async function generateText({
   ownerCommercialResponder = answerOwnerCommercialQuery,
   ownerCommercialDetector = looksLikeCommercialIntelligenceQuery
 }) {
+  const conversationPolicy = buildConversationInstructions({
+    actorRole: context?.ownerMode === true ? 'owner' : context?.actor?.role || 'unknown',
+    ownerMode: context?.ownerMode === true
+  });
   const verifiedActorResponse = buildVerifiedActorDirectResponse({ input, context });
 
   if (verifiedActorResponse) {
@@ -312,7 +317,7 @@ async function generateText({
       const commercial = await ownerCommercialResponder({
         input,
         history,
-        instructions
+        instructions: [instructions, conversationPolicy].filter(Boolean).join('\n\n')
       });
 
       if (commercial?.handled && String(commercial.outputText || '').trim()) {
@@ -346,7 +351,7 @@ async function generateText({
   }
 
   const contextInstructions = buildContextInstructions(context);
-  const resolvedInstructions = [instructions, contextInstructions]
+  const resolvedInstructions = [instructions, conversationPolicy, contextInstructions]
     .filter(value => typeof value === 'string' && value.trim())
     .join('\n\n');
 

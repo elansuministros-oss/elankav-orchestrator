@@ -69,5 +69,3 @@ test('contrato no permitido falla cerrado', () => {
     error => error?.code === 'PROTECTED_COMPONENT_CONTRACT_NOT_IMPLEMENTED'
   );
 });
-
-

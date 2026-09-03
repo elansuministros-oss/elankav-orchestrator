@@ -23,6 +23,7 @@ const {
 const { detectOwnerUnifiedCommand, executeOwnerUnifiedCommand } = require('./elanUnifiedOwnerCommandService');
 const { getToolManifest } = require('./elanUnifiedToolRegistry');
 const { langflowPlannerService } = require('./langflowPlannerService');
+const { mergeCommercialState } = require('./elanConversationPolicyService');
 const {
   handleOwnerEntityCreateContinuity,
   clearPendingEntityCreate
@@ -203,6 +204,7 @@ async function executeLangflowReadPlanner({context,args,memory}){
     platform:platformOf(context,args),
     channel:channelOf(context,args),
     history:memory?.history||[],
+    workingState:memory?.workingState||{},
     allowedTools
   });
   if(!planned?.available){
@@ -229,17 +231,38 @@ async function executeLangflowReadPlanner({context,args,memory}){
       };
     }
   }
-  if(!plan.tool||Number(plan.confidence||0)<0.55)return null;
+  if(!plan.tool||Number(plan.confidence||0)<0.55){
+    const statePatch=plan.statePatch||{};
+    return Object.keys(statePatch).length
+      ? { conversationStatePatch: statePatch, stateOnly: true }
+      : null;
+  }
   const result=await executeGenericOwnerCommand({
     command:{tool:plan.tool,arguments:plan.arguments||{}},
     context,
     args
   });
   if(!result)return null;
+
+  const composed=await langflowPlannerService.composeReply({
+    message:args?.message,
+    approvedReply:result.reply,
+    actor,
+    platform:platformOf(context,args),
+    channel:channelOf(context,args),
+    history:memory?.history||[],
+    workingState:mergeCommercialState(memory?.workingState||{},plan.statePatch||{}),
+    tool:plan.tool
+  });
+  if(composed?.reply)result.reply=composed.reply;
+  result.conversationStatePatch=plan.statePatch||{};
+
   console.log('[LANGFLOW_PLANNER_EXECUTE]',{
     tool:plan.tool,
     confidence:Number(plan.confidence||0),
-    flowId:planned.flowId||null
+    flowId:planned.flowId||null,
+    composed:composed?.available===true,
+    statePatchFields:Object.keys(plan.statePatch||{}).length
   });
   return result;
 }
@@ -323,19 +346,25 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
       const plannedResult=await executeLangflowReadPlanner({context,args,memory});
       if(plannedResult){
         const previousState=memory?.workingState&&typeof memory.workingState==='object'?memory.workingState:{};
+        const nextState={
+          ...mergeCommercialState(previousState,plannedResult.conversationStatePatch||{}),
+          lastIntent:plannedResult.stateOnly
+            ? (previousState.lastIntent||'conversation_state_update')
+            : 'langflow_read_plan',
+          lastUserMessage:String(args.message||'').trim(),
+          lastActionAt:new Date().toISOString()
+        };
         await persistUnifiedWorkingState({
           actor:ownerActor(context,args),
           platform:platformOf(context,args),
-          workingState:{
-            ...previousState,
-            lastIntent:'langflow_read_plan',
-            lastUserMessage:String(args.message||'').trim(),
-            lastActionAt:new Date().toISOString()
-          },
+          workingState:nextState,
           safe:true
         });
-        await persistOwnerTurn({context,args,direction:'outbound',text:plannedResult.reply});
-        return plannedResult;
+        if(!plannedResult.stateOnly&&plannedResult.reply){
+          await persistOwnerTurn({context,args,direction:'outbound',text:plannedResult.reply});
+          return plannedResult;
+        }
+        memory.workingState=nextState;
       }
       if(shouldResolveOwnerSemanticIntent(args.message,memory?.history||[])){
         const semantic=await resolveOwnerSemanticIntent({message:args.message,history:memory?.history||[]});

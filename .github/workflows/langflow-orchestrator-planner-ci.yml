@@ -1,4 +1,4 @@
-name: Langflow Orchestrator Planner CI
+name: ELAN Conversation Brain CI
 
 on:
   pull_request:
@@ -6,12 +6,16 @@ on:
       - stable/ORCHESTRATOR-WHATSAPP-CORE
     paths:
       - 'services/langflowPlannerService.js'
+      - 'services/elanConversationPolicyService.js'
+      - 'services/openaiService.js'
       - 'services/elanUnifiedRuntimeMessagePatch.js'
       - 'services/elanUnifiedToolRegistry.js'
       - 'services/elanUnifiedOwnerCommandService.js'
       - 'services/ownerBusinessConnectClient.js'
       - 'server.js'
       - 'test/langflow*.test.js'
+      - 'test/elanConversationPolicyService.test.js'
+      - 'tests/voiceIdentityPolicy.test.js'
       - '.github/workflows/langflow-orchestrator-planner-ci.yml'
   workflow_dispatch:
 
@@ -28,6 +32,8 @@ jobs:
       - name: Syntax
         run: |
           node --check services/langflowPlannerService.js
+          node --check services/elanConversationPolicyService.js
+          node --check services/openaiService.js
           node --check services/elanUnifiedRuntimeMessagePatch.js
           node --check services/elanUnifiedToolRegistry.js
           node --check services/elanUnifiedOwnerCommandService.js
@@ -35,11 +41,12 @@ jobs:
           node --check server.js
           node --check test/langflowPlannerService.test.js
           node --check test/langflowOrchestratorIntegration.test.js
+          node --check test/elanConversationPolicyService.test.js
       - name: Install dependencies
         run: npm install --ignore-scripts
-      - name: Langflow planner tests
+      - name: Conversation brain tests
         run: |
-          node --test             test/langflowPlannerService.test.js             test/langflowOrchestratorIntegration.test.js             test/langflowPocContract.test.js
+          node --test test/langflowPlannerService.test.js test/langflowOrchestratorIntegration.test.js test/langflowPocContract.test.js test/elanConversationPolicyService.test.js tests/voiceIdentityPolicy.test.js
       - name: Unified runtime regressions
         run: |
           node --test tests/ownerBusinessProcessMessageIntegration.test.js tests/ownerEntityCreateContinuity.test.js test/elanUnifiedOwnerCommandService.seller-natural-fields.test.js
