@@ -13,6 +13,10 @@ const {
   resolveRegisteredProvider
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
+const {
+  normalizeReplyForTextDelivery,
+  shouldForceTextForAudioReply
+} = require('../services/voiceReplyDeliveryPolicy');
 const { createConnectLiveSession } = require('../services/connectLiveAccessService');
 const {
   canonicalizeWahaMediaUrl,
@@ -1322,6 +1326,56 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
     }
 
     const rawReply = String(result?.reply || '').trim();
+
+    if (shouldForceTextForAudioReply({
+      incomingMessageType: incoming.messageType,
+      reply: rawReply
+    })) {
+      const textReply = stripSimulatedAudioWelcome(normalizeReplyForTextDelivery(rawReply));
+      if (!textReply) throw new Error('Orchestrator respondió sin texto');
+
+      const sent = await sendWahaTextImpl({
+        session: incoming.session,
+        chatId: incoming.chatId,
+        text: textReply
+      });
+
+      await persistConversationEventImpl(buildConversationEvent({
+        incoming,
+        direction: 'outbound',
+        text: textReply,
+        externalMessageId: sent?.messageId || sent?.id || null,
+        actorType: 'assistant',
+        actorName: 'ELAN IA',
+        metadata: {
+          replyType: 'text',
+          forcedTextFromAudio: true,
+          reason: 'reply_contains_link',
+          ownerMode: Boolean(result?.context?.ownerMode),
+          model: result?.model || null
+        }
+      }));
+
+      console.log('[VOICE_LINK_TEXT_SENT]', {
+        session: incoming.session,
+        chatId: maskChatId(incoming.chatId),
+        ownerMode: Boolean(result?.context?.ownerMode)
+      });
+
+      sendJson(res, 200, {
+        ok: true,
+        processed: true,
+        replySent: true,
+        replyType: 'text',
+        transcribed: true,
+        audioLinkTextDelivery: true,
+        ownerMode: Boolean(result?.context?.ownerMode),
+        platform: result?.context?.platform || null,
+        providerRecognized: Boolean(registeredProvider)
+      });
+      return true;
+    }
+
     const audioOpenTag = '<audio>';
     const audioCloseTag = '</audio>';
     const lowerRawReply = rawReply.toLowerCase();
