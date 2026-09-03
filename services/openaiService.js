@@ -179,6 +179,26 @@ function buildContextInstructions(context) {
     lines.push(`channel=${context.channel}.`);
   }
 
+  if (context.actorIdentity && context.actorIdentity.available === true) {
+    const actor = context.actorIdentity;
+    lines.push(`Identidad comercial validada por CONNECT: role=${actor.role || 'unknown'}; commercialRole=${actor.commercialRole || 'none'}; registered=${actor.registered === true}.`);
+    if (actor.displayName) {
+      lines.push(`Nombre/contexto conocido del remitente: ${actor.displayName}.`);
+    }
+
+    if (actor.role === 'customer') {
+      lines.push('Es un cliente oficial reconocido por CONNECT. Recuperá y respetá su contexto comercial; no le preguntes si es cliente ni lo trates como prospecto nuevo.');
+    } else if (actor.role === 'provider') {
+      lines.push('Es un proveedor oficial reconocido por CONNECT. Respondé en contexto de relación de proveedor; no lo trates como prospecto cliente ni le vendas servicios salvo que su mensaje lo pida explícitamente.');
+    } else if (actor.role === 'prospect' && actor.commercialRole === 'client_prospect') {
+      lines.push('Este número corresponde a un prospecto cliente previamente contactado por ELANVISUAL. El mensaje actual debe tratarse como continuidad de esa prospección: no repitas la presentación inicial y no preguntes de forma directa si es cliente o proveedor.');
+    } else if (actor.role === 'prospect' && actor.commercialRole === 'supplier_prospect') {
+      lines.push('Este número corresponde a un prospecto proveedor previamente contactado por ELANVISUAL. El mensaje actual debe tratarse como seguimiento a la solicitud de proveedor: no lo trates como prospecto cliente y no preguntes de forma directa si es cliente o proveedor.');
+    } else if (actor.role === 'prospect') {
+      lines.push('CONNECT validó la identidad como prospecto, pero no existe evidencia suficiente para clasificarlo como cliente potencial o proveedor potencial. No inventes esa relación. Respondé primero a la intención del mensaje y, solo si hace falta, pedí contexto de forma natural y no binaria.');
+    }
+  }
+
   if (context.crm) {
     if (context.crm.available) {
       lines.push('CRM Core conectado y disponible para consultas. Las escrituras se ejecutan únicamente mediante comandos CRM autorizados.');
