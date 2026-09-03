@@ -23,6 +23,9 @@ test('official conversation policy preserves OPERADOR_AI-001 rules', () => {
   assert.match(text, /precio, medida o material ya viene verificado/i);
   assert.match(text, /Estado Comercial Persistente/i);
   assert.match(text, /no.*Langflow.*CONNECT/i);
+  assert.match(text, /sin inventar datos/i);
+  assert.match(text, /aplicarlas? en silencio/i);
+  assert.match(text, /¿Qué medidas aproximadas tendrá el rótulo\?/i);
 });
 
 test('commercial state patch only accepts the approved structured fields', () => {
