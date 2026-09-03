@@ -130,6 +130,33 @@ test('recupera el mensaje por ID cuando webhook no trae media.url', async () => 
   assert.equal(recovered, 1);
 });
 
+test('V2 responde por texto cuando la respuesta contiene enlace', async () => {
+  let synthCalls = 0;
+  const { calls, dependencies } = successfulDependencies({
+    processMessage: async input => {
+      calls.processed.push(input);
+      return { reply: 'Acceso: https://copilot.elankav.com/elan-live/TEST' };
+    },
+    synthesizeSpeech: async () => {
+      synthCalls += 1;
+      return { data: 'SHOULD_NOT_BE_USED', mimeType: 'audio/ogg' };
+    }
+  });
+
+  const result = await runVoicePipelineV2(voiceEvent(), dependencies);
+
+  assert.deepEqual(result, {
+    processed: true,
+    replySent: true,
+    replyType: 'text',
+    audioLinkTextDelivery: true
+  });
+  assert.equal(synthCalls, 0);
+  assert.equal(calls.voice.length, 0);
+  assert.equal(calls.text.length, 1);
+  assert.equal(calls.text[0].text, 'Acceso: https://copilot.elankav.com/elan-live/TEST');
+});
+
 test('usa fallback de texto si falla síntesis o envío de voz', async () => {
   const { calls, dependencies } = successfulDependencies({
     synthesizeSpeech: async () => {
