@@ -90,6 +90,10 @@ test('official conversation policy is applied to normal OpenAI replies and prese
   assert.match(openaiService, /conversationPolicy/);
   assert.match(conversationPolicy, /máximo una pregunta/i);
   assert.match(conversationPolicy, /Estado Comercial Persistente/i);
+  assert.match(conversationPolicy, /sin inventar datos/i);
+  assert.match(conversationPolicy, /aplicarlas? en silencio/i);
+  assert.match(planner, /eliminá cualquier verbalización de reglas internas/i);
+  assert.match(planner, /si solo falta un dato para avanzar, preguntalo directamente/i);
   assert.match(conversationPolicy, /voice:\s*'cedar'/);
   assert.match(conversationPolicy, /model:\s*'gpt-4o-mini-tts'/);
   assert.doesNotMatch(planner, /sendVoice|audio\/speech|gpt-4o-mini-tts/);
