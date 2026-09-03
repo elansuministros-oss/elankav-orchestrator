@@ -67,7 +67,7 @@ function canUseFieldCamera(actor = {}) {
 function shouldMirrorCopilotNote({ channel, direction, text, messageType } = {}) {
   if (String(channel || '').toLowerCase() !== 'copilot') return false;
   if (String(direction || '').toLowerCase() !== 'inbound') return false;
-  if (!['text', 'audio', 'field_note'].includes(String(messageType || 'text').toLowerCase())) return false;
+  if (!['text', 'audio', 'video', 'field_note'].includes(String(messageType || 'text').toLowerCase())) return false;
   const normalized = String(text || '').trim();
   if (!normalized) return false;
   if (/^Analiz[aá] esta captura de campo/i.test(normalized)) return false;
@@ -76,7 +76,8 @@ function shouldMirrorCopilotNote({ channel, direction, text, messageType } = {})
 }
 
 function fieldNoteText(body = {}) {
-  const source = String(body.messageType || 'text').toLowerCase() === 'audio' ? '🎙️ Voz' : '⌨️ Texto';
+  const type = String(body.messageType || 'text').toLowerCase();
+  const source = type === 'audio' ? '🎙️ Voz' : type === 'video' ? '🎥 Video' : '⌨️ Texto';
   return [
     '📝 ELAN Copiloto · Nota de campo',
     source,
