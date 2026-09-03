@@ -85,6 +85,38 @@ test('DESIGN-DELIVERY-CLOSE-02 sendImage descarga bytes y usa BASE64 en WAHA', a
   assert.equal(result.messageId, 'image-message-1');
 });
 
+test('ELAN Copiloto envía captura BASE64 directamente a WhatsApp sin URL pública', async () => {
+  const calls = [];
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x02, 0x03]);
+  const adapter = createWahaDeliveryAdapter({
+    env: {
+      WAHA_BASE_URL: 'https://waha.test',
+      WAHA_API_KEY: 'api-key',
+      WAHA_SESSION: 'ELANKAV'
+    },
+    async fetchImpl(url, options) {
+      calls.push({ url, options });
+      return jsonResponse({ id: { id: 'field-image-1' } });
+    }
+  });
+
+  const result = await adapter.sendImageData({
+    phone: '88888888',
+    data: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
+    caption: '📸 ELAN Copiloto · Captura de campo',
+    fileName: 'captura.jpg',
+    mimeType: 'image/jpeg'
+  });
+
+  assert.equal(calls.length, 1);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(calls[0].url, 'https://waha.test/api/sendImage');
+  assert.equal(body.chatId, '50588888888@c.us');
+  assert.equal(body.file.data, jpeg.toString('base64'));
+  assert.equal(body.file.filename, 'captura.jpg');
+  assert.equal(result.messageId, 'field-image-1');
+});
+
 test('DESIGN-DELIVERY-CLOSE-02 sendImage exige URL y MIME de imagen', () => {
   assert.throws(
     () => assertImageDeliveryInput({ imageUrl: '', mimeType: 'image/png' }),
