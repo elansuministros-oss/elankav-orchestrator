@@ -347,6 +347,25 @@ async function processMessage({
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
 
+      if (!ownerMode && context.actorIdentity?.available !== true) {
+        console.error('[CONNECT_ACTOR_IDENTITY_FAIL_CLOSED]', {
+          platform: context.platform || platform || null,
+          channel: context.channel || channel || null,
+          externalUserId: context.externalUserId || externalUserId || null,
+          error: context.actorIdentity?.error || 'CONNECT_ACTOR_IDENTITY_UNAVAILABLE'
+        });
+        return {
+          outputText: '',
+          model: 'elankav-connect-actor-identity-gate',
+          id: null,
+          status: 'suppressed',
+          usage: null,
+          suppressed: true,
+          suppressReason: 'CONNECT_ACTOR_IDENTITY_UNAVAILABLE',
+          actorIdentity: context.actorIdentity || null
+        };
+      }
+
       const ownerCommand = ownerMode
         ? detectOwnerCommand(normalizedMessage)
         : null;
@@ -529,6 +548,7 @@ async function processMessage({
           phone: context.phone || phone || null,
           platform: context.platform || platform || null,
           channel: context.channel || channel || null,
+          actorIdentity: context.actorIdentity || null,
           crm,
           ecosystem,
           commercial,
@@ -602,6 +622,7 @@ async function processMessage({
       ownerMode: Boolean(resolvedContext?.owner?.isOwner),
       aiRuntimeAuthority: response.aiRuntime?.authority || null,
       aiRuntimeVersion: response.aiRuntime?.version || null,
+      actorIdentity: resolvedContext?.actorIdentity || null,
       commercialState: response.commercialState ||
         resolvedContext?.commercial?.state ||
         null
