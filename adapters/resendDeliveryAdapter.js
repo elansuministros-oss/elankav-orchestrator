@@ -40,6 +40,26 @@ function emailAddressValue(value, fieldName, code) {
   return email;
 }
 
+function attachmentValues(value) {
+  const rows = Array.isArray(value) ? value : [];
+  let totalBytes = 0;
+  return rows.map((item, index) => {
+    const filename = headerValue(item?.fileName || item?.filename, `attachment[${index}].fileName`).replace(/"/g, "'");
+    const dataBase64 = clean(item?.dataBase64 || item?.content).replace(/\s+/g, '');
+    if (!dataBase64 || !/^[A-Za-z0-9+/=]+$/.test(dataBase64)) {
+      throw new ResendDeliveryError('RESEND_ATTACHMENT_INVALID', `Adjunto ${index + 1} inválido.`, 400);
+    }
+    let bytes;
+    try { bytes = Buffer.from(dataBase64, 'base64'); } catch { bytes = Buffer.alloc(0); }
+    if (!bytes.length) throw new ResendDeliveryError('RESEND_ATTACHMENT_INVALID', `Adjunto ${index + 1} vacío.`, 400);
+    totalBytes += bytes.length;
+    if (totalBytes > 18 * 1024 * 1024) {
+      throw new ResendDeliveryError('RESEND_ATTACHMENTS_TOO_LARGE', 'Los adjuntos superan 18 MB.', 413);
+    }
+    return Object.freeze({ filename, content: bytes.toString('base64') });
+  });
+}
+
 function parseSenderIdentities(rawValue) {
   const fallback = Object.freeze({
     elanvisual: Object.freeze({
@@ -173,7 +193,8 @@ function createResendDeliveryAdapter({
     html,
     inReplyTo,
     references,
-    fromIdentity
+    fromIdentity,
+    attachments
   } = {}) {
     const config = configuration();
     if (!config.configured) {
@@ -201,6 +222,7 @@ function createResendDeliveryAdapter({
     const bodyText = bodyValue(text, 'text');
     const bodyHtml = bodyValue(html, 'html', false);
     const sender = resolveSender(fromIdentity);
+    const files = attachmentValues(attachments);
 
     const headers = {};
     if (clean(inReplyTo)) {
@@ -226,6 +248,7 @@ function createResendDeliveryAdapter({
           subject: safeSubject,
           text: bodyText,
           ...(bodyHtml ? { html: bodyHtml } : {}),
+          ...(files.length ? { attachments: files } : {}),
           ...(Object.keys(headers).length ? { headers } : {})
         })
       });
