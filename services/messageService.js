@@ -116,13 +116,13 @@ function actorInstructions(actor, policy) {
     if (commercialRole === 'client_prospect') {
       common.push(
         'Este número corresponde a un prospecto cliente previamente contactado por ELANVISUAL.',
-        'Tratà el mensaje como continuidad de esa prospección; no repitas la presentación inicial.',
+        'Tratá el mensaje como continuidad de esa prospección; no repitas la presentación inicial.',
         'No preguntes de forma directa si es cliente o proveedor.'
       );
     } else if (commercialRole === 'supplier_prospect') {
       common.push(
         'Este número corresponde a un prospecto proveedor previamente contactado por ELANVISUAL.',
-        'Tratà el mensaje como seguimiento de esa relación de proveedor y no como prospecto cliente.',
+        'Tratá el mensaje como seguimiento de esa relación de proveedor y no como prospecto cliente.',
         'No preguntes de forma directa si es cliente o proveedor.'
       );
     } else {
