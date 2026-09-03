@@ -15,7 +15,7 @@ const CONNECT_PLATFORM_TOOLS = new Set([
   'buscar_contacto','enviar_mensaje_whatsapp'
 ]);
 const ELAN_GO_PLATFORM_TOOLS = new Set([
-  'marketplace_gestionar_necesidad','marketplace_crear_consulta'
+  'marketplace_gestionar_necesidad','marketplace_crear_consulta','marketplace_listar_necesidades','marketplace_listar_descubrimientos'
 ]);
 function normalizePlatform(value){return String(value||'ELANVISUAL').trim().toUpperCase().replace(/[ -]+/g,'_')}
 function platformAllowsTool(name,platform){
@@ -64,6 +64,8 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'enviar_propuesta_diseno', description:'Envía por WhatsApp una propuesta de diseño ya generada usando su código interno de solicitud y el teléfono destino.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},phone:{type:'string'},caption:{type:'string'}},required:['requestCode','phone'],additionalProperties:false}},
   { name:'buscar_orden_trabajo', description:'Lista órdenes de trabajo de una cotización/proyecto. Para vendedor solo permite proyectos de sus propias cotizaciones.', scope:'work_order.read', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
   { name:'resumen_comercial', description:'Genera un resumen comercial usando únicamente datos autorizados del actor. Owner obtiene alcance global; vendedor solo sus clientes y cotizaciones.', scope:'report.read', sellerAllowed:true, parameters:{type:'object',properties:{},additionalProperties:false}},
+  { name:'marketplace_listar_necesidades', description:'Lista las necesidades/demandas registradas en ELAN GO.', ownerOnly:true, parameters:{type:'object',properties:{},additionalProperties:false}},
+  { name:'marketplace_listar_descubrimientos', description:'Lista descubrimientos/ofertas externas persistidas por ELAN GO.', ownerOnly:true, parameters:{type:'object',properties:{},additionalProperties:false}},
   { name:'marketplace_gestionar_necesidad', description:'ELAN registra una necesidad en CONNECT, ejecuta matching y, si no existe candidato, busca ofertas externas de forma autónoma.', ownerOnly:true, parameters:{type:'object',properties:{requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},title:{type:'string'},description:{type:'string'},category:{type:'string'},subcategory:{type:'string'},intent:{type:'string'},budget:{type:'object'},preferredLocation:{type:'object'},requirements:{type:'object'},priority:{type:'string'},source:{type:'string'},expiresAt:{type:'string'}},required:['title','category','subcategory','intent'],additionalProperties:false}},
   { name:'marketplace_crear_consulta', description:'Registra en CONNECT el interés real de una identidad existente sobre un activo público. ELAN no inventa identidades.', ownerOnly:true, parameters:{type:'object',properties:{assetCode:{type:'string'},requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},action:{type:'string',enum:['request_information','make_offer','want_to_buy','want_to_rent','schedule_visit','talk_to_elan']},offerAmount:{type:'object'},message:{type:'string'}},required:['assetCode','action'],additionalProperties:false}},
   { name:'consultar_pago', description:'Consulta pagos oficiales de una cotización/proyecto.', scope:'payment.read', parameters:{type:'object',properties:{projectId:{type:'string'},paymentId:{type:'string'}},required:['projectId'],additionalProperties:false}}
