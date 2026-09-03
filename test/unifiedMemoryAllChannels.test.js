@@ -16,6 +16,12 @@ test('WhatsApp text and audio persist through the unified actor memory before Op
   assert.match(source, /ELAN_UNIFIED_MEMORY_REQUIRED/);
 });
 
+test('Owner uses the same required unified memory path as every other authorized actor', () => {
+  assert.match(source, /if \(ownerMode\) \{[\s\S]*persistRequiredUnifiedTurn/);
+  assert.match(source, /actorId:\s*'owner'/);
+  assert.match(source, /resolvedContext\?\.owner\?\.isOwner[\s\S]*direction:\s*'outbound'/);
+});
+
 test('channel is metadata while the canonical memory key remains actor plus platform', () => {
   assert.match(runtime, /function actorMemoryKey\(actor = \{\}\)/);
   assert.match(runtime, /actorId \|\| resolved\.canonicalPhone \|\| resolved\.phone/);
