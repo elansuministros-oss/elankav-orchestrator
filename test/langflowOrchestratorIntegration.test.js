@@ -80,6 +80,8 @@ test('conversation brain carries working state and composes only approved read r
   assert.match(runtimePatch, /workingState:memory\?\.workingState\|\|\{\}/);
   assert.match(runtimePatch, /composeReply\(\{/);
   assert.match(runtimePatch, /conversationStatePatch/);
+  assert.match(runtimePatch, /stateOnly/);
+  assert.match(runtimePatch, /memory\.workingState=nextState/);
   assert.match(runtimePatch, /mergeCommercialState/);
 });
 
