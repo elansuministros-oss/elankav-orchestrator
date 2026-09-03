@@ -279,6 +279,48 @@ test('POST /webhook/inbound processes and sends owner text reply', async () => {
   assert.equal(recorder.calls[0].payload.ownerMode, true);
 });
 
+test('CONNECT OFF procesa el mensaje pero no envía respuesta automática', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      session: 'ELANKAV',
+      payload: {
+        from: '50584817885@c.us',
+        body: 'hola',
+        fromMe: false
+      }
+    }
+  });
+  const recorder = createSendJsonRecorder();
+  let sends = 0;
+
+  await handleWahaWebhookApi({
+    req,
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async processMessage() {
+        return {
+          reply: '',
+          suppressed: true,
+          suppressReason: 'CONNECT_PLATFORM_RESPONSES_DISABLED',
+          context: { ownerMode: false, platform: 'elanvisual' }
+        };
+      },
+      async sendWahaText() {
+        sends += 1;
+      }
+    }
+  });
+
+  assert.equal(sends, 0);
+  assert.equal(recorder.calls[0].status, 200);
+  assert.equal(recorder.calls[0].payload.processed, true);
+  assert.equal(recorder.calls[0].payload.replySent, false);
+  assert.equal(recorder.calls[0].payload.suppressed, true);
+  assert.equal(recorder.calls[0].payload.reason, 'CONNECT_PLATFORM_RESPONSES_DISABLED');
+});
+
 test('procesa nota de voz, transcribe y responde con voz', async () => {
   const req = createRequest({
     body: {
