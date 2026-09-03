@@ -4,21 +4,44 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-  CUSTOMER_INSTRUCTIONS,
   OWNER_INSTRUCTIONS,
+  buildRuntimeInstructions,
   resolveMessageInstructions
 } = require('../services/messageService');
 
-test('CLIENT-001A clientes reciben política comercial y no técnica', () => {
+function runtime() {
+  return {
+    platform: {
+      initialMessage: 'Hola, soy ELAN IA de ELANVISUAL.',
+      instructions: [
+        'Tu objetivo principal es vender.',
+        'Respondé primero la solicitud concreta.',
+        'Hacé como máximo una pregunta.',
+        'No inventés precios.',
+        'No repitas datos que el cliente ya proporcionó.'
+      ].join(' '),
+      responseRules: {
+        noInventedData: true,
+        exactCatalogPrices: true,
+        oneQuestionAtATime: true
+      },
+      continuity: { enabled: true },
+      catalogAccess: { enabled: true, onlyPublished: true }
+    }
+  };
+}
+
+test('CLIENT-001A clientes reciben la política publicada por CONNECT', () => {
   const instructions = resolveMessageInstructions({
     ownerMode: false,
-    customInstructions: ''
+    customInstructions: '',
+    runtime: runtime()
   });
 
-  assert.equal(instructions, CUSTOMER_INSTRUCTIONS);
-  assert.match(instructions, /asistente comercial/i);
+  assert.match(instructions, /IDENTIDAD PUBLICADA/i);
+  assert.match(instructions, /Tu objetivo principal es vender/i);
   assert.match(instructions, /máximo una pregunta/i);
-  assert.match(instructions, /nunca inventes precios/i);
+  assert.match(instructions, /No inventés precios/i);
   assert.doesNotMatch(instructions, /asistente técnico del ELANKAV Orchestrator/i);
 });
 
@@ -30,21 +53,21 @@ test('CLIENT-001A mantiene instrucciones Owner separadas', () => {
 
   assert.equal(instructions, OWNER_INSTRUCTIONS);
   assert.match(instructions, /Erick Cano/i);
-  assert.doesNotMatch(instructions, /asistente comercial de atención al cliente/i);
 });
 
-test('CLIENT-001A respeta instrucciones explícitas del canal', () => {
+test('CLIENT-001A ignora instrucciones comerciales inyectadas fuera de CONNECT', () => {
   const instructions = resolveMessageInstructions({
     ownerMode: false,
-    customInstructions: 'Instrucción autorizada de campaña'
+    customInstructions: 'Instrucción alternativa del canal',
+    runtime: runtime()
   });
 
-  assert.equal(instructions, 'Instrucción autorizada de campaña');
+  assert.doesNotMatch(instructions, /Instrucción alternativa del canal/);
+  assert.match(instructions, /AUTORIDAD DE COMPORTAMIENTO: CONNECT/i);
 });
 
-test('CLIENT-001A política evita formularios y preguntas repetidas', () => {
-  assert.match(CUSTOMER_INSTRUCTIONS, /no conviertas una explicación en un formulario/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /No repitas datos/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /producto, medida y si es interior o exterior/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /No hables de Orchestrator/i);
+test('CLIENT-001A no mantiene una política comercial paralela hardcodeada', () => {
+  const instructions = buildRuntimeInstructions(runtime());
+  assert.match(instructions, /REGLAS PUBLICADAS/);
+  assert.doesNotMatch(instructions, /asistente comercial de atención al cliente del ecosistema ELANKAV/i);
 });
