@@ -2,27 +2,37 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const {
+  COMMERCIAL_CONVERSATION_RULES,
+  STATE_FIELDS,
+  sanitizeStatePatch
+} = require('./elanConversationPolicyService');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:7860';
 const DEFAULT_ENV_PATH = '/var/lib/elankav-langflow/langflow.env';
 const DEFAULT_STATE_PATH = '/var/lib/elankav/orchestrator/langflow-planner.json';
 const PLANNER_ENDPOINT = 'elan-semantic-planner';
-const PLANNER_VERSION = '1.1.0';
+const PLANNER_VERSION = '1.2.0';
 const PLANNER_MODEL = 'gpt-5.6-sol';
 
 const PLANNER_SYSTEM_PROMPT = [
-  'Sos ELAN Semantic Planner. Tu única función es elegir una herramienta autorizada; nunca ejecutes acciones.',
-  'Recibís un JSON con user_message, context, history y allowed_tools.',
-  'Elegí como máximo UNA herramienta de allowed_tools. No inventes nombres de herramientas, IDs, clientes, proveedores, precios ni parámetros.',
-  'Para preguntas de materiales, insumos, inventario o catálogo usá una herramienta de catálogo/materiales si está disponible.',
-  'IMPORTANTE: si el usuario pregunta qué proveedor tiene, vende o suministra un material/insumo, usá buscar_material_catalogo. NO uses buscar_proveedor para esa pregunta.',
-  'buscar_proveedor sirve para localizar un proveedor por su nombre, ciudad, contacto o datos propios; no para descubrir quién vende un material.',
-  'Ejemplo: "buscá materiales de acrílico y decime qué proveedor los tiene" => buscar_material_catalogo con query "acrílico".',
-  'Para buscar personas/empresas/proveedores por identidad o datos propios usá la herramienta de directorio correspondiente.',
-  'Si faltan datos esenciales o ninguna herramienta aplica, devolvé tool=null.',
-  'No conviertas una consulta informativa en una mutación, envío, eliminación, aprobación o compra.',
-  'Respondé SOLAMENTE JSON válido, sin markdown ni texto adicional, con esta forma:',
-  '{"tool":"nombre_o_null","arguments":{},"confidence":0.0,"reason":"frase breve"}'
+  'Sos ELAN Conversation Brain. Interpretás lenguaje natural y ayudás al Orchestrator a elegir herramientas y redactar respuestas, pero nunca ejecutás acciones.',
+  'Recibís un JSON con task, user_message, context, history, working_state y, según la tarea, allowed_tools o approved_reply.',
+  'La identidad, permisos, memoria y ejecución pertenecen al Orchestrator/CONNECT. No inventes datos ni capacidades.',
+  ...COMMERCIAL_CONVERSATION_RULES,
+  'TASK=plan: elegí como máximo UNA herramienta de allowed_tools. No inventes nombres de herramientas, IDs, clientes, proveedores, precios ni parámetros.',
+  'TASK=plan: para preguntas de materiales, insumos, inventario o catálogo usá una herramienta de catálogo/materiales si está disponible.',
+  'TASK=plan: si el usuario pregunta qué proveedor tiene, vende o suministra un material/insumo, usá buscar_material_catalogo; no uses buscar_proveedor para descubrir quién vende un material.',
+  'TASK=plan: buscar_proveedor sirve para localizar un proveedor por su nombre, ciudad, contacto o datos propios.',
+  'TASK=plan: usá working_state e history para resolver pronombres, referencias cortas y continuidad cuando sea inequívoco.',
+  'TASK=plan: devolvé state_patch solo con hechos explícitos o inequívocos del mensaje; no borres estado por ausencia de datos.',
+  'TASK=plan: si faltan datos esenciales o ninguna herramienta aplica, devolvé tool=null.',
+  'TASK=plan: no conviertas una consulta informativa en mutación, envío, eliminación, aprobación, pago o compra.',
+  'TASK=plan: respondé SOLO JSON válido: {"tool":"nombre_o_null","arguments":{},"confidence":0.0,"reason":"frase breve","state_patch":{}}.',
+  'TASK=compose: approved_reply ya contiene el resultado autorizado. Reescribilo de forma natural y útil sin agregar, quitar o cambiar hechos, precios, medidas, materiales, nombres, estados o confirmaciones.',
+  'TASK=compose: si approved_reply expresa que no hubo coincidencias, no inventes resultados; explicá brevemente qué no se encontró y proponé como máximo una siguiente vía útil o una sola pregunta.',
+  'TASK=compose: no menciones sistemas internos. No conviertas un fallo en éxito ni una lectura en una acción.',
+  'TASK=compose: respondé SOLO JSON válido: {"reply":"respuesta final"}'
 ].join('\n');
 
 function text(value) {
@@ -107,6 +117,39 @@ function parsePlannerJson(raw) {
   return parsed;
 }
 
+function normalizeWorkingState(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const allowed = new Set([
+    ...STATE_FIELDS,
+    'lastIntent',
+    'lastUserMessage',
+    'lastActionAt',
+    'activeCustomerReference',
+    'lastMaterialQuery',
+    'lastQuotationNumbers',
+    'lastQuotationIds',
+    'lastQuotationProjectIds',
+    'pendingQuotationSendNumbers',
+    'pendingQuotationSendIds'
+  ]);
+  const result = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!allowed.has(key)) continue;
+    if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
+      result[key] = value;
+      continue;
+    }
+    if (typeof value === 'string') {
+      result[key] = value.slice(0, 1000);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      result[key] = value.slice(0, 20).map(entry => typeof entry === 'string' ? entry.slice(0, 500) : entry);
+    }
+  }
+  return result;
+}
+
 function validatePlan(plan, allowedTools) {
   const names = new Set((Array.isArray(allowedTools) ? allowedTools : []).map(tool => text(tool?.name)).filter(Boolean));
   const tool = plan.tool === null || plan.tool === undefined || text(plan.tool).toLowerCase() === 'null'
@@ -128,8 +171,14 @@ function validatePlan(plan, allowedTools) {
     tool,
     arguments: args,
     confidence,
-    reason: text(plan.reason).slice(0, 500)
+    reason: text(plan.reason).slice(0, 500),
+    statePatch: sanitizeStatePatch(plan.state_patch)
   };
+}
+
+function validateComposedReply(payload, fallback) {
+  const reply = text(payload?.reply);
+  return reply ? reply.slice(0, 12000) : text(fallback).slice(0, 12000);
 }
 
 function flowCollection(payload) {
@@ -379,7 +428,7 @@ class LangflowPlannerService {
     });
   }
 
-  async plan({ message, actor = {}, platform = 'ELANVISUAL', channel = 'unknown', history = [], allowedTools = [] } = {}) {
+  async plan({ message, actor = {}, platform = 'ELANVISUAL', channel = 'unknown', history = [], workingState = {}, allowedTools = [] } = {}) {
     if (!text(message)) return { available: true, plan: { tool: null, arguments: {}, confidence: 0, reason: 'empty_message' } };
     if (!Array.isArray(allowedTools) || allowedTools.length === 0) {
       return { available: true, plan: { tool: null, arguments: {}, confidence: 0, reason: 'no_allowed_tools' } };
@@ -393,6 +442,7 @@ class LangflowPlannerService {
     }
 
     const inputValue = JSON.stringify({
+      task: 'plan',
       user_message: text(message),
       context: {
         platform: text(platform).toUpperCase() || 'ELANVISUAL',
@@ -400,6 +450,7 @@ class LangflowPlannerService {
         actor_role: text(actor?.role).toLowerCase() || 'unknown'
       },
       history: normalizeHistory(history),
+      working_state: normalizeWorkingState(workingState),
       allowed_tools: allowedTools.map(tool => ({
         name: text(tool?.name),
         description: text(tool?.description),
@@ -429,6 +480,64 @@ class LangflowPlannerService {
       return { available: true, plan: validatePlan(parsed, allowedTools), flowId: state.flowId };
     } catch (error) {
       return { available: false, errorCode: error?.code || 'LANGFLOW_PLANNER_FAILED' };
+    }
+  }
+
+  async composeReply({
+    message,
+    approvedReply,
+    actor = {},
+    platform = 'ELANVISUAL',
+    channel = 'unknown',
+    history = [],
+    workingState = {},
+    tool = null
+  } = {}) {
+    const fallback = text(approvedReply);
+    if (!fallback) return { available: true, reply: '' };
+
+    let state;
+    try {
+      state = await this.bootstrap();
+    } catch (error) {
+      return { available: false, reply: fallback, errorCode: error?.code || 'LANGFLOW_BOOTSTRAP_FAILED' };
+    }
+
+    const inputValue = JSON.stringify({
+      task: 'compose',
+      user_message: text(message),
+      approved_reply: fallback,
+      context: {
+        platform: text(platform).toUpperCase() || 'ELANVISUAL',
+        channel: text(channel).toLowerCase() || 'unknown',
+        actor_role: text(actor?.role).toLowerCase() || 'unknown',
+        tool: text(tool) || null
+      },
+      history: normalizeHistory(history),
+      working_state: normalizeWorkingState(workingState)
+    });
+
+    const sessionId = [
+      'elan-compose',
+      text(platform).toUpperCase() || 'ELANVISUAL',
+      text(actor?.actorId || actor?.canonicalPhone || actor?.phone || 'anonymous')
+    ].join(':').slice(0, 240);
+
+    try {
+      const payload = await this.runWithState(state, inputValue, sessionId);
+      const output = extractMessageText(payload);
+      const parsed = parsePlannerJson(output);
+      return {
+        available: true,
+        reply: validateComposedReply(parsed, fallback),
+        flowId: state.flowId
+      };
+    } catch (error) {
+      return {
+        available: false,
+        reply: fallback,
+        errorCode: error?.code || 'LANGFLOW_COMPOSER_FAILED'
+      };
     }
   }
 
@@ -470,7 +579,9 @@ module.exports = {
   extractMessageText,
   langflowPlannerService,
   normalizeHistory,
+  normalizeWorkingState,
   parseEnv,
   parsePlannerJson,
+  validateComposedReply,
   validatePlan
 };
