@@ -49,17 +49,18 @@ function actorMemoryKey(actor = {}) {
   return String(resolved.actorId || resolved.canonicalPhone || resolved.phone || '').trim() || null;
 }
 
-function loadUnifiedContext({ actor: actorInput = {}, channel = 'unknown', conversation = {}, memory = null } = {}) {
+function loadUnifiedContext({ actor: actorInput = {}, platform = 'ELANVISUAL', channel = 'unknown', conversation = {}, memory = null } = {}) {
   const actor = resolveActor(actorInput);
   return Object.freeze({
     runtime: 'ELAN_UNIFIED_RUNTIME',
     version: '1.0.0',
     channel: String(channel || 'unknown').trim().toLowerCase(),
+    platform: String(platform || 'ELANVISUAL').trim().toUpperCase(),
     actor,
     actorKey: actorMemoryKey(actor),
     conversation: conversation && typeof conversation === 'object' ? conversation : {},
     memory: memory && typeof memory === 'object' ? memory : null,
-    tools: getToolManifest(actor)
+    tools: getToolManifest(actor, platform)
   });
 }
 
@@ -131,14 +132,15 @@ function unwrapConnectPayload(payload) {
   return payload;
 }
 
-async function executeThroughConnect({ actor, channel, tool, arguments: args, conversation, memory, env = process.env } = {}) {
-  const context = loadUnifiedContext({ actor, channel, conversation, memory });
-  const raw = await executeTool({ actor: context.actor, tool, arguments: args, env });
+async function executeThroughConnect({ actor, platform = 'ELANVISUAL', channel, tool, arguments: args, conversation, memory, env = process.env } = {}) {
+  const context = loadUnifiedContext({ actor, platform, channel, conversation, memory });
+  const raw = await executeTool({ actor: context.actor, platform: context.platform, tool, arguments: args, env });
   return {
     ok: true,
     runtime: context.runtime,
     version: context.version,
     channel: context.channel,
+    platform: context.platform,
     actor: context.actor,
     actorKey: context.actorKey,
     tool,
