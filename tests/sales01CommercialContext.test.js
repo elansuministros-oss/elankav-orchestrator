@@ -15,7 +15,7 @@ const {
   resolveOfficialPlatformFacts
 } = require('../services/openaiService');
 const {
-  CUSTOMER_INSTRUCTIONS
+  buildRuntimeInstructions
 } = require('../services/messageService');
 
 const VERIFIED_OFFER = Object.freeze({
@@ -113,7 +113,7 @@ test('SALES-01 conserva el producto durante respuestas cortas', () => {
   assert.doesNotMatch(lookup, /¿Interior o exterior\?/i);
 });
 
-test('SALES-01 entrega precios verificados a OpenAI', async () => {
+test('SALES-01 entrega datos comerciales verificados sin imponer conversación paralela', async () => {
   const commercial = await loadCommercialContext(
     { message: 'Quiero una cajuela' },
     {
@@ -121,31 +121,73 @@ test('SALES-01 entrega precios verificados a OpenAI', async () => {
       loadKnowledge: async () => null
     }
   );
-  const instructions = buildContextInstructions({ commercial });
+  const instructions = buildContextInstructions({
+    commercial,
+    aiRuntime: {
+      authority: 'CONNECT_AI_PLATFORMS',
+      authorityLocked: true,
+      platform: {
+        responseRules: {}
+      }
+    }
+  });
 
   assert.match(instructions, /Rótulo de cajuela/);
   assert.match(instructions, /"amount":360/);
   assert.match(instructions, /"amount":560/);
   assert.match(instructions, /starting-at/);
-  assert.match(instructions, /60% de anticipo/);
-  assert.match(instructions, /como máximo la qualificationQuestion/);
-  assert.match(instructions, /primera respuesta.*oferta verificada/i);
-  assert.match(instructions, /No vuelvas a preguntar medida/i);
-  assert.match(instructions, /No encadenes una entrevista/i);
+  assert.match(instructions, /Integridad comercial/);
+  assert.match(instructions, /gobierna exclusivamente la configuración publicada de CONNECT/i);
+  assert.doesNotMatch(instructions, /como máximo la qualificationQuestion/i);
+  assert.doesNotMatch(instructions, /primera respuesta.*oferta verificada/i);
+  assert.doesNotMatch(instructions, /No vuelvas a preguntar medida/i);
 });
 
-test('SALES-01 política comercial conduce a cotización sin inventar', () => {
-  assert.match(CUSTOMER_INSTRUCTIONS, /contexto comercial verificado/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /modalidad exactos/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /una sola pregunta útil/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /nunca inventes precios/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /nunca inventes, completes ni adivines dominios/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /página principal como catálogo/i);
+test('SALES-01 política comercial se obtiene del runtime publicado de CONNECT', () => {
+  const instructions = buildRuntimeInstructions({
+    platform: {
+      initialMessage: 'Hola, soy ELAN IA de ELANVISUAL.',
+      instructions: [
+        'Usá contexto comercial verificado.',
+        'Mantené la modalidad exacta del precio.',
+        'Hacé una sola pregunta útil.',
+        'Nunca inventés precios.',
+        'Nunca inventés, completés ni adivinés dominios.',
+        'No presentes la página principal como catálogo.'
+      ].join(' '),
+      responseRules: {
+        noInventedData: true,
+        exactCatalogPrices: true,
+        oneQuestionAtATime: true
+      }
+    }
+  });
+
+  assert.match(instructions, /contexto comercial verificado/i);
+  assert.match(instructions, /modalidad exacta/i);
+  assert.match(instructions, /una sola pregunta útil/i);
+  assert.match(instructions, /Nunca inventés precios/i);
+  assert.match(instructions, /Nunca inventés, completés ni adivinés dominios/i);
+  assert.match(instructions, /página principal como catálogo/i);
 });
 
-test('SALES-01 fija URL y ubicación oficiales de ELANVISUAL', () => {
+test('SALES-01 con runtime CONNECT la URL sale de CONNECT y no del fallback local', () => {
   const facts = resolveOfficialPlatformFacts('elanvisual');
-  const instructions = buildContextInstructions({ platform: 'elanvisual' });
+  const instructions = buildContextInstructions({
+    platform: 'elanvisual',
+    aiRuntime: {
+      authority: 'CONNECT_AI_PLATFORMS',
+      authorityLocked: true,
+      platform: {
+        responseRules: {
+          websiteInvitation: {
+            enabled: true,
+            url: 'https://visual.elankav.com/controlado-por-connect'
+          }
+        }
+      }
+    }
+  });
 
   assert.deepEqual(facts, {
     id: 'elanvisual',
@@ -153,8 +195,7 @@ test('SALES-01 fija URL y ubicación oficiales de ELANVISUAL', () => {
     website: 'https://visual.elankav.com',
     businessLocation: 'Managua, Nicaragua'
   });
-  assert.match(instructions, /https:\/\/visual\.elankav\.com/);
+  assert.match(instructions, /https:\/\/visual\.elankav\.com\/controlado-por-connect/);
   assert.match(instructions, /Managua, Nicaragua/);
-  assert.match(instructions, /nunca sustituyas, completes ni inventes otro dominio/i);
-  assert.match(instructions, /página principal no equivale a un catálogo/i);
+  assert.doesNotMatch(instructions, /usá exclusivamente el sitio https:\/\/visual\.elankav\.com;/i);
 });

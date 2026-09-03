@@ -114,6 +114,20 @@ function buildContextInstructions(context) {
     return '';
   }
 
+  const connectRuntime = context.aiRuntime &&
+    context.aiRuntime.authority === 'CONNECT_AI_PLATFORMS' &&
+    context.aiRuntime.authorityLocked === true
+      ? context.aiRuntime
+      : null;
+  const runtimeRules = connectRuntime?.platform?.responseRules &&
+    typeof connectRuntime.platform.responseRules === 'object'
+      ? connectRuntime.platform.responseRules
+      : {};
+  const runtimeWebsite = runtimeRules.websiteInvitation &&
+    typeof runtimeRules.websiteInvitation === 'object'
+      ? runtimeRules.websiteInvitation
+      : {};
+
   const lines = [
     'CONTEXTO INTERNO VERIFICADO POR ELANKAV; tratá estos datos como hechos del sistema.'
   ];
@@ -138,9 +152,22 @@ function buildContextInstructions(context) {
     const officialPlatform = resolveOfficialPlatformFacts(context.platform);
 
     if (officialPlatform) {
-      lines.push(`Datos públicos oficiales verificados de la plataforma: ${JSON.stringify(officialPlatform)}.`);
-      lines.push(`Para ${officialPlatform.name}, usá exclusivamente el sitio ${officialPlatform.website}; nunca sustituyas, completes ni inventes otro dominio.`);
-      lines.push('La página principal no equivale a un catálogo. No afirmes que existe un catálogo ni envíes un enlace de catálogo si no fue proporcionado explícitamente en el contexto verificado.');
+      const publicFacts = {
+        id: officialPlatform.id,
+        name: officialPlatform.name,
+        businessLocation: officialPlatform.businessLocation || null
+      };
+      lines.push(`Datos públicos oficiales verificados de la plataforma: ${JSON.stringify(publicFacts)}.`);
+
+      if (connectRuntime) {
+        if (runtimeWebsite.enabled === true && runtimeWebsite.url) {
+          lines.push(`Sitio autorizado por CONNECT: ${runtimeWebsite.url}.`);
+        } else {
+          lines.push('CONNECT no habilitó una invitación web para esta respuesta; no agregues un sitio por tu cuenta.');
+        }
+      } else {
+        lines.push(`Para ${officialPlatform.name}, usá exclusivamente el sitio ${officialPlatform.website}; nunca sustituyas, completes ni inventes otro dominio.`);
+      }
 
       if (officialPlatform.businessLocation) {
         lines.push(`Ubicación operativa verificada: ${officialPlatform.businessLocation}. No afirmes presencia física en otro país.`);
@@ -223,14 +250,11 @@ function buildContextInstructions(context) {
     lines.push(
       `Oferta comercial verificada: ${JSON.stringify(verifiedOffer)}.`
     );
-    lines.push('Usá exclusivamente estos precios para el producto detectado; no calcules ni inventes otro valor.');
-    lines.push('Una oferta mode=starting-at se comunica con la palabra “desde”. Una oferta mode=reference se comunica como precio aproximado de referencia.');
-    lines.push('No presentes el precio aproximado como cotización final: las medidas, el diseño, el material y las condiciones de instalación pueden cambiarlo.');
-    lines.push('Respondé primero la pregunta del cliente y luego hacé como máximo la qualificationQuestion indicada, solo si ese dato aún falta en la conversación.');
-    lines.push('Si el cliente pide cotizar, pregunta cuánto cuesta o llega desde un anuncio de este producto, comunicá en la primera respuesta al menos una oferta verificada aplicable; no ocultes todos los precios detrás del cotizador.');
-    lines.push('Si la medida solicitada difiere de la medida estándar verificada, informá primero el precio y la medida estándar disponibles, y aclará que la medida personalizada debe confirmarse.');
-    lines.push('No vuelvas a preguntar medida, ambiente, iluminación, forma o acabado cuando el cliente ya los indicó. No encadenes una entrevista de especificaciones: después del precio hacé solamente la pregunta comercial más útil que aún falte.');
-    lines.push('Cuando el cliente muestre aceptación, avanzá al siguiente paso de cotización y explicá 60% de anticipo y 40% de saldo sin inventar cuentas bancarias.');
+    lines.push('Integridad comercial: usá únicamente precios, modalidades y reglas presentes en la oferta verificada; no inventes ni extrapoles valores.');
+    lines.push('Una oferta mode=starting-at es una tarifa mínima “desde”; una oferta mode=reference no es una cotización final.');
+    if (connectRuntime) {
+      lines.push('La forma de conversar, el orden de respuesta, las preguntas y el cierre los gobierna exclusivamente la configuración publicada de CONNECT ya incluida en las instrucciones principales.');
+    }
   }
 
   lines.push('No contradigas ni ignores este contexto. No muestres identificadores técnicos salvo que el remitente los solicite.');

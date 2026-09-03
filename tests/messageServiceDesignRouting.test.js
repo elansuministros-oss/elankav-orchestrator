@@ -7,6 +7,25 @@ const {
   handleDesignIntent
 } = require('../services/messageService');
 
+function connectRuntime(overrides = {}) {
+  return {
+    authority: 'CONNECT_AI_PLATFORMS',
+    authorityLocked: true,
+    execution: { shouldRespond: true },
+    platform: {
+      platformId: 'elanvisual',
+      responseRules: {
+        designRequest: {
+          enabled: true,
+          url: 'https://visual.elankav.com/diseno/whatsapp',
+          text: ''
+        }
+      }
+    },
+    ...overrides
+  };
+}
+
 function withMockDesignEngine(callback) {
   const previousUrl = process.env.DESIGN_ENGINE_URL;
   const previousFetch = global.fetch;
@@ -142,7 +161,8 @@ test('solicitud por WhatsApp envía el enlace directo al formulario', async () =
       conversationHistory: [
         { role: 'user', content: 'Rótulo luminoso exterior de 1 m x 80 cm' }
       ]
-    }
+    },
+    aiRuntime: connectRuntime()
   });
 
   assert.equal(result.handled, true);
@@ -211,13 +231,9 @@ test('el logo enviado después de pedirlo genera la propuesta', async () => {
   });
 });
 
-test('construye enlace corto oficial sin parámetros internos', () => {
+test('construye enlace de diseño exclusivamente desde CONNECT', () => {
   const link = buildDesignPortalLink({
-    message: 'Quiero una propuesta',
-    history: [{ role: 'user', content: 'Fachada exterior en ACM' }],
-    phone: '+505 5861 5132',
-    externalUserId: 'client-5861',
-    conversationRef: 'crm-conversation-22'
+    runtime: connectRuntime()
   });
   const url = new URL(link);
 
