@@ -437,6 +437,25 @@ async function processMessage({ message, platform, channel, externalUserId, phon
       resolvedContext = context;
       const ownerMode = Boolean(context.owner?.isOwner);
 
+      if (ownerMode) {
+        await persistRequiredUnifiedTurn({
+          actor: {
+            role: 'owner',
+            actorId: 'owner',
+            authority: 'owner_identity',
+            phone: context.phone || phone || null,
+            scopes: ['*'],
+            platforms: ['*']
+          },
+          platform: context.platform || platform || 'ELANVISUAL',
+          channel: context.channel || channel || 'whatsapp',
+          direction: 'inbound',
+          text: normalizedMessage,
+          messageType: String(metadata?.messageType || 'text').toLowerCase() || 'text',
+          externalMessageId: metadata?.messageId || metadata?.webhookMessageId || null
+        });
+      }
+
       if (String(context.channel || channel || '').toLowerCase() === 'whatsapp' && isLiveModeRequest(normalizedMessage)) {
         try {
           const live = await requestLiveSession({
@@ -611,6 +630,28 @@ async function processMessage({ message, platform, channel, externalUserId, phon
   );
 
   const suppressDelivery = response.suppressDelivery === true;
+
+  if (resolvedContext?.owner?.isOwner && !suppressDelivery) {
+    const ownerOutput = String(response.outputText || '').trim();
+    if (ownerOutput) {
+      await persistRequiredUnifiedTurn({
+        actor: {
+          role: 'owner',
+          actorId: 'owner',
+          authority: 'owner_identity',
+          phone: resolvedContext.phone || phone || null,
+          scopes: ['*'],
+          platforms: ['*']
+        },
+        platform: resolvedContext.platform || platform || 'ELANVISUAL',
+        channel: resolvedContext.channel || channel || 'whatsapp',
+        direction: 'outbound',
+        text: ownerOutput,
+        messageType: 'text',
+        externalMessageId: response.id ? `owner-out:${response.id}` : null
+      });
+    }
+  }
 
   return {
     message: normalizedMessage,
