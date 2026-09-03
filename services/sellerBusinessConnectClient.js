@@ -193,8 +193,8 @@ async function resolveAuthorizedItems(items, actor, env) {
       total: subtotal,
       currency,
       authorizedPrice: {
-        authority: text(resolution.authority, 'CONNECT_AI_PLATFORM_PRICES'),
-        source: text(resolution.source, 'AI_PLATFORM_PRICES_DIRECT'),
+        authority: text(resolution.authority, 'CONNECT_COMMERCIAL_PRODUCTS'),
+        source: text(resolution.source, 'COMMERCIAL_PRODUCTS'),
         code: text(product.code),
         name: text(product.name),
         matchRule: text(resolution.matchRule),
