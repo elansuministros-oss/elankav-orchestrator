@@ -103,6 +103,31 @@ test('planner validates tool choice against the Orchestrator manifest', () => {
   );
 });
 
+
+test('planner can update commercial state without selecting a tool', () => {
+  const plan = validatePlan(
+    {
+      tool: null,
+      arguments: {},
+      confidence: 0.82,
+      reason: 'context update',
+      state_patch: {
+        environment: 'EXTERIOR',
+        finish: 'LUZ',
+        status: 'COTIZANDO'
+      }
+    },
+    [{ name: 'buscar_cliente' }]
+  );
+
+  assert.equal(plan.tool, null);
+  assert.deepEqual(plan.statePatch, {
+    environment: 'EXTERIOR',
+    finish: 'LUZ',
+    status: 'COTIZANDO'
+  });
+});
+
 test('planner bootstraps Langflow internally and runs without a user tunnel', async () => {
   const calls = [];
   let savedState = '';
