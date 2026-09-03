@@ -15,7 +15,7 @@ const {
   resolveOfficialPlatformFacts
 } = require('../services/openaiService');
 const {
-  CUSTOMER_INSTRUCTIONS
+  buildRuntimeInstructions
 } = require('../services/messageService');
 
 const VERIFIED_OFFER = Object.freeze({
@@ -134,13 +134,32 @@ test('SALES-01 entrega precios verificados a OpenAI', async () => {
   assert.match(instructions, /No encadenes una entrevista/i);
 });
 
-test('SALES-01 política comercial conduce a cotización sin inventar', () => {
-  assert.match(CUSTOMER_INSTRUCTIONS, /contexto comercial verificado/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /modalidad exactos/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /una sola pregunta útil/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /nunca inventes precios/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /nunca inventes, completes ni adivines dominios/i);
-  assert.match(CUSTOMER_INSTRUCTIONS, /página principal como catálogo/i);
+test('SALES-01 política comercial se obtiene del runtime publicado de CONNECT', () => {
+  const instructions = buildRuntimeInstructions({
+    platform: {
+      initialMessage: 'Hola, soy ELAN IA de ELANVISUAL.',
+      instructions: [
+        'Usá contexto comercial verificado.',
+        'Mantené la modalidad exacta del precio.',
+        'Hacé una sola pregunta útil.',
+        'Nunca inventés precios.',
+        'Nunca inventés, completés ni adivinés dominios.',
+        'No presentes la página principal como catálogo.'
+      ].join(' '),
+      responseRules: {
+        noInventedData: true,
+        exactCatalogPrices: true,
+        oneQuestionAtATime: true
+      }
+    }
+  });
+
+  assert.match(instructions, /contexto comercial verificado/i);
+  assert.match(instructions, /modalidad exacta/i);
+  assert.match(instructions, /una sola pregunta útil/i);
+  assert.match(instructions, /Nunca inventés precios/i);
+  assert.match(instructions, /Nunca inventés, completés ni adivinés dominios/i);
+  assert.match(instructions, /página principal como catálogo/i);
 });
 
 test('SALES-01 fija URL y ubicación oficiales de ELANVISUAL', () => {
