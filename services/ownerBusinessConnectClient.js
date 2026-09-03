@@ -86,7 +86,7 @@ async function searchOwnerContacts(term,env){return requestConnect(`/api/v1/busi
 async function sendOwnerWhatsApp(input,env){return requestConnect('/api/v1/business/vqs/owner-directory/send-whatsapp',{method:'POST',body:input},env)}
 
 async function resolveCatalogPricing(input,env){return requestConnect('/api/v1/business/vqs/pricing/resolve',{method:'POST',body:input},env)}
-async function listAuthorizedPrices(term,env){return requestConnect(`/api/v1/business/vqs/pricing/catalog-admin/search?q=${query(term)}`,{},env)}
+async function listAuthorizedPrices(term,env){const response=await requestConnect(`/api/v1/business/vqs/pricing/catalog${paramsFrom({q:String(term||'').trim()||undefined,limit:100})}`,{},env);const data=response?.data&&typeof response.data==='object'?response.data:{};return{...response,data:{...data,matches:Array.isArray(data.items)?data.items:[]}}}
 async function searchCatalogMaterials(input={},env){
   const platform=String(input.platform||'ELANVISUAL').trim().toUpperCase()||'ELANVISUAL';
   const q=String(input.query||'').trim();
