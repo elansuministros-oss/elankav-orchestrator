@@ -6,6 +6,7 @@ const {
   clearWahaInboundDedupe,
   extractIncoming,
   handleWahaWebhookApi,
+  isLiveModeRequest,
   isPresentationAudioRequest,
   normalizePhone,
   resolveOwnerIdentityFromIncoming
@@ -59,6 +60,67 @@ test('detecta solicitud de muestra de audio', () => {
   assert.equal(isPresentationAudioRequest('Enviame una muestra del audio de presentación'), true);
   assert.equal(isPresentationAudioRequest('/demo bienvenida'), true);
   assert.equal(isPresentationAudioRequest('estado del sistema'), false);
+});
+
+
+test('reconoce activación natural de modo copiloto', () => {
+  assert.equal(isLiveModeRequest('activa modo copiloto'), true);
+  assert.equal(isLiveModeRequest('actívate modo copiloto'), true);
+  assert.equal(isLiveModeRequest('ELAN activa modo copiloto'), true);
+  assert.equal(isLiveModeRequest('modo copiloto'), true);
+  assert.equal(isLiveModeRequest('abre copiloto'), true);
+  assert.equal(isLiveModeRequest('activa modo biblioteca'), false);
+});
+
+test('Owner activa Copiloto por WhatsApp y recibe enlace seguro sin pasar por modelo', async () => {
+  const recorder = createSendJsonRecorder();
+  const sent = [];
+  let modelCalls = 0;
+  let liveCalls = 0;
+
+  await handleWahaWebhookApi({
+    req: createRequest({
+      body: {
+        event: 'message',
+        id: 'owner-live-mode-01',
+        session: 'ELANKAV',
+        payload: {
+          from: '50588388940@c.us',
+          body: 'ELAN, activa modo copiloto',
+          fromMe: false
+        }
+      }
+    }),
+    res: createResponse(),
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async createConnectLiveSession(input) {
+        liveCalls += 1;
+        assert.equal(input.phone, '50588388940');
+        assert.equal(input.platform, 'ELANVISUAL');
+        return {
+          url: 'https://copilot.elankav.com/elan-live?access=one-time-test',
+          identity: { role: 'owner' }
+        };
+      },
+      async processMessage() {
+        modelCalls += 1;
+        throw new Error('MODEL_SHOULD_NOT_RUN');
+      },
+      async sendWahaText(input) {
+        sent.push(input);
+        return { id: 'live-link-reply-1' };
+      }
+    }
+  });
+
+  assert.equal(liveCalls, 1);
+  assert.equal(modelCalls, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /ELAN Copiloto listo/);
+  assert.match(sent[0].text, /copilot\.elankav\.com\/elan-live/);
+  assert.equal(recorder.calls[0].payload.elanLive, true);
+  assert.equal(recorder.calls[0].payload.ownerMode, true);
 });
 
 test('extractIncoming accepts WAHA text payload', () => {
