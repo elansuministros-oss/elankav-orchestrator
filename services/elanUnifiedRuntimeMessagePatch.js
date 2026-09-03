@@ -283,6 +283,42 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
     }catch(error){console.error('[OWNER_ENTITY_CREATE_CONTINUITY_STATE_FAILED]',{code:error?.code||null,message:error?.message||null})}
 
     try{
+      if(materialSupplierReadIntent(args.message)){
+        const materialQuery=materialQueryFromMessage(args.message);
+        if(materialQuery){
+          const fastResult=await executeGenericOwnerCommand({
+            command:{
+              tool:'buscar_material_catalogo',
+              arguments:{
+                query:materialQuery,
+                platform:platformOf(context,args)
+              }
+            },
+            context,
+            args
+          });
+          if(fastResult){
+            console.log('[ELAN_MATERIAL_SUPPLIER_FAST_PATH]',{
+              query:materialQuery,
+              platform:platformOf(context,args)
+            });
+            await persistUnifiedWorkingState({
+              actor:ownerActor(context,args),
+              platform:platformOf(context,args),
+              workingState:{
+                lastIntent:'material_supplier_catalog_lookup',
+                lastUserMessage:String(args.message||'').trim(),
+                lastMaterialQuery:materialQuery,
+                lastActionAt:new Date().toISOString()
+              },
+              safe:true
+            });
+            await persistOwnerTurn({context,args,direction:'outbound',text:fastResult.reply});
+            return fastResult;
+          }
+        }
+      }
+
       const memory=await loadConversationMemory({actor:ownerActor(context,args),platform:platformOf(context,args),limit:30});
       const plannedResult=await executeLangflowReadPlanner({context,args,memory});
       if(plannedResult){
