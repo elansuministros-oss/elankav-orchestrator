@@ -9,6 +9,22 @@ const qParam = { type:'object', properties:{ query:{ type:'string' } }, required
 const idPatchParam = (idField) => ({ type:'object', properties:{ [idField]:{type:'string'}, data:{type:'object'} }, required:[idField,'data'], additionalProperties:false });
 const idOnlyParam = (idField) => ({ type:'object', properties:{ [idField]:{type:'string'} }, required:[idField], additionalProperties:false });
 
+const CONNECT_PLATFORM_TOOLS = new Set([
+  'buscar_vendedor','crear_vendedor','editar_vendedor','desactivar_vendedor','eliminar_vendedor',
+  'configurar_plataformas_vendedor','buscar_familiar','crear_familiar','editar_familiar','desactivar_familiar',
+  'buscar_contacto','enviar_mensaje_whatsapp'
+]);
+const ELAN_GO_PLATFORM_TOOLS = new Set([
+  'marketplace_gestionar_necesidad','marketplace_crear_consulta'
+]);
+function normalizePlatform(value){return String(value||'ELANVISUAL').trim().toUpperCase().replace(/[ -]+/g,'_')}
+function platformAllowsTool(name,platform){
+  const current=normalizePlatform(platform);
+  if(current==='ELAN_GO')return ELAN_GO_PLATFORM_TOOLS.has(name);
+  if(current==='CONNECT')return CONNECT_PLATFORM_TOOLS.has(name);
+  return !ELAN_GO_PLATFORM_TOOLS.has(name)&&!CONNECT_PLATFORM_TOOLS.has(name);
+}
+
 const TOOL_DEFINITIONS = Object.freeze([
   { name:'buscar_precio_autorizado', description:'Busca exclusivamente el precio comercial autorizado y publicado en CONNECT. Nunca estima ni inventa.', scope:'price.authorized.read', sellerAllowed:true, parameters:{type:'object',properties:{query:{type:'string'},width:{type:'number'},height:{type:'number'},quantity:{type:'number'}},required:['query'],additionalProperties:false}},
   { name:'listar_precios_autorizados', description:'Lista coincidencias del catálogo comercial autorizado de ELANVISUAL.', scope:'price.authorized.read', parameters:qParam },
@@ -64,7 +80,7 @@ function isAllowed(definition,actor={}){
   const scopes=scopesOf(actor);
   return scopes.includes('*')||!definition.scope||scopes.includes(definition.scope);
 }
-function getToolManifest(actor={}){return TOOL_DEFINITIONS.filter(definition=>isAllowed(definition,actor)).map(definition=>({type:'function',name:definition.name,description:definition.description,parameters:definition.parameters}))}
+function getToolManifest(actor={},platform='ELANVISUAL'){return TOOL_DEFINITIONS.filter(definition=>isAllowed(definition,actor)&&platformAllowsTool(definition.name,platform)).map(definition=>({type:'function',name:definition.name,description:definition.description,parameters:definition.parameters}))}
 function requiredText(value,field){const normalized=String(value||'').trim();if(!normalized){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return normalized}
 function requiredObject(value,field='data'){if(!value||typeof value!=='object'||Array.isArray(value)){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return value}
 function optionalText(value){return String(value||'').trim()}
@@ -109,9 +125,10 @@ async function commercialSummary(actor={},env=process.env){
   };
 }
 
-async function executeTool({actor={},tool,arguments:args={},env=process.env}={}){
+async function executeTool({actor={},platform='ELANVISUAL',tool,arguments:args={},env=process.env}={}){
   const name=String(tool||'').trim();const definition=TOOL_DEFINITIONS.find(candidate=>candidate.name===name);
   if(!definition)throw Object.assign(new Error(`La herramienta ${name||'(vacía)'} todavía no está disponible en ELAN Runtime.`),{code:'ELAN_TOOL_NOT_AVAILABLE',statusCode:404});
+  if(!platformAllowsTool(name,platform))throw Object.assign(new Error(`La herramienta ${name} no pertenece a la plataforma ${normalizePlatform(platform)}.`),{code:'ELAN_TOOL_PLATFORM_FORBIDDEN',statusCode:403});
   if(!isAllowed(definition,actor))throw Object.assign(new Error('El actor no tiene permiso para ejecutar esta herramienta.'),{code:'ELAN_TOOL_FORBIDDEN',statusCode:403});
   const sellerActor=isSeller(actor);
   switch(name){
@@ -160,4 +177,4 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
   }
 }
 
-module.exports={TOOL_DEFINITIONS,executeTool,getToolManifest,isAllowed,isOwner,isSeller};
+module.exports={TOOL_DEFINITIONS,executeTool,getToolManifest,isAllowed,isOwner,isSeller,normalizePlatform,platformAllowsTool};
