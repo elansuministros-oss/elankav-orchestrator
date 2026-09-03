@@ -1,7 +1,18 @@
 'use strict';
 
-const { extractIncoming } = require('./wahaWebhookApi');
+const {
+  extractIncoming,
+  isLiveModeRequest,
+  resolveOwnerIdentityFromIncoming,
+  sendWahaText
+} = require('./wahaWebhookApi');
 const { normalizeWahaVoiceEvent } = require('../modules/voicePipelineV2/wahaVoiceEvent');
+const { createConnectLiveSession } = require('../services/connectLiveAccessService');
+const {
+  downloadWahaMedia,
+  resolveAudioMimeType,
+  transcribeAudio
+} = require('../services/connectVoiceService');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -46,7 +57,109 @@ function ignoredReason(incoming) {
   return '';
 }
 
-async function handleWahaWebhookApiV2({ req, res, sendJson }) {
+function mergeVoiceIncoming(legacyIncoming, voiceEvent) {
+  if (!voiceEvent) return legacyIncoming;
+  return {
+    ...legacyIncoming,
+    ...voiceEvent,
+    messageType: 'audio',
+    media: {
+      ...(legacyIncoming?.media || {}),
+      ...(voiceEvent.media || {})
+    },
+    identityCandidates: legacyIncoming?.identityCandidates || []
+  };
+}
+
+async function resolveOwnerLiveMessage(incoming, dependencies = {}) {
+  if (incoming.messageType !== 'audio') return String(incoming.text || '').trim();
+
+  if (!incoming.media?.url) {
+    const error = new Error('WAHA_AUDIO_MEDIA_URL_MISSING');
+    error.code = 'WAHA_AUDIO_MEDIA_URL_MISSING';
+    throw error;
+  }
+
+  const downloadMediaImpl = dependencies.downloadWahaMedia || downloadWahaMedia;
+  const transcribeImpl = dependencies.transcribeAudio || transcribeAudio;
+
+  const media = await downloadMediaImpl({ url: incoming.media.url });
+  const mimeType = resolveAudioMimeType({
+    downloadedMimeType: media.mimeType,
+    webhookMimeType: incoming.media.mimeType
+  });
+
+  return String(await transcribeImpl({
+    audio: media.buffer,
+    mimeType,
+    filename: incoming.media.filename
+  }) || '').trim();
+}
+
+async function handleOwnerCopilotActivation({ incoming, dependencies = {} }) {
+  const ownerIdentity = resolveOwnerIdentityFromIncoming(incoming);
+  if (!ownerIdentity?.isOwner) return { handled: false };
+
+  if (!['text', 'audio'].includes(incoming.messageType)) return { handled: false };
+
+  const message = await resolveOwnerLiveMessage(incoming, dependencies);
+  if (!message || !isLiveModeRequest(message)) return { handled: false };
+
+  const createLiveImpl = dependencies.createConnectLiveSession || createConnectLiveSession;
+  const sendTextImpl = dependencies.sendWahaText || sendWahaText;
+
+  try {
+    const live = await createLiveImpl({
+      phone: ownerIdentity.phone || incoming.phone,
+      identity: ownerIdentity.canonicalId || incoming.senderRaw,
+      platform: process.env.WAHA_DEFAULT_PLATFORM || 'ELANVISUAL'
+    });
+
+    await sendTextImpl({
+      session: incoming.session,
+      chatId: incoming.chatId,
+      text: `ELAN Copiloto listo. Abrí tu sesión segura:\n${live.url}\n\nLa sesión vence en 15 minutos.`
+    });
+
+    return {
+      handled: true,
+      payload: {
+        ok: true,
+        processed: true,
+        replySent: true,
+        replyType: 'text',
+        ownerMode: true,
+        elanLive: true,
+        pipeline: 'owner-copilot-live'
+      }
+    };
+  } catch (error) {
+    const denied = error?.status === 403;
+
+    await sendTextImpl({
+      session: incoming.session,
+      chatId: incoming.chatId,
+      text: denied
+        ? 'Este número no tiene acceso autorizado a ELAN Copiloto.'
+        : 'No pude crear la sesión de ELAN Copiloto en este momento.'
+    });
+
+    return {
+      handled: true,
+      payload: {
+        ok: false,
+        processed: true,
+        replySent: true,
+        ownerMode: true,
+        elanLive: true,
+        code: error?.code || null,
+        pipeline: 'owner-copilot-live'
+      }
+    };
+  }
+}
+
+async function handleWahaWebhookApiV2({ req, res, sendJson, dependencies = {} }) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (requestUrl.pathname !== '/webhook/inbound') return false;
 
@@ -68,12 +181,19 @@ async function handleWahaWebhookApiV2({ req, res, sendJson }) {
 
   try {
     const body = await readJsonBody(req);
+    const legacyIncoming = extractIncoming(body);
     const voiceEvent = normalizeWahaVoiceEvent(body);
-    const incoming = voiceEvent || extractIncoming(body);
+    const incoming = mergeVoiceIncoming(legacyIncoming, voiceEvent);
     const reason = ignoredReason(incoming);
 
     if (reason) {
       sendJson(res, 200, { ok: true, ignored: true, reason });
+      return true;
+    }
+
+    const copilot = await handleOwnerCopilotActivation({ incoming, dependencies });
+    if (copilot.handled) {
+      sendJson(res, 200, copilot.payload);
       return true;
     }
 
@@ -99,7 +219,10 @@ async function handleWahaWebhookApiV2({ req, res, sendJson }) {
 }
 
 module.exports = {
+  handleOwnerCopilotActivation,
   handleWahaWebhookApi: handleWahaWebhookApiV2,
   handleWahaWebhookApiV2,
-  readJsonBody
+  mergeVoiceIncoming,
+  readJsonBody,
+  resolveOwnerLiveMessage
 };
