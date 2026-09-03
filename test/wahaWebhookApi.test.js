@@ -1212,6 +1212,74 @@ test('Owner puede solicitar muestra de presentación sin pasar por el modelo', a
   assert.equal(recorder.calls[0].payload.replyType, 'voice');
 });
 
+
+test('nota de voz cuyo resultado contiene enlace se responde como texto', async () => {
+  const req = createRequest({
+    body: {
+      event: 'message',
+      session: 'ELANKAV',
+      payload: {
+        from: '50584817885@c.us',
+        type: 'ptt',
+        body: '',
+        fromMe: false,
+        media: {
+          url: 'http://localhost:3000/api/files/link-request.ogg',
+          mimetype: 'audio/ogg; codecs=opus',
+          filename: 'link-request.ogg'
+        }
+      }
+    }
+  });
+  const res = createResponse();
+  const recorder = createSendJsonRecorder();
+  const texts = [];
+  let voiceCalls = 0;
+  let synthCalls = 0;
+
+  await handleWahaWebhookApi({
+    req,
+    res,
+    sendJson: recorder.sendJson,
+    dependencies: {
+      async downloadWahaMedia() {
+        return { buffer: Buffer.from('audio'), mimeType: 'audio/ogg' };
+      },
+      async transcribeAudio() {
+        return 'Mandame el enlace';
+      },
+      async processMessage() {
+        return {
+          reply: 'Abrí aquí: https://copilot.elankav.com/elan-live/TEST',
+          context: { ownerMode: false, platform: 'ELANVISUAL' }
+        };
+      },
+      async synthesizeSpeech() {
+        synthCalls += 1;
+        throw new Error('TTS_SHOULD_NOT_RUN_FOR_LINK');
+      },
+      async sendWahaVoice() {
+        voiceCalls += 1;
+      },
+      async sendWahaText(input) {
+        texts.push(input);
+        return { id: 'link-text-reply' };
+      },
+      async persistConversationEvent() {
+        return { ok: true };
+      }
+    }
+  });
+
+  assert.equal(synthCalls, 0);
+  assert.equal(voiceCalls, 0);
+  assert.equal(texts.length, 1);
+  assert.equal(texts[0].text, 'Abrí aquí: https://copilot.elankav.com/elan-live/TEST');
+  assert.equal(recorder.calls[0].payload.replyType, 'text');
+  assert.equal(recorder.calls[0].payload.audioLinkTextDelivery, true);
+  assert.equal(recorder.calls[0].payload.transcribed, true);
+});
+
 test('respuesta WhatsApp de prospecto se atribuye antes del runtime comercial', async () => {
   const recorder = createSendJsonRecorder();
   const attributed = [];
