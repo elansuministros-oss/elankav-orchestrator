@@ -15,7 +15,8 @@ function resolveInternalToken() {
   return normalizeText(
     process.env.CONNECT_INTERNAL_API_TOKEN ||
     process.env.CONNECT_INTERNAL_TOKEN ||
-    process.env.CRM_INTERNAL_TOKEN
+    process.env.CRM_INTERNAL_TOKEN ||
+    process.env.ORCHESTRATOR_INTERNAL_TOKEN
   );
 }
 
