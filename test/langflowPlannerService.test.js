@@ -77,7 +77,7 @@ test('planner flow is tool-free, stateless and pinned to the configured OpenAI m
     metadata: {}
   }]);
   assert.equal(model.data.node.template.temperature.value, 0);
-  assert.match(prompt.data.node.template.template.value, /nunca ejecutes acciones/i);
+  assert.match(prompt.data.node.template.template.value, /nunca ejecut(?:es|ás) acciones/i);
   assert.match(prompt.data.node.template.template.value, /qué proveedor tiene, vende o suministra/i);
   assert.match(prompt.data.node.template.template.value, /buscar_material_catalogo/i);
   assert.match(prompt.data.node.template.template.value, /TASK=compose/i);
@@ -206,8 +206,10 @@ test('planner bootstraps Langflow internally and runs without a user tunnel', as
 
   const runCall = calls.find(call => call.url.endsWith('/api/v1/run/planner-flow-1'));
   assert.equal(runCall.headers['x-api-key'], 'runtime-key');
-  assert.match(runCall.body, /"task":"plan"/);
-  assert.match(runCall.body, /"activeCustomerReference":"CLIENTE A"/);
+  const runEnvelope = JSON.parse(runCall.body);
+  const runInput = JSON.parse(runEnvelope.input_value);
+  assert.equal(runInput.task, 'plan');
+  assert.equal(runInput.working_state.activeCustomerReference, 'CLIENTE A');
 });
 
 
@@ -266,7 +268,7 @@ test('planner upgrades an existing persisted flow automatically without user PC'
   assert.equal(state.apiKey, 'runtime-key-old');
   const patchCall = calls.find(call => call.url.endsWith('/api/v1/flows/planner-existing') && call.method === 'PATCH');
   assert.ok(patchCall);
-  assert.match(patchCall.body, /ELANKAV_ORCHESTRATOR_PLANNER:1\.1\.0/);
+  assert.match(patchCall.body, /ELANKAV_CONVERSATION_BRAIN:1\.2\.0/);
   assert.match(patchCall.body, /buscar_material_catalogo/);
 });
 
@@ -328,8 +330,10 @@ test('conversation brain composes a natural reply without changing the approved 
   assert.equal(result.reply, 'No encontré ese proveedor por ese nombre. ¿Querés que lo busque por teléfono?');
   const runCall = calls.find(call => call.url.endsWith('/api/v1/run/planner-flow-1'));
   assert.ok(runCall);
-  assert.match(runCall.body, /"task":"compose"/);
-  assert.match(runCall.body, /No encontré registros que coincidan/);
+  const composeEnvelope = JSON.parse(runCall.body);
+  const composeInput = JSON.parse(composeEnvelope.input_value);
+  assert.equal(composeInput.task, 'compose');
+  assert.equal(composeInput.approved_reply, 'No encontré registros que coincidan.');
   assert.equal(validateComposedReply({ reply: '' }, 'fallback'), 'fallback');
 });
 
