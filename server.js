@@ -42,6 +42,7 @@ const {
 const {
   createProspectingEmailReplyWorker
 } = require('./services/prospectingResponseAttributionService');
+const { langflowPlannerService } = require('./services/langflowPlannerService');
 
 const HOST = '172.19.0.1';
 const PORT = 4100;
@@ -758,6 +759,19 @@ async function startServer() {
   startElanMarketplaceBrokerWorker();
   startProviderRecruitmentFollowupWorker();
   prospectingEmailReplyWorker.start();
+
+  langflowPlannerService.bootstrap()
+    .then(state => {
+      console.log('[LANGFLOW_PLANNER_READY]', {
+        flowId: state?.flowId || null,
+        version: state?.version || null
+      });
+    })
+    .catch(error => {
+      console.error('[LANGFLOW_PLANNER_BOOTSTRAP_DEFERRED]', {
+        code: error?.code || 'LANGFLOW_PLANNER_BOOTSTRAP_FAILED'
+      });
+    });
 
   server.listen(PORT, HOST, () => {
     console.log(`ELANKAV Orchestrator ${VERSION} activo en http://${HOST}:${PORT}`);
