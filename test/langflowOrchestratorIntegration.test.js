@@ -58,9 +58,9 @@ test('clear material plus supplier question is routed before Langflow and provid
   assert.equal(runtime.materialSupplierReadIntent(phrase), true);
   assert.equal(runtime.materialQueryFromMessage(phrase), 'acrílico');
 
-  const fastPathIndex = runtimePatch.indexOf("if(materialSupplierReadIntent(args.message))");
-  const plannerIndex = runtimePatch.indexOf("executeLangflowReadPlanner({context,args,memory})");
-  const deterministicIndex = runtimePatch.indexOf("detectOwnerUnifiedCommand(args.message)");
+  const fastPathIndex = runtimePatch.indexOf("const fastResult=await executeGenericOwnerCommand");
+  const plannerIndex = runtimePatch.indexOf("const plannedResult=await executeLangflowReadPlanner");
+  const deterministicIndex = runtimePatch.indexOf("const unifiedCommand=detectOwnerUnifiedCommand");
 
   assert.ok(fastPathIndex >= 0, 'material supplier fast path must exist');
   assert.ok(plannerIndex > fastPathIndex, 'fast path must run before Langflow planner');
