@@ -178,7 +178,7 @@ async function handleElanUnifiedRuntimeApi({ req, res, sendJson }) {
         authority: 'CONNECT',
         actor,
         memory,
-        tools: getToolManifest(actor)
+        tools: getToolManifest(actor, platform)
       });
       return true;
     }
@@ -239,6 +239,7 @@ async function handleElanUnifiedRuntimeApi({ req, res, sendJson }) {
 
     const execution = await executeThroughConnect({
       actor,
+      platform,
       channel: body.channel || 'api',
       tool: body.tool || body.name,
       arguments: body.arguments || {},
