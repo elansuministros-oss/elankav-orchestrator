@@ -267,13 +267,36 @@ async function executeOwnerProspectingNaturalAudit(
 
   const intent = String(command.input?.intent || 'overview');
 
-  const baseOutput = formatAudit(audit, intent);
-  const evidenceOutput = deliveryEvidenceLines(deliveries).join('\\n');
+  const rawBaseOutput = formatAudit(audit, intent);
+
+  const verifiedEmailCount = Array.isArray(deliveries)
+    ? deliveries.filter(row => String(row.channel || '').toLowerCase() === 'email').length
+    : 0;
+
+  const verifiedWhatsappCount = Array.isArray(deliveries)
+    ? deliveries.filter(row => String(row.channel || '').toLowerCase() === 'whatsapp').length
+    : 0;
+
+  const verifiedSummary =
+    `Últimas entregas verificadas: ${verifiedEmailCount} correo(s) y ${verifiedWhatsappCount} WhatsApp con evidencia externa.`;
+
+  const baseOutput = rawBaseOutput.replace(
+    /^Hasta ahora:/m,
+    'Auditoría agregada actual:'
+  );
+
+  const evidenceOutput = deliveryEvidenceLines(deliveries).join('\n');
 
   return {
     handled: true,
-    outputText: [baseOutput, evidenceOutput].filter(Boolean).join('\\n'),
-    result: { audit, deliveries, intent }
+    outputText: [baseOutput, verifiedSummary, evidenceOutput].filter(Boolean).join('\n'),
+    result: {
+      audit,
+      deliveries,
+      verifiedEmailCount,
+      verifiedWhatsappCount,
+      intent
+    }
   };
 }
 
