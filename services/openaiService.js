@@ -360,10 +360,38 @@ async function generateText({
     .filter(value => typeof value === 'string' && value.trim())
     .join('\n\n');
 
-  return createResponse({
-    input: buildResponseInput({ input, history }),
-    instructions: resolvedInstructions
-  });
+  try {
+    return await createResponse({
+      input: buildResponseInput({ input, history }),
+      instructions: resolvedInstructions
+    });
+  } catch (error) {
+    const code = String(error?.code || '').toLowerCase();
+    const type = String(error?.type || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    const status = Number(error?.status || 0);
+
+    const noCredit =
+      code.includes('insufficient_quota') ||
+      code.includes('billing_hard_limit') ||
+      type.includes('insufficient_quota') ||
+      message.includes('insufficient_quota') ||
+      message.includes('billing hard limit') ||
+      message.includes('exceeded your current quota') ||
+      (status === 429 && message.includes('quota'));
+
+    if (noCredit) {
+      return {
+        outputText: 'sin saldo',
+        model: 'openai-no-credit-fallback',
+        id: null,
+        status: 'degraded',
+        usage: null
+      };
+    }
+
+    throw error;
+  }
 }
 
 module.exports = {
