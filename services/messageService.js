@@ -460,7 +460,7 @@ async function processMessage({ message, platform, channel, externalUserId, phon
       const ownerMode = Boolean(context.owner?.isOwner);
 
       if (ownerMode) {
-        await persistRequiredUnifiedTurn({
+        await persistUnifiedContext({
           actor: {
             role: 'owner',
             actorId: 'owner',
@@ -474,7 +474,8 @@ async function processMessage({ message, platform, channel, externalUserId, phon
           direction: 'inbound',
           text: normalizedMessage,
           messageType: String(metadata?.messageType || 'text').toLowerCase() || 'text',
-          externalMessageId: metadata?.messageId || metadata?.webhookMessageId || null
+          externalMessageId: metadata?.messageId || metadata?.webhookMessageId || null,
+          safe: true
         });
       }
 
@@ -656,7 +657,7 @@ async function processMessage({ message, platform, channel, externalUserId, phon
   if (resolvedContext?.owner?.isOwner && !suppressDelivery) {
     const ownerOutput = String(response.outputText || '').trim();
     if (ownerOutput) {
-      await persistRequiredUnifiedTurn({
+      await persistUnifiedContext({
         actor: {
           role: 'owner',
           actorId: 'owner',
@@ -670,7 +671,8 @@ async function processMessage({ message, platform, channel, externalUserId, phon
         direction: 'outbound',
         text: ownerOutput,
         messageType: 'text',
-        externalMessageId: response.id ? `owner-out:${response.id}` : null
+        externalMessageId: response.id ? `owner-out:${response.id}` : null,
+        safe: true
       });
     }
   }
