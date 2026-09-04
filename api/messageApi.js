@@ -9,6 +9,8 @@ const { handleVqsPublicQuotationApi } = require('./vqsPublicQuotationApi');
 const { handleVqsContextApi } = require('./vqsContextApi');
 const { handleVqsCustomerApi } = require('./vqsCustomerApi');
 const { handleElanUnifiedRuntimeApi } = require('./elanUnifiedRuntimeApi');
+const { createInternalCopilotApi } = require('./internalCopilotApi');
+const handleInternalCopilotApi = createInternalCopilotApi();
 const { handleWahaWebhookApi } = require('./wahaWebhookApi');
 const { handleMessageApi: handleLegacyMessageApi } = require('./messageApiLegacy');
 
@@ -74,6 +76,9 @@ function applyVqsCors(req, res) {
 }
 
 async function handleMessageApi({ req, res, sendJson }) {
+  const internalCopilotHandled = await handleInternalCopilotApi({ req, res, sendJson });
+  if (internalCopilotHandled) return true;
+
   const unifiedRuntimeHandled = await handleElanUnifiedRuntimeApi({ req, res, sendJson });
   if (unifiedRuntimeHandled) return true;
 
