@@ -149,6 +149,29 @@ function improvementLines(audit) {
   return lines;
 }
 
+function deliveryEvidenceLines(deliveries, limit = 5) {
+  const rows = Array.isArray(deliveries) ? deliveries.slice(0, limit) : [];
+
+  if (!rows.length) {
+    return ['Evidencia reciente de envíos: no hay registros SENT disponibles en este momento.'];
+  }
+
+  return [
+    'Evidencia reciente de envíos:',
+    ...rows.map((row, index) => {
+      const channel = String(row.channel || 'canal').toUpperCase();
+      const destination = String(row.destination || 'destino no disponible');
+      const status = String(row.status || 'unknown');
+      const sentAt = row.sentAt ? String(row.sentAt) : 'sin fecha';
+      const externalRef = row.externalRef
+        ? String(row.externalRef)
+        : 'sin referencia externa';
+
+      return `${index + 1}. ${channel} → ${destination} · ${status} · ${sentAt} · ref ${externalRef}`;
+    })
+  ];
+}
+
 function formatAudit(audit, intent) {
   const m = audit?.mission;
   const o = audit?.outreach || {};
@@ -236,12 +259,21 @@ async function executeOwnerProspectingNaturalAudit(
   }
 
   const audit = await requestImpl('/api/v1/prospecting/audit', { method: 'GET' });
+
+  const deliveries = await requestImpl(
+    '/api/v1/prospecting/outreach-deliveries?status=sent&limit=10',
+    { method: 'GET' }
+  );
+
   const intent = String(command.input?.intent || 'overview');
+
+  const baseOutput = formatAudit(audit, intent);
+  const evidenceOutput = deliveryEvidenceLines(deliveries).join('\\n');
 
   return {
     handled: true,
-    outputText: formatAudit(audit, intent),
-    result: { audit, intent }
+    outputText: [baseOutput, evidenceOutput].filter(Boolean).join('\\n'),
+    result: { audit, deliveries, intent }
   };
 }
 
@@ -250,5 +282,6 @@ module.exports = {
   detectOwnerProspectingNaturalAudit,
   executeOwnerProspectingNaturalAudit,
   formatAudit,
+  deliveryEvidenceLines,
   improvementLines
 };
