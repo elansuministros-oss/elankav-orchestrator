@@ -13,6 +13,7 @@ const {
   resolveRegisteredProvider
 } = require('../services/providerInboundIntelligenceService');
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
+const { createConnectLiveSession } = require('../services/connectLiveAccessService');
 const {
   normalizeReplyForTextDelivery,
   shouldForceTextForAudioReply

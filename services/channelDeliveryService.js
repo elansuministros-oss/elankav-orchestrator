@@ -33,6 +33,26 @@ function createChannelDeliveryService({
     );
   }
 
+  function selectEmailTransport(fromIdentity) {
+    const identity = clean(fromIdentity).toLowerCase();
+    const gmailConfig = gmail.configuration();
+    const resendConfig = resend.configuration();
+
+    // ELANVISUAL must leave a visible copy in the Owner's Gmail SENT mailbox.
+    // Prefer Gmail whenever its OAuth transport is configured. Resend remains a
+    // fallback so delivery does not become unavailable if Gmail infrastructure
+    // is not configured on a given runtime.
+    if (identity === 'elanvisual' && gmailConfig.configured) {
+      return { transport: gmail, provider: 'gmail' };
+    }
+
+    if (resendConfig.configured) {
+      return { transport: resend, provider: 'resend' };
+    }
+
+    return { transport: gmail, provider: 'gmail' };
+  }
+
   function capabilitySnapshot() {
     const resendConfig = resend.configuration();
     const gmailConfig = gmail.configuration();
@@ -55,6 +75,7 @@ function createChannelDeliveryService({
             : 'AUTH_REQUIRED',
         configured: emailConfig.configured,
         provider: resendConfig.configured ? 'resend' : 'gmail',
+        elanvisualProvider: gmailConfig.configured ? 'gmail' : (resendConfig.configured ? 'resend' : 'gmail'),
         requiresPerTargetVerification: false,
         reason: emailConfig.reason
       },
@@ -181,6 +202,24 @@ function createChannelDeliveryService({
         };
       }
 
+      if (clean(input.messageType).toLowerCase() === 'file') {
+        const result = await waha.sendFile({
+          phone: input.phone,
+          chatId: input.chatId,
+          fileUrl: input.fileUrl,
+          caption: clean(input.caption || text),
+          fileName: clean(input.fileName) || 'documento.pdf',
+          mimeType: clean(input.mimeType) || 'application/pdf'
+        });
+        return {
+          channel,
+          status: 'SENT',
+          externalRef: result.messageId || null,
+          recipient: result.chatId,
+          messageType: 'file'
+        };
+      }
+
       const result = await waha.sendText({
         phone: input.phone,
         chatId: input.chatId,
@@ -195,9 +234,8 @@ function createChannelDeliveryService({
     }
 
     if (channel === 'email') {
-      const resendConfig = resend.configuration();
-      const transport = resendConfig.configured ? resend : gmail;
-      const result = await transport.sendText({
+      const selected = selectEmailTransport(input.fromIdentity);
+      const result = await selected.transport.sendText({
         to: input.to,
         subject: input.subject,
         text,
@@ -205,13 +243,14 @@ function createChannelDeliveryService({
         threadId: input.threadId,
         inReplyTo: input.inReplyTo,
         references: input.references,
-        fromIdentity: input.fromIdentity
+        fromIdentity: input.fromIdentity,
+        attachments: Array.isArray(input.attachments) ? input.attachments : []
       });
       return {
         channel,
         status: 'SENT',
         externalRef: result.id,
-        provider: result.provider || (resendConfig.configured ? 'resend' : 'gmail'),
+        provider: result.provider || selected.provider,
         ...(result.threadId ? { threadId: result.threadId } : {}),
         ...(result.sender ? { sender: result.sender } : {}),
         ...(result.recipient ? { recipient: result.recipient } : {})

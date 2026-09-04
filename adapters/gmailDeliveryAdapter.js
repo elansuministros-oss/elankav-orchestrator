@@ -96,6 +96,32 @@ function base64Url(value) {
     .replace(/=+$/g, '');
 }
 
+function attachmentValues(value) {
+  const rows = Array.isArray(value) ? value : [];
+  let totalBytes = 0;
+  return rows.map((item, index) => {
+    const fileName = headerValue(item?.fileName || item?.filename, `attachment[${index}].fileName`).replace(/"/g, "'");
+    const mimeType = headerValue(item?.mimeType || 'application/octet-stream', `attachment[${index}].mimeType`).toLowerCase();
+    const dataBase64 = clean(item?.dataBase64 || item?.content);
+    if (!dataBase64 || !/^[A-Za-z0-9+/=\r\n]+$/.test(dataBase64)) {
+      throw new GmailDeliveryError('GMAIL_ATTACHMENT_INVALID', `Adjunto ${index + 1} inválido.`, 400);
+    }
+    const compact = dataBase64.replace(/\s+/g, '');
+    let bytes;
+    try { bytes = Buffer.from(compact, 'base64'); } catch { bytes = Buffer.alloc(0); }
+    if (!bytes.length) throw new GmailDeliveryError('GMAIL_ATTACHMENT_INVALID', `Adjunto ${index + 1} vacío.`, 400);
+    totalBytes += bytes.length;
+    if (totalBytes > 18 * 1024 * 1024) {
+      throw new GmailDeliveryError('GMAIL_ATTACHMENTS_TOO_LARGE', 'Los adjuntos superan 18 MB.', 413);
+    }
+    return { fileName, mimeType, dataBase64: bytes.toString('base64') };
+  });
+}
+
+function wrapBase64(value) {
+  return String(value || '').replace(/\s+/g, '').match(/.{1,76}/g)?.join('\r\n') || '';
+}
+
 function createGmailDeliveryAdapter({
   env = process.env,
   fetchImpl = globalThis.fetch
@@ -273,23 +299,28 @@ function createGmailDeliveryAdapter({
     threadId,
     inReplyTo,
     references,
-    fromIdentity
+    fromIdentity,
+    attachments
   } = {}) {
     const recipient = emailValue(to);
     const safeSubject = headerValue(subject, 'subject');
     const bodyText = bodyValue(text, 'text');
     const bodyHtml = bodyValue(html, 'html', false);
     const resolvedSender = resolveSender(fromIdentity);
-    const boundary = '=_ELANKAV_' + randomUUID().replace(/-/g, '');
+    const files = attachmentValues(attachments);
+    const alternativeBoundary = '=_ELANKAV_ALT_' + randomUUID().replace(/-/g, '');
+    const mixedBoundary = '=_ELANKAV_MIXED_' + randomUUID().replace(/-/g, '');
 
     const headers = [
       `From: ${resolvedSender}`,
       `To: ${recipient}`,
       `Subject: ${safeSubject}`,
       'MIME-Version: 1.0',
-      ...(bodyHtml
-        ? [`Content-Type: multipart/alternative; boundary="${boundary}"`]
-        : ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit'])
+      ...(files.length
+        ? [`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`]
+        : bodyHtml
+          ? [`Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`]
+          : ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit'])
     ];
 
     if (clean(inReplyTo)) {
@@ -299,22 +330,41 @@ function createGmailDeliveryAdapter({
       headers.push(`References: ${headerValue(references, 'references')}`);
     }
 
-    const body = bodyHtml
+    const alternativeBody = bodyHtml
       ? [
-          '--' + boundary,
+          '--' + alternativeBoundary,
           'Content-Type: text/plain; charset=UTF-8',
           'Content-Transfer-Encoding: 8bit',
           '',
           bodyText,
-          '--' + boundary,
+          '--' + alternativeBoundary,
           'Content-Type: text/html; charset=UTF-8',
           'Content-Transfer-Encoding: 8bit',
           '',
           bodyHtml,
-          '--' + boundary + '--',
+          '--' + alternativeBoundary + '--',
           ''
         ].join('\r\n')
       : bodyText;
+
+    const body = files.length
+      ? [
+          '--' + mixedBoundary,
+          ...(bodyHtml
+            ? [`Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`, '', alternativeBody]
+            : ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '', bodyText]),
+          ...files.flatMap((file) => [
+            '--' + mixedBoundary,
+            `Content-Type: ${file.mimeType}; name="${file.fileName}"`,
+            `Content-Disposition: attachment; filename="${file.fileName}"`,
+            'Content-Transfer-Encoding: base64',
+            '',
+            wrapBase64(file.dataBase64)
+          ]),
+          '--' + mixedBoundary + '--',
+          ''
+        ].join('\r\n')
+      : alternativeBody;
 
     const raw = base64Url(headers.join('\r\n') + '\r\n\r\n' + body);
     const payload = await gmailRequest('/messages/send', {

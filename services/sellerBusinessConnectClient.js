@@ -354,6 +354,19 @@ async function sendQuotationWhatsApp(projectId, actor, body = {}, env) {
   }, env);
 }
 
+async function sendQuotationEmail(projectId, actor, body = {}, env) {
+  await getQuotation(projectId, actor, env);
+  return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/send-email`, actor, {
+    method: 'POST',
+    body
+  }, env);
+}
+
+async function listWorkOrders(projectId, actor, env) {
+  await getQuotation(projectId, actor, env);
+  return requestConnect(`/api/v1/business/vqs/quotations/${query(projectId)}/work-orders`, actor, {}, env);
+}
+
 module.exports = {
   SellerBusinessConnectError,
   createQuotation,
@@ -362,12 +375,14 @@ module.exports = {
   listLogisticsRules,
   listQuotations,
   listSellerCustomers,
+  listWorkOrders,
   normalizeSellerQuotation,
   prepareBudget,
   requestConnect,
   resolveAuthorizedItems,
   resolveCatalogPricing,
   sellerIdentity,
+  sendQuotationEmail,
   sendQuotationWhatsApp,
   updateQuotation,
   updateSellerCustomer

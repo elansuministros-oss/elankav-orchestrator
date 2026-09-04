@@ -49,8 +49,14 @@ function detectOwnerProspectingNaturalAudit(message) {
   const asksBroad =
     /\b(como\s+va\s+todo\s+(?:con\s+)?(?:las\s+)?empresas|como\s+vamos\s+con\s+todo|contame\s+como\s+va|cuentame\s+como\s+va)\b/.test(text);
 
+  // Explicit Owner requests such as "dame la auditoría de prospecting de hoy para ELANVISUAL"
+  // must never fall through to the generic platform-health answer. These requests are read-only
+  // and are resolved against CONNECT's real Prospecting audit endpoint below.
+  const asksAudit =
+    /\b(?:auditoria|reporte|resumen|balance|estado)\b.*\b(?:prospecting|prospeccion|prospectos?)\b|\b(?:prospecting|prospeccion)\b.*\b(?:auditoria|reporte|resumen|balance|estado)\b/.test(text);
+
   if (!(asksCompanies || asksEmail || asksWhatsapp || asksResponses || asksFollowup ||
-        asksComplaints || asksImprove || asksInterest || asksBroad)) return null;
+        asksComplaints || asksImprove || asksInterest || asksBroad || asksAudit)) return null;
 
   let intent = 'overview';
   if (asksImprove) intent = 'improve';

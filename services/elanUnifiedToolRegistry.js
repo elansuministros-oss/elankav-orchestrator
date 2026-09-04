@@ -9,6 +9,22 @@ const qParam = { type:'object', properties:{ query:{ type:'string' } }, required
 const idPatchParam = (idField) => ({ type:'object', properties:{ [idField]:{type:'string'}, data:{type:'object'} }, required:[idField,'data'], additionalProperties:false });
 const idOnlyParam = (idField) => ({ type:'object', properties:{ [idField]:{type:'string'} }, required:[idField], additionalProperties:false });
 
+const CONNECT_PLATFORM_TOOLS = new Set([
+  'buscar_vendedor','crear_vendedor','editar_vendedor','desactivar_vendedor','eliminar_vendedor',
+  'configurar_plataformas_vendedor','buscar_familiar','crear_familiar','editar_familiar','desactivar_familiar',
+  'buscar_contacto','enviar_mensaje_whatsapp'
+]);
+const ELAN_GO_PLATFORM_TOOLS = new Set([
+  'marketplace_gestionar_necesidad','marketplace_crear_consulta','marketplace_listar_necesidades','marketplace_listar_descubrimientos'
+]);
+function normalizePlatform(value){return String(value||'ELANVISUAL').trim().toUpperCase().replace(/[ -]+/g,'_')}
+function platformAllowsTool(name,platform){
+  const current=normalizePlatform(platform);
+  if(current==='ELAN_GO')return ELAN_GO_PLATFORM_TOOLS.has(name);
+  if(current==='CONNECT')return CONNECT_PLATFORM_TOOLS.has(name);
+  return !ELAN_GO_PLATFORM_TOOLS.has(name)&&!CONNECT_PLATFORM_TOOLS.has(name);
+}
+
 const TOOL_DEFINITIONS = Object.freeze([
   { name:'buscar_precio_autorizado', description:'Busca exclusivamente el precio comercial autorizado y publicado en CONNECT. Nunca estima ni inventa.', scope:'price.authorized.read', sellerAllowed:true, parameters:{type:'object',properties:{query:{type:'string'},width:{type:'number'},height:{type:'number'},quantity:{type:'number'}},required:['query'],additionalProperties:false}},
   { name:'listar_precios_autorizados', description:'Lista coincidencias del catálogo comercial autorizado de ELANVISUAL.', scope:'price.authorized.read', parameters:qParam },
@@ -39,12 +55,17 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'editar_cotizacion', description:'Actualiza una cotización oficial. El vendedor solo puede editar una cotización propia y todos los precios se vuelven a validar.', scope:'quotation.write', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'},document:{type:'object'}},required:['projectId','document'],additionalProperties:false}},
   { name:'cargar_imagen_cotizacion', description:'Carga o reemplaza una imagen de una cotización en borrador.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},imageBase64:{type:'string'},mimeType:{type:'string'},filename:{type:'string'},itemId:{type:'string'},mode:{type:'string',enum:['add','replace']}},required:['projectId','imageBase64','mimeType'],additionalProperties:false}},
   { name:'quitar_imagen_cotizacion', description:'Quita la imagen de un ítem de cotización en borrador.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},itemId:{type:'string'}},required:['projectId'],additionalProperties:false}},
-  { name:'enviar_cotizacion_cliente', description:'Envía una cotización oficial al WhatsApp del cliente.', ownerOnly:true, parameters:{type:'object',properties:{projectId:{type:'string'},body:{type:'object'}},required:['projectId'],additionalProperties:false}},
+  { name:'enviar_cotizacion_cliente', description:'Envía una cotización oficial al WhatsApp registrado del cliente. Para vendedor solo permite una cotización propia y su destinatario registrado.', scope:'quotation.send', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'},body:{type:'object'}},required:['projectId'],additionalProperties:false}},
+  { name:'enviar_cotizacion_email', description:'Envía una cotización oficial por correo usando el canal email verificado. Para vendedor solo permite una cotización propia y el correo registrado de su cliente.', scope:'quotation.send', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'},body:{type:'object'}},required:['projectId'],additionalProperties:false}},
+  { name:'abrir_cotizacion', description:'Recupera una cotización autorizada y su enlace oficial para abrirla en el Copiloto. Para vendedor solo permite cotizaciones propias.', scope:'quotation.read', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
   { name:'crear_propuesta_diseno', description:'Crea y procesa una propuesta en el motor oficial de diseño de CONNECT, devolviendo el resultado generado cuando está disponible.', ownerOnly:true, parameters:{type:'object',properties:{customer:{type:'object'},project:{type:'object'},files:{type:'array',items:{type:'object'}},source:{type:'string'}},required:['project'],additionalProperties:false}},
   { name:'consultar_propuesta_diseno', description:'Consulta estado y resultado de una propuesta de diseño.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},accessToken:{type:'string'}},required:['requestCode','accessToken'],additionalProperties:false}},
   { name:'revisar_propuesta_diseno', description:'Solicita revisión o render de una propuesta existente.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},accessToken:{type:'string'},action:{type:'string'},instructions:{type:'string'}},required:['requestCode','accessToken','action','instructions'],additionalProperties:false}},
   { name:'enviar_propuesta_diseno', description:'Envía por WhatsApp una propuesta de diseño ya generada usando su código interno de solicitud y el teléfono destino.', ownerOnly:true, parameters:{type:'object',properties:{requestCode:{type:'string'},phone:{type:'string'},caption:{type:'string'}},required:['requestCode','phone'],additionalProperties:false}},
-  { name:'buscar_orden_trabajo', description:'Lista órdenes de trabajo de una cotización/proyecto.', scope:'work_order.read', parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
+  { name:'buscar_orden_trabajo', description:'Lista órdenes de trabajo de una cotización/proyecto. Para vendedor solo permite proyectos de sus propias cotizaciones.', scope:'work_order.read', sellerAllowed:true, parameters:{type:'object',properties:{projectId:{type:'string'}},required:['projectId'],additionalProperties:false}},
+  { name:'resumen_comercial', description:'Genera un resumen comercial usando únicamente datos autorizados del actor. Owner obtiene alcance global; vendedor solo sus clientes y cotizaciones.', scope:'report.read', sellerAllowed:true, parameters:{type:'object',properties:{},additionalProperties:false}},
+  { name:'marketplace_listar_necesidades', description:'Lista las necesidades/demandas registradas en ELAN GO.', ownerOnly:true, parameters:{type:'object',properties:{},additionalProperties:false}},
+  { name:'marketplace_listar_descubrimientos', description:'Lista descubrimientos/ofertas externas persistidas por ELAN GO.', ownerOnly:true, parameters:{type:'object',properties:{},additionalProperties:false}},
   { name:'marketplace_gestionar_necesidad', description:'ELAN registra una necesidad en CONNECT, ejecuta matching y, si no existe candidato, busca ofertas externas de forma autónoma.', ownerOnly:true, parameters:{type:'object',properties:{requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},title:{type:'string'},description:{type:'string'},category:{type:'string'},subcategory:{type:'string'},intent:{type:'string'},budget:{type:'object'},preferredLocation:{type:'object'},requirements:{type:'object'},priority:{type:'string'},source:{type:'string'},expiresAt:{type:'string'}},required:['title','category','subcategory','intent'],additionalProperties:false}},
   { name:'marketplace_crear_consulta', description:'Registra en CONNECT el interés real de una identidad existente sobre un activo público. ELAN no inventa identidades.', ownerOnly:true, parameters:{type:'object',properties:{assetCode:{type:'string'},requesterPartyId:{type:'string'},requesterRefType:{type:'string'},requesterRefId:{type:'string'},action:{type:'string',enum:['request_information','make_offer','want_to_buy','want_to_rent','schedule_visit','talk_to_elan']},offerAmount:{type:'object'},message:{type:'string'}},required:['assetCode','action'],additionalProperties:false}},
   { name:'consultar_pago', description:'Consulta pagos oficiales de una cotización/proyecto.', scope:'payment.read', parameters:{type:'object',properties:{projectId:{type:'string'},paymentId:{type:'string'}},required:['projectId'],additionalProperties:false}}
@@ -61,14 +82,55 @@ function isAllowed(definition,actor={}){
   const scopes=scopesOf(actor);
   return scopes.includes('*')||!definition.scope||scopes.includes(definition.scope);
 }
-function getToolManifest(actor={}){return TOOL_DEFINITIONS.filter(definition=>isAllowed(definition,actor)).map(definition=>({type:'function',name:definition.name,description:definition.description,parameters:definition.parameters}))}
+function getToolManifest(actor={},platform='ELANVISUAL'){return TOOL_DEFINITIONS.filter(definition=>isAllowed(definition,actor)&&platformAllowsTool(definition.name,platform)).map(definition=>({type:'function',name:definition.name,description:definition.description,parameters:definition.parameters}))}
 function requiredText(value,field){const normalized=String(value||'').trim();if(!normalized){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return normalized}
 function requiredObject(value,field='data'){if(!value||typeof value!=='object'||Array.isArray(value)){const error=new Error(`Falta ${field}.`);error.code='ELAN_TOOL_ARGUMENT_REQUIRED';error.statusCode=400;throw error}return value}
 function optionalText(value){return String(value||'').trim()}
+function resultRows(payload){
+  const data=payload&&typeof payload==='object'&&Object.prototype.hasOwnProperty.call(payload,'data')?payload.data:payload;
+  if(Array.isArray(data))return data;
+  if(data&&typeof data==='object'&&Array.isArray(data.results))return data.results;
+  return[];
+}
+function quoteTotalUsd(row={}){
+  const direct=Number(row.totalUsd??row.total_usd);
+  if(Number.isFinite(direct))return direct;
+  const doc=row.quotation_document&&typeof row.quotation_document==='object'?row.quotation_document:{};
+  const pub=doc.publicDocument&&typeof doc.publicDocument==='object'?doc.publicDocument:{};
+  const totals=pub.totals&&typeof pub.totals==='object'?pub.totals:{};
+  const nested=Number(totals.totalUsd??totals.total_usd??totals.total);
+  return Number.isFinite(nested)?nested:0;
+}
+async function commercialSummary(actor={},env=process.env){
+  const sellerActor=isSeller(actor);
+  const [quotesPayload,customersPayload]=await Promise.all([
+    sellerActor?seller.listQuotations(actor,env):connect.listQuotations(env),
+    sellerActor?seller.listSellerCustomers(actor,'',env):connect.listOwnerCustomers('',env)
+  ]);
+  const quotations=resultRows(quotesPayload);
+  const customers=resultRows(customersPayload);
+  const byStatus={};
+  let quotedUsd=0;
+  for(const row of quotations){
+    const status=String(row?.status||'unknown').trim().toLowerCase()||'unknown';
+    byStatus[status]=(byStatus[status]||0)+1;
+    quotedUsd+=quoteTotalUsd(row||{});
+  }
+  return{
+    authority:'CONNECT',
+    dataScope:sellerActor?'OWN':'ALL',
+    actorId:String(actor.actorId||actor.sellerId||'owner'),
+    customers:customers.length,
+    quotations:quotations.length,
+    quotedUsd:Number(quotedUsd.toFixed(2)),
+    quotationsByStatus:byStatus
+  };
+}
 
-async function executeTool({actor={},tool,arguments:args={},env=process.env}={}){
+async function executeTool({actor={},platform='ELANVISUAL',tool,arguments:args={},env=process.env}={}){
   const name=String(tool||'').trim();const definition=TOOL_DEFINITIONS.find(candidate=>candidate.name===name);
   if(!definition)throw Object.assign(new Error(`La herramienta ${name||'(vacía)'} todavía no está disponible en ELAN Runtime.`),{code:'ELAN_TOOL_NOT_AVAILABLE',statusCode:404});
+  if(!platformAllowsTool(name,platform))throw Object.assign(new Error(`La herramienta ${name} no pertenece a la plataforma ${normalizePlatform(platform)}.`),{code:'ELAN_TOOL_PLATFORM_FORBIDDEN',statusCode:403});
   if(!isAllowed(definition,actor))throw Object.assign(new Error('El actor no tiene permiso para ejecutar esta herramienta.'),{code:'ELAN_TOOL_FORBIDDEN',statusCode:403});
   const sellerActor=isSeller(actor);
   switch(name){
@@ -101,12 +163,15 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
     case'editar_cotizacion':return sellerActor?seller.updateQuotation(requiredText(args.projectId,'projectId'),requiredObject(args.document,'document'),actor,env):connect.updateQuotation(requiredText(args.projectId,'projectId'),requiredObject(args.document,'document'),env);
     case'cargar_imagen_cotizacion':return connect.uploadQuotationImage(requiredText(args.projectId,'projectId'),{imageBase64:requiredText(args.imageBase64,'imageBase64'),mimeType:requiredText(args.mimeType,'mimeType'),...(args.filename?{filename:args.filename}:{}),...(args.itemId?{itemId:args.itemId}:{}),...(args.mode?{mode:args.mode}:{})},env);
     case'quitar_imagen_cotizacion':return connect.removeQuotationImage(requiredText(args.projectId,'projectId'),args.itemId?{itemId:args.itemId}:{},env);
-    case'enviar_cotizacion_cliente':return connect.sendQuotationWhatsApp(requiredText(args.projectId,'projectId'),args.body&&typeof args.body==='object'?args.body:{},env);
+    case'enviar_cotizacion_cliente':return sellerActor?seller.sendQuotationWhatsApp(requiredText(args.projectId,'projectId'),actor,args.body&&typeof args.body==='object'?args.body:{},env):connect.sendQuotationWhatsApp(requiredText(args.projectId,'projectId'),args.body&&typeof args.body==='object'?args.body:{},env);
+    case'enviar_cotizacion_email':return sellerActor?seller.sendQuotationEmail(requiredText(args.projectId,'projectId'),actor,args.body&&typeof args.body==='object'?args.body:{},env):connect.sendQuotationEmail(requiredText(args.projectId,'projectId'),args.body&&typeof args.body==='object'?args.body:{},env);
+    case'abrir_cotizacion':return sellerActor?seller.getQuotation(requiredText(args.projectId,'projectId'),actor,env):connect.getQuotation(requiredText(args.projectId,'projectId'),env);
     case'crear_propuesta_diseno':return connect.createAndProcessDesign({customer:args.customer||{},project:requiredObject(args.project,'project'),files:Array.isArray(args.files)?args.files:[],source:args.source||'elan-unified-runtime'},env);
     case'consultar_propuesta_diseno':return connect.getDesignRequest(requiredText(args.requestCode,'requestCode'),requiredText(args.accessToken,'accessToken'),env);
     case'revisar_propuesta_diseno':return connect.reviseDesignRequest(requiredText(args.requestCode,'requestCode'),requiredText(args.accessToken,'accessToken'),requiredText(args.action,'action'),requiredText(args.instructions,'instructions'),env);
     case'enviar_propuesta_diseno':return connect.sendDesignWhatsApp(requiredText(args.requestCode,'requestCode'),'',requiredText(args.phone,'phone'),optionalText(args.caption),env);
-    case'buscar_orden_trabajo':return connect.listWorkOrders(requiredText(args.projectId,'projectId'),env);
+    case'buscar_orden_trabajo':return sellerActor?seller.listWorkOrders(requiredText(args.projectId,'projectId'),actor,env):connect.listWorkOrders(requiredText(args.projectId,'projectId'),env);
+    case'resumen_comercial':return commercialSummary(actor,env);
     case'marketplace_gestionar_necesidad':return marketplaceAutonomy.manageMarketplaceNeed(requiredObject(args,'arguments'),env);
     case'marketplace_crear_consulta':return marketplaceAutonomy.createMarketplaceInquiry(requiredObject(args,'arguments'),env);
     case'consultar_pago':{const projectId=requiredText(args.projectId,'projectId');return args.paymentId?connect.getPayment(projectId,requiredText(args.paymentId,'paymentId'),env):connect.listPayments(projectId,env)}
@@ -114,4 +179,4 @@ async function executeTool({actor={},tool,arguments:args={},env=process.env}={})
   }
 }
 
-module.exports={TOOL_DEFINITIONS,executeTool,getToolManifest,isAllowed,isOwner,isSeller};
+module.exports={TOOL_DEFINITIONS,executeTool,getToolManifest,isAllowed,isOwner,isSeller,normalizePlatform,platformAllowsTool};
