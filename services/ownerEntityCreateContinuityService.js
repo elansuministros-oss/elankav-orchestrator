@@ -9,7 +9,8 @@ const DEFAULT_PENDING_TTL_MS = 15 * 60 * 1000;
 const SUPPORTED_TYPES = Object.freeze(['customer', 'provider', 'family']);
 const PROVIDER_STRING_FIELDS = Object.freeze([
   'name', 'phone', 'whatsapp', 'email', 'legalName', 'taxId', 'contactName',
-  'city', 'country', 'address', 'website', 'currency', 'notes'
+  'contactRole', 'city', 'country', 'address', 'website', 'facebook',
+  'currency', 'type', 'notes'
 ]);
 const PROVIDER_ARRAY_FIELDS = Object.freeze(['platforms', 'kinds', 'categories', 'specialties']);
 
@@ -129,21 +130,31 @@ function normalizeProviderKinds(value) {
 }
 
 function providerDataFromMessage(value) {
-  const tradeName = labeledValue(value, ['empresa', 'nombre comercial', 'empresa / nombre comercial']);
+  const tradeName = labeledValue(value, [
+    'empresa', 'nombre comercial', 'empresa / nombre comercial',
+    'nombre del proveedor', 'nombre'
+  ]);
   const contactName = labeledValue(value, ['contacto', 'persona de contacto', 'atencion', 'atención']);
+  const contactRole = labeledValue(value, ['cargo', 'rol', 'area', 'área']);
   const legalName = labeledValue(value, ['razon social', 'razón social']);
   const taxId = labeledValue(value, ['ruc', 'tax id', 'identificacion fiscal', 'identificación fiscal']);
-  const whatsappRaw = labeledValue(value, ['whatsapp', 'wasap']);
+  const whatsappRaw = labeledValue(value, ['whatsapp', 'wasap', 'whatsapp / telefono', 'whatsapp / teléfono']);
   const phoneRaw = labeledValue(value, ['telefono', 'teléfono', 'celular']);
   const city = labeledValue(value, ['ciudad', 'municipio']);
   const country = labeledValue(value, ['pais', 'país']);
   const address = labeledValue(value, ['direccion', 'dirección']);
   const website = labeledValue(value, ['sitio web', 'web', 'website']);
+  const facebook = labeledValue(value, ['facebook', 'fb']);
   const currencyRaw = labeledValue(value, ['moneda']);
   const categories = splitList(labeledValue(value, ['categoria', 'categoría', 'categorias', 'categorías']));
   const specialties = splitList(labeledValue(value, ['especialidad', 'especialidades']));
-  const platforms = normalizeProviderPlatforms(labeledValue(value, ['plataforma', 'plataformas']));
-  const kinds = normalizeProviderKinds(labeledValue(value, ['tipo', 'tipos', 'tipo de proveedor']));
+  const explicitPlatforms = normalizeProviderPlatforms(labeledValue(value, ['plataforma', 'plataformas']));
+  const mentionedPlatforms = normalizeProviderPlatforms(
+    (String(value || '').match(/\bELAN(?:VISUAL|HOME|PET|CENTER|KAV)\b/gi) || []).join(',')
+  );
+  const platforms = explicitPlatforms.length ? explicitPlatforms : mentionedPlatforms;
+  const type = labeledValue(value, ['tipo', 'tipos', 'tipo de proveedor']);
+  const kinds = normalizeProviderKinds(type);
   const notes = labeledValue(value, ['observaciones', 'observacion', 'observación', 'notas', 'nota']);
   const email = extractEmail(labeledValue(value, ['email', 'correo']) || value);
   const whatsapp = extractPhone(whatsappRaw);
@@ -153,6 +164,7 @@ function providerDataFromMessage(value) {
   return {
     ...(tradeName ? { name: cleanText(tradeName, 160) } : {}),
     ...(contactName ? { contactName: cleanText(contactName, 160) } : {}),
+    ...(contactRole ? { contactRole: cleanText(contactRole, 120) } : {}),
     ...(legalName ? { legalName: cleanText(legalName, 160) } : {}),
     ...(taxId ? { taxId: cleanText(taxId, 80) } : {}),
     ...(whatsapp ? { whatsapp } : {}),
@@ -162,7 +174,9 @@ function providerDataFromMessage(value) {
     ...(country ? { country: cleanText(country, 120) } : {}),
     ...(address ? { address: cleanText(address, 240) } : {}),
     ...(website ? { website: cleanText(website, 240) } : {}),
+    ...(facebook ? { facebook: cleanText(facebook, 240) } : {}),
     ...(currency ? { currency } : {}),
+    ...(type ? { type: cleanText(type, 240) } : {}),
     ...(categories.length ? { categories } : {}),
     ...(specialties.length ? { specialties } : {}),
     ...(platforms.length ? { platforms } : {}),
@@ -174,8 +188,8 @@ function providerDataFromMessage(value) {
 function hasStructuredProviderData(value) {
   const data = providerDataFromMessage(value);
   return Boolean(
-    data.name || data.contactName || data.legalName || data.taxId || data.whatsapp || data.phone ||
-    data.city || data.country || data.address || data.website || data.currency || data.notes ||
+    data.name || data.contactName || data.contactRole || data.legalName || data.taxId || data.whatsapp || data.phone ||
+    data.city || data.country || data.address || data.website || data.facebook || data.currency || data.type || data.notes ||
     data.categories?.length || data.specialties?.length || data.platforms?.length || data.kinds?.length
   );
 }
@@ -305,6 +319,9 @@ function finalizeData(type, common = {}) {
     const legalName = cleanText(common.legalName, 160);
     const taxId = cleanText(common.taxId, 80);
     const contactName = cleanText(common.contactName, 160);
+    const contactRole = cleanText(common.contactRole, 120);
+    const facebook = cleanText(common.facebook, 240);
+    const type = cleanText(common.type, 240);
     const city = cleanText(common.city, 120);
     const country = cleanText(common.country, 120);
     const address = cleanText(common.address, 240);
@@ -318,6 +335,9 @@ function finalizeData(type, common = {}) {
       ...(legalName ? { legalName } : {}),
       ...(taxId ? { taxId } : {}),
       ...(contactName ? { contactName } : {}),
+      ...(contactRole ? { contactRole } : {}),
+      ...(facebook ? { facebook } : {}),
+      ...(type ? { type } : {}),
       ...(city ? { city } : {}),
       ...(country ? { country } : {}),
       ...(address ? { address } : {}),
