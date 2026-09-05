@@ -110,6 +110,41 @@ test('provider continuity retains contact country category platform and type whi
   });
 });
 
+test('Owner WhatsApp structured provider accepts Nombre, Cargo, Facebook and inline ELANVISUAL', async t => {
+  const { env, cleanup } = await fixture();
+  t.after(cleanup);
+
+  const result = await handleOwnerEntityCreateContinuity({
+    message: [
+      'ELAN, registra este proveedor para ELANVISUAL.',
+      '',
+      'Nombre: Impresiones Vida',
+      'Contacto: Marvin',
+      'Cargo: propietario',
+      'WhatsApp: +505 8196 0104',
+      'Facebook: https://www.facebook.com/ImpresionesVidaNic',
+      'Tipo: proveedor de materiales y servicios de impresión/rotulación.'
+    ].join('\n'),
+    actorKey: '50588388940',
+    env,
+    now: new Date('2026-09-05T17:30:00Z')
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.command.tool, 'crear_proveedor');
+  assert.deepEqual(result.command.arguments.data, {
+    tradeName: 'Impresiones Vida',
+    phone: '+50581960104',
+    whatsapp: '+50581960104',
+    contactName: 'Marvin',
+    contactRole: 'propietario',
+    facebook: 'https://www.facebook.com/ImpresionesVidaNic',
+    type: 'proveedor de materiales y servicios de impresión/rotulación.',
+    platforms: ['ELANVISUAL'],
+    kinds: ['materials_products', 'services_subcontracting']
+  });
+});
+
 test('existing natural complete provider create remains delegated to canonical parser', async t => {
   const { env, cleanup } = await fixture();
   t.after(cleanup);
