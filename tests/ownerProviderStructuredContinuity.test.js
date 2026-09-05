@@ -50,6 +50,7 @@ test('structured provider create accepts Empresa and preserves supported CONNECT
     phone: '+50582850298',
     whatsapp: '+50582850298',
     contactName: 'Katy',
+    type: 'Materiales y productos',
     country: 'Nicaragua',
     platforms: ['ELANVISUAL'],
     kinds: ['materials_products'],
@@ -85,6 +86,7 @@ test('provider continuity retains contact country category platform and type whi
   assert.equal(pending.data.contactName, 'Katy');
   assert.equal(pending.data.phone, '+50582850298');
   assert.equal(pending.data.country, 'Nicaragua');
+  assert.equal(pending.data.type, 'Materiales y productos');
   assert.deepEqual(pending.data.platforms, ['ELANVISUAL']);
   assert.deepEqual(pending.data.kinds, ['materials_products']);
   assert.deepEqual(pending.data.categories, ['Publicidad / promocionales / impresión']);
@@ -103,6 +105,7 @@ test('provider continuity retains contact country category platform and type whi
     phone: '+50582850298',
     whatsapp: '+50582850298',
     contactName: 'Katy',
+    type: 'Materiales y productos',
     country: 'Nicaragua',
     platforms: ['ELANVISUAL'],
     kinds: ['materials_products'],
