@@ -1,6 +1,7 @@
 'use strict';
 
 const connect = require('./ownerBusinessConnectClient');
+const supplierService = require('./supplierService');
 const seller = require('./sellerBusinessConnectClient');
 const marketplaceAutonomy = require('./elanMarketplaceAutonomyService');
 
@@ -36,8 +37,6 @@ const TOOL_DEFINITIONS = Object.freeze([
   { name:'desactivar_cliente', description:'Desactiva un cliente conservando trazabilidad histórica.', ownerOnly:true, parameters:idOnlyParam('customerId') },
   { name:'buscar_proveedor', description:'Busca proveedores oficiales por su nombre o datos propios, o lista todos. No usar para descubrir qué proveedor vende un material; para eso usar buscar_material_catalogo.', scope:'provider.read', parameters:searchParam },
   { name:'crear_proveedor', description:'Crea un proveedor oficial.', ownerOnly:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
-  { name:'editar_proveedor', description:'Edita un proveedor oficial.', ownerOnly:true, parameters:idPatchParam('providerId') },
-  { name:'desactivar_proveedor', description:'Desactiva un proveedor sin borrar el historial.', ownerOnly:true, parameters:idOnlyParam('providerId') },
   { name:'buscar_vendedor', description:'Busca vendedores oficiales o lista todos.', ownerOnly:true, parameters:searchParam },
   { name:'crear_vendedor', description:'Crea un vendedor oficial.', ownerOnly:true, parameters:{type:'object',properties:{data:{type:'object'}},required:['data'],additionalProperties:false}},
   { name:'editar_vendedor', description:'Edita un vendedor oficial.', ownerOnly:true, parameters:idPatchParam('sellerId') },
@@ -142,10 +141,8 @@ async function executeTool({actor={},platform='ELANVISUAL',tool,arguments:args={
     case'crear_cliente':return sellerActor?seller.createSellerCustomer(requiredObject(args.data),actor,env):connect.createOwnerCustomer(requiredObject(args.data),env);
     case'editar_cliente':return sellerActor?seller.updateSellerCustomer(requiredText(args.customerId,'customerId'),requiredObject(args.data),actor,env):connect.updateOwnerCustomer(requiredText(args.customerId,'customerId'),requiredObject(args.data),env);
     case'desactivar_cliente':return connect.deactivateOwnerCustomer(requiredText(args.customerId,'customerId'),env);
-    case'buscar_proveedor':return connect.listOwnerProviders(optionalText(args.query),env);
-    case'crear_proveedor':return connect.createOwnerProvider(requiredObject(args.data),env);
-    case'editar_proveedor':return connect.updateOwnerProvider(requiredText(args.providerId,'providerId'),requiredObject(args.data),env);
-    case'desactivar_proveedor':return connect.deactivateOwnerProvider(requiredText(args.providerId,'providerId'),env);
+    case'buscar_proveedor':return connect.searchProviders(optionalText(args.query),env);
+    case'crear_proveedor':return supplierService.registerSupplier(requiredObject(args.data));
     case'buscar_vendedor':return connect.listOwnerSellers(optionalText(args.query),env);
     case'crear_vendedor':return connect.createOwnerSeller(requiredObject(args.data),env);
     case'editar_vendedor':return connect.updateOwnerSeller(requiredText(args.sellerId,'sellerId'),requiredObject(args.data),env);
