@@ -14,6 +14,10 @@ const { readContext, updateContext } = require('./ownerBusinessContextService');
 const { createPendingOperation, formatPendingOperation } = require('./ownerOpsConfirmationService');
 const { recordAuditSafely } = require('./ownerOpsAuditService');
 const { parseQuotationRequest, prepareAndCreateQuotation } = require('./ownerQuotationService');
+const {
+  isProviderServiceRegistrationRequest,
+  processOwnerProviderServiceRegistration
+} = require('./ownerProviderServiceRegistrationService');
 
 const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
@@ -22,6 +26,7 @@ const BUSINESS_COMMANDS = Object.freeze({
   PROVIDER_SEARCH: 'business_provider_search',
   PROVIDER_LIST: 'business_provider_list',
   PROVIDER_QUOTE_REQUEST: 'business_provider_quote_request',
+  PROVIDER_SERVICE_REGISTER: 'business_provider_service_register',
   PRICE_AUTH_CREATE: 'business_price_authorization_create',
   LOGISTICS_RULE_CREATE: 'business_logistics_rule_create',
   QUOTATION_CREATE: 'business_quotation_create',
@@ -607,6 +612,13 @@ function parseLogisticsRule(message) {
 }
 
 function detectOwnerBusinessCommand(message) {
+  if (isProviderServiceRegistrationRequest(message)) {
+    return {
+      type: BUSINESS_COMMANDS.PROVIDER_SERVICE_REGISTER,
+      message: String(message || '').trim()
+    };
+  }
+
   const quotationSplitSend = parseQuotationSplitSend(message);
   if (quotationSplitSend) return quotationSplitSend;
   const quotationCustomerList = parseQuotationCustomerList(message);
@@ -751,6 +763,18 @@ function formatLogisticsRule(rule) {
 }
 
 async function executeOwnerBusinessCommand(command) {
+  if (command.type === BUSINESS_COMMANDS.PROVIDER_SERVICE_REGISTER) {
+    const registration = await processOwnerProviderServiceRegistration({
+      message: command.message
+    });
+
+    return {
+      handled: registration.handled === true,
+      outputText: registration.outputText || null,
+      result: registration.result || null
+    };
+  }
+
   if (command.type === BUSINESS_COMMANDS.QUOTATION_CUSTOMER_LIST) {
     const payload = await listQuotations();
     const rows = filterQuotationsByCustomerReference(payload, command.customerReference)
