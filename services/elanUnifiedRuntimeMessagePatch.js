@@ -301,11 +301,20 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
     if(intent){let result;try{const execution=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:intent.tool,arguments:intent.arguments});const reply=measureFollowUp?formatMeasureFollowUp(execution):formatAuthorizedPriceResult(execution);console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]',{channel:'whatsapp',tool:intent.tool,status:execution?.result?.status||'OK',followUp:measureFollowUp});result=runtimeResult({args,context,execution,reply,command:intent.tool})}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_FAILED]',{channel:'whatsapp',tool:intent.tool,code:error?.code||null});result=runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude consultar la autoridad comercial de CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No voy a inventar un precio.`,command:intent.tool})}await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
 
     const priorityBusinessCommand=detectOwnerBusinessGatewayCommand(args.message);
-    if(priorityBusinessCommand?.type==='business_provider_service_register'){
-      console.log('[ELAN_PROVIDER_SERVICE_PRIORITY_ROUTE]',{
-        handler:priorityBusinessCommand.type,
-        platform:platformOf(context,args)
-      });
+    const priorityBusinessType=String(priorityBusinessCommand?.type||'');
+    if(
+      priorityBusinessType==='business_provider_service_register' ||
+      priorityBusinessType==='business_customer_create'
+    ){
+      console.log(
+        priorityBusinessType==='business_customer_create'
+          ? '[ELAN_CUSTOMER_REGISTRATION_PRIORITY_ROUTE]'
+          : '[ELAN_PROVIDER_SERVICE_PRIORITY_ROUTE]',
+        {
+          handler:priorityBusinessType,
+          platform:platformOf(context,args)
+        }
+      );
       const result=await originalProcessMessage(args);
       if(result?.reply&&result?.suppressDelivery!==true){
         await persistOwnerTurn({

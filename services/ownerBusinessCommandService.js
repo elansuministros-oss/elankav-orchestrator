@@ -18,6 +18,10 @@ const {
   isProviderServiceRegistrationRequest,
   processOwnerProviderServiceRegistration
 } = require('./ownerProviderServiceRegistrationService');
+const {
+  parseCustomerRegistration,
+  processOwnerCustomerRegistration
+} = require('./ownerCustomerRegistrationService');
 
 const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
@@ -616,6 +620,15 @@ function detectOwnerBusinessCommand(message) {
     return {
       type: BUSINESS_COMMANDS.PROVIDER_SERVICE_REGISTER,
       message: String(message || '').trim()
+    };
+  }
+
+  const customerRegistration = parseCustomerRegistration(message);
+  if (customerRegistration) {
+    return {
+      ...customerRegistration,
+      message: String(message || '').trim(),
+      source: 'ownerCustomerRegistrationService'
     };
   }
 
@@ -1296,6 +1309,45 @@ async function executeOwnerBusinessCommand(command) {
   }
 
   if (command.type === BUSINESS_COMMANDS.CUSTOMER_CREATE) {
+    if (command.source === 'ownerCustomerRegistrationService') {
+      const registration = await processOwnerCustomerRegistration({
+        message: command.message
+      });
+
+      if (!registration?.handled || !registration?.completed) {
+        const error = new Error('OWNER_CUSTOMER_REGISTRATION_NOT_COMPLETED');
+        error.code = 'OWNER_CUSTOMER_REGISTRATION_NOT_COMPLETED';
+        throw error;
+      }
+
+      const customer = registration.customer || registration.result?.data || registration.result;
+
+      await updateContext({
+        activeCustomerId: customer?.customerId || customer?.id,
+        lastEntityType: 'customer',
+        lastEntityId: customer?.customerId || customer?.id
+      });
+
+      await recordAuditSafely({
+        capability: 'business.customer.create',
+        target: 'connect',
+        source: 'owner-whatsapp',
+        success: true,
+        metadata: {
+          customerId: customer?.customerId || customer?.id,
+          route: 'ownerCustomerRegistrationService'
+        }
+      });
+
+      return {
+        handled: true,
+        outputText: registration.outputText,
+        result: registration.result
+      };
+    }
+
+    // Fallback LEGACY temporal.
+    // Se elimina únicamente después de validar la nueva ruta en WhatsApp real.
     const result = await createCustomer(command.input);
     const customer = result.data || result;
     await updateContext({ activeCustomerId: customer.customerId || customer.id, lastEntityType: 'customer', lastEntityId: customer.customerId || customer.id });
