@@ -1,6 +1,11 @@
 'use strict';
 
-const { createCustomer } = require('./ownerBusinessConnectClient');
+const {
+  createCustomer,
+  searchCustomers,
+  updateOwnerCustomer,
+  deactivateOwnerCustomer
+} = require('./ownerBusinessConnectClient');
 
 function normalize(value) {
   return String(value || '')
@@ -189,9 +194,232 @@ async function processOwnerCustomerRegistration({
   };
 }
 
+
+function isCustomerEditRequest(message) {
+  const value = normalize(message);
+  return /\b(edita|editar|corrige|corregir|actualiza|actualizar|cambia|cambiar|modifica|modificar)\b/.test(value)
+    && /\bcliente\b/.test(value);
+}
+
+function isCustomerDeactivateRequest(message) {
+  const value = normalize(message);
+  return /\b(desactiva|desactivar|archiva|archivar|retira|retirar)\b/.test(value)
+    && /\bcliente\b/.test(value);
+}
+
+function customerRows(result) {
+  if (Array.isArray(result?.data?.results)) return result.data.results;
+  if (Array.isArray(result?.data?.customers)) return result.data.customers;
+  if (Array.isArray(result?.data)) return result.data;
+  if (Array.isArray(result?.results)) return result.results;
+  return [];
+}
+
+async function resolveSingleCustomer(reference, searchCustomersImpl = searchCustomers) {
+  const result = await searchCustomersImpl(reference);
+  const rows = customerRows(result);
+
+  if (!rows.length) {
+    return {
+      found: false,
+      outputText: `No encontré un cliente oficial que coincida con “${reference}”.`
+    };
+  }
+
+  if (rows.length > 1) {
+    const names = rows
+      .slice(0, 10)
+      .map(row => {
+        const customer = row?.customer || row;
+        return customer?.companyName || customer?.name || customer?.customerId || customer?.id;
+      })
+      .filter(Boolean);
+
+    return {
+      found: false,
+      ambiguous: true,
+      outputText: `Encontré más de un cliente que coincide con “${reference}”: ${names.join(', ')}.`
+    };
+  }
+
+  const customer = rows[0]?.customer || rows[0];
+
+  return {
+    found: true,
+    customer,
+    id: customer?.customerId || customer?.id
+  };
+}
+
+function customerReferenceFromMessage(message) {
+  const raw = String(message || '').trim();
+
+  const id = labeledValue(raw, ['id', 'id oficial', 'customer id']);
+  if (id) return id;
+
+  const labeled = labeledValue(raw, [
+    'cliente',
+    'nombre',
+    'empresa',
+    'negocio'
+  ]);
+  if (labeled) return labeled;
+
+  const match = raw.match(
+    /\bcliente\s+(.+?)(?=\s+(?:nombre|empresa|negocio|whatsapp|wasap|telefono|teléfono|correo|email|direccion|dirección|ciudad|municipio)\s*:|[,.]|$)/i
+  );
+
+  return match?.[1]?.trim() || '';
+}
+
+function customerPatchFromMessage(message) {
+  const raw = String(message || '').trim();
+  const patch = {};
+
+  const name = labeledValue(raw, ['nuevo nombre', 'nombre nuevo']);
+  const companyName = labeledValue(raw, [
+    'nueva empresa',
+    'empresa nueva',
+    'nuevo negocio',
+    'negocio nuevo'
+  ]);
+  const whatsapp = labeledValue(raw, [
+    'nuevo whatsapp',
+    'nuevo wasap',
+    'nuevo telefono',
+    'nuevo teléfono',
+    'nuevo celular'
+  ]);
+  const email = labeledValue(raw, [
+    'nuevo correo',
+    'nuevo email'
+  ]);
+  const address = labeledValue(raw, [
+    'nueva direccion',
+    'nueva dirección'
+  ]);
+  const city = labeledValue(raw, [
+    'nueva ciudad',
+    'nuevo municipio'
+  ]);
+
+  if (name) patch.name = name;
+  if (companyName) patch.companyName = companyName;
+  if (whatsapp) patch.whatsapp = whatsapp;
+  if (email) patch.email = email;
+  if (address) patch.address = address;
+  if (city) patch.city = city;
+
+  return patch;
+}
+
+async function processOwnerCustomerEdit({
+  message,
+  searchCustomersImpl = searchCustomers,
+  updateOwnerCustomerImpl = updateOwnerCustomer
+} = {}) {
+  if (!isCustomerEditRequest(message)) return { handled: false };
+
+  const reference = customerReferenceFromMessage(message);
+  if (!reference) {
+    return {
+      handled: true,
+      completed: false,
+      outputText: 'Necesito identificar qué cliente querés editar.'
+    };
+  }
+
+  const patch = customerPatchFromMessage(message);
+
+  if (!Object.keys(patch).length) {
+    return {
+      handled: true,
+      completed: false,
+      outputText: 'Indicame qué dato querés corregir del cliente.'
+    };
+  }
+
+  const resolved = await resolveSingleCustomer(reference, searchCustomersImpl);
+  if (!resolved.found) {
+    return {
+      handled: true,
+      completed: false,
+      outputText: resolved.outputText
+    };
+  }
+
+  const result = await updateOwnerCustomerImpl(resolved.id, patch);
+  const customer = result?.data || result;
+
+  return {
+    handled: true,
+    completed: true,
+    customer,
+    result,
+    outputText: [
+      '✅ Cliente actualizado correctamente.',
+      `Cliente: ${customer?.name || customer?.companyName || reference}`,
+      customer?.companyName ? `Empresa: ${customer.companyName}` : '',
+      customer?.phone || customer?.whatsapp
+        ? `WhatsApp: ${customer.phone || customer.whatsapp}`
+        : '',
+      customer?.email ? `Correo: ${customer.email}` : '',
+      `ID oficial: ${customer?.customerId || customer?.id || resolved.id}`
+    ].filter(Boolean).join('\n')
+  };
+}
+
+async function processOwnerCustomerDeactivate({
+  message,
+  searchCustomersImpl = searchCustomers,
+  deactivateOwnerCustomerImpl = deactivateOwnerCustomer
+} = {}) {
+  if (!isCustomerDeactivateRequest(message)) return { handled: false };
+
+  const reference = customerReferenceFromMessage(message);
+
+  if (!reference) {
+    return {
+      handled: true,
+      completed: false,
+      outputText: 'Necesito identificar qué cliente querés desactivar.'
+    };
+  }
+
+  const resolved = await resolveSingleCustomer(reference, searchCustomersImpl);
+  if (!resolved.found) {
+    return {
+      handled: true,
+      completed: false,
+      outputText: resolved.outputText
+    };
+  }
+
+  const result = await deactivateOwnerCustomerImpl(resolved.id);
+  const customer = result?.data || result;
+
+  return {
+    handled: true,
+    completed: true,
+    customer,
+    result,
+    outputText: [
+      '✅ Cliente desactivado.',
+      `Cliente: ${customer?.name || customer?.companyName || reference}`,
+      `ID oficial: ${customer?.customerId || customer?.id || resolved.id}`,
+      'Estado: inactive'
+    ].join('\n')
+  };
+}
+
 module.exports = {
   isCustomerRegistrationRequest,
+  isCustomerEditRequest,
+  isCustomerDeactivateRequest,
   parseCustomerRegistration,
   processOwnerCustomerRegistration,
+  processOwnerCustomerEdit,
+  processOwnerCustomerDeactivate,
+  resolveSingleCustomer,
   formatCustomer
 };

@@ -304,7 +304,9 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
     const priorityBusinessType=String(priorityBusinessCommand?.type||'');
     if(
       priorityBusinessType==='business_provider_service_register' ||
-      priorityBusinessType==='business_customer_create'
+      priorityBusinessType==='business_customer_create' ||
+      priorityBusinessType==='business_customer_edit' ||
+      priorityBusinessType==='business_customer_deactivate'
     ){
       console.log(
         priorityBusinessType==='business_customer_create'

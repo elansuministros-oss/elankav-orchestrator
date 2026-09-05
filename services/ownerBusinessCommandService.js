@@ -19,11 +19,17 @@ const {
 } = require('./ownerProviderServiceRegistrationService');
 const {
   parseCustomerRegistration,
-  processOwnerCustomerRegistration
+  isCustomerEditRequest,
+  isCustomerDeactivateRequest,
+  processOwnerCustomerRegistration,
+  processOwnerCustomerEdit,
+  processOwnerCustomerDeactivate
 } = require('./ownerCustomerRegistrationService');
 
 const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_CREATE: 'business_customer_create',
+  CUSTOMER_EDIT: 'business_customer_edit',
+  CUSTOMER_DEACTIVATE: 'business_customer_deactivate',
   CUSTOMER_SEARCH: 'business_customer_search',
   CUSTOMER_LIST: 'business_customer_list',
   PROVIDER_SEARCH: 'business_provider_search',
@@ -596,6 +602,22 @@ function detectOwnerBusinessCommand(message) {
     return {
       type: BUSINESS_COMMANDS.PROVIDER_SERVICE_REGISTER,
       message: String(message || '').trim()
+    };
+  }
+
+  if (isCustomerDeactivateRequest(message)) {
+    return {
+      type: BUSINESS_COMMANDS.CUSTOMER_DEACTIVATE,
+      message: String(message || '').trim(),
+      source: 'ownerCustomerRegistrationService'
+    };
+  }
+
+  if (isCustomerEditRequest(message)) {
+    return {
+      type: BUSINESS_COMMANDS.CUSTOMER_EDIT,
+      message: String(message || '').trim(),
+      source: 'ownerCustomerRegistrationService'
     };
   }
 
@@ -1280,6 +1302,76 @@ async function executeOwnerBusinessCommand(command) {
         sent.messageId ? `Mensaje: ${sent.messageId}` : ''
       ].filter(Boolean).join('\n'),
       result: { provider, sent, item: command.item, requestKind: command.requestKind || 'quote' }
+    };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.CUSTOMER_EDIT) {
+    const result = await processOwnerCustomerEdit({
+      message: command.message
+    });
+
+    if (!result?.handled) {
+      const error = new Error('OWNER_CUSTOMER_EDIT_NOT_HANDLED');
+      error.code = 'OWNER_CUSTOMER_EDIT_NOT_HANDLED';
+      throw error;
+    }
+
+    if (result.completed && result.customer) {
+      await updateContext({
+        activeCustomerId: result.customer.customerId || result.customer.id,
+        lastEntityType: 'customer',
+        lastEntityId: result.customer.customerId || result.customer.id
+      });
+
+      await recordAuditSafely({
+        capability: 'business.customer.update',
+        target: 'connect',
+        source: 'owner-whatsapp',
+        success: true,
+        metadata: {
+          customerId: result.customer.customerId || result.customer.id,
+          route: 'ownerCustomerRegistrationService',
+          operation: 'edit'
+        }
+      });
+    }
+
+    return {
+      handled: true,
+      outputText: result.outputText,
+      result: result.result || result
+    };
+  }
+
+  if (command.type === BUSINESS_COMMANDS.CUSTOMER_DEACTIVATE) {
+    const result = await processOwnerCustomerDeactivate({
+      message: command.message
+    });
+
+    if (!result?.handled) {
+      const error = new Error('OWNER_CUSTOMER_DEACTIVATE_NOT_HANDLED');
+      error.code = 'OWNER_CUSTOMER_DEACTIVATE_NOT_HANDLED';
+      throw error;
+    }
+
+    if (result.completed && result.customer) {
+      await recordAuditSafely({
+        capability: 'business.customer.update',
+        target: 'connect',
+        source: 'owner-whatsapp',
+        success: true,
+        metadata: {
+          customerId: result.customer.customerId || result.customer.id,
+          route: 'ownerCustomerRegistrationService',
+          operation: 'deactivate'
+        }
+      });
+    }
+
+    return {
+      handled: true,
+      outputText: result.outputText,
+      result: result.result || result
     };
   }
 
