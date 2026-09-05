@@ -259,13 +259,23 @@ async function executeOwnerProspectingNaturalAudit(
   }
 
   const audit = await requestImpl('/api/v1/prospecting/audit', { method: 'GET' });
+  const intent = String(command.input?.intent || 'overview');
+
+  // Research is a canonical mission-status read. It must not trigger an
+  // unrelated outreach-delivery query; protected OWNER_PROSPECTING_BRIDGE
+  // expects exactly one CONNECT read for this intent.
+  if (intent === 'research') {
+    return {
+      handled: true,
+      outputText: formatAudit(audit, intent),
+      result: { audit, deliveries: [], verifiedEmailCount: 0, verifiedWhatsappCount: 0, intent }
+    };
+  }
 
   const deliveries = await requestImpl(
     '/api/v1/prospecting/outreach-deliveries?status=sent&limit=10',
     { method: 'GET' }
   );
-
-  const intent = String(command.input?.intent || 'overview');
 
   const rawBaseOutput = formatAudit(audit, intent);
 
