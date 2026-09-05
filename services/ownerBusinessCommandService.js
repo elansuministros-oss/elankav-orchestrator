@@ -1,7 +1,6 @@
 'use strict';
 
 const {
-  createCustomer,
   createLogisticsRule,
   listCustomers,
   listProviders,
@@ -61,29 +60,6 @@ function labeledValue(message, labels) {
     }
   }
   return '';
-}
-
-function parseCustomerCreate(message) {
-  const normalized = normalize(message);
-  if (!/(agrega|agregar|crea|crear|registra|registrar).{0,20}(cliente)/.test(normalized)) return null;
-  const name = labeledValue(message, ['nombre', 'cliente']);
-  const companyName = labeledValue(message, ['empresa', 'negocio', 'compañia', 'compania']);
-  const whatsapp = labeledValue(message, ['whatsapp', 'wasap', 'telefono', 'teléfono', 'celular']);
-  const address = labeledValue(message, ['direccion', 'dirección']);
-  const city = labeledValue(message, ['ciudad', 'municipio']);
-  const email = labeledValue(message, ['email', 'correo']);
-  if (!name && !companyName) return null;
-  return {
-    type: BUSINESS_COMMANDS.CUSTOMER_CREATE,
-    input: {
-      name: name || companyName,
-      ...(companyName ? { companyName } : {}),
-      ...(whatsapp ? { whatsapp } : {}),
-      ...(address ? { address } : {}),
-      ...(city ? { city } : {}),
-      ...(email ? { email } : {})
-    }
-  };
 }
 
 function parseCustomerList(message) {
@@ -644,8 +620,7 @@ function detectOwnerBusinessCommand(message) {
   if (quotationLookup) return quotationLookup;
   const quotation = parseQuotationRequest(message);
   if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
-  return parseCustomerCreate(message)
-    || parseCustomerList(message)
+  return parseCustomerList(message)
     || parseCustomerSearch(message)
     || parseProviderQuoteRequest(message)
     || parseProviderList(message)
@@ -1309,56 +1284,49 @@ async function executeOwnerBusinessCommand(command) {
   }
 
   if (command.type === BUSINESS_COMMANDS.CUSTOMER_CREATE) {
-    if (command.source === 'ownerCustomerRegistrationService') {
-      const registration = await processOwnerCustomerRegistration({
-        message: command.message
-      });
-
-      if (!registration?.handled || !registration?.completed) {
-        const error = new Error('OWNER_CUSTOMER_REGISTRATION_NOT_COMPLETED');
-        error.code = 'OWNER_CUSTOMER_REGISTRATION_NOT_COMPLETED';
-        throw error;
-      }
-
-      const customer = registration.customer || registration.result?.data || registration.result;
-
-      await updateContext({
-        activeCustomerId: customer?.customerId || customer?.id,
-        lastEntityType: 'customer',
-        lastEntityId: customer?.customerId || customer?.id
-      });
-
-      await recordAuditSafely({
-        capability: 'business.customer.create',
-        target: 'connect',
-        source: 'owner-whatsapp',
-        success: true,
-        metadata: {
-          customerId: customer?.customerId || customer?.id,
-          route: 'ownerCustomerRegistrationService'
-        }
-      });
-
-      return {
-        handled: true,
-        outputText: registration.outputText,
-        result: registration.result
-      };
+    if (command.source !== 'ownerCustomerRegistrationService') {
+      const error = new Error('LEGACY_CUSTOMER_CREATE_ROUTE_DISABLED');
+      error.code = 'LEGACY_CUSTOMER_CREATE_ROUTE_DISABLED';
+      throw error;
     }
 
-    // Fallback LEGACY temporal.
-    // Se elimina únicamente después de validar la nueva ruta en WhatsApp real.
-    const result = await createCustomer(command.input);
-    const customer = result.data || result;
-    await updateContext({ activeCustomerId: customer.customerId || customer.id, lastEntityType: 'customer', lastEntityId: customer.customerId || customer.id });
+    const registration = await processOwnerCustomerRegistration({
+      message: command.message
+    });
+
+    if (!registration?.handled || !registration?.completed) {
+      const error = new Error('OWNER_CUSTOMER_REGISTRATION_NOT_COMPLETED');
+      error.code = 'OWNER_CUSTOMER_REGISTRATION_NOT_COMPLETED';
+      throw error;
+    }
+
+    const customer =
+      registration.customer ||
+      registration.result?.data ||
+      registration.result;
+
+    await updateContext({
+      activeCustomerId: customer?.customerId || customer?.id,
+      lastEntityType: 'customer',
+      lastEntityId: customer?.customerId || customer?.id
+    });
+
     await recordAuditSafely({
       capability: 'business.customer.create',
       target: 'connect',
       source: 'owner-whatsapp',
       success: true,
-      metadata: { customerId: customer.customerId || customer.id }
+      metadata: {
+        customerId: customer?.customerId || customer?.id,
+        route: 'ownerCustomerRegistrationService'
+      }
     });
-    return { handled: true, outputText: formatCustomer(customer, Boolean(result.idempotent)), result };
+
+    return {
+      handled: true,
+      outputText: registration.outputText,
+      result: registration.result
+    };
   }
 
   if (command.type === BUSINESS_COMMANDS.LOGISTICS_RULE_CREATE) {
@@ -1400,7 +1368,6 @@ module.exports = {
   formatProvider,
   formatProviderList,
   labeledValue,
-  parseCustomerCreate,
   parseCustomerList,
   parseCustomerSearch,
   parseDimensions,
