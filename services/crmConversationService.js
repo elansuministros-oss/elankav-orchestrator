@@ -95,12 +95,13 @@ function parseSupplierName(message) {
   const raw = normalize(message);
 
   // Structured Owner messages must win over the natural-language command.
+  // Match an explicit field line, never the word "proveedor" from the command sentence.
   // Example:
   // "ELAN, registra este proveedor para ELANVISUAL.\nNombre: Impresiones Vida"
-  const explicit = extractField(raw, ['nombre del proveedor', 'proveedor', 'nombre']);
-  if (explicit && !/^(?:para|de|del|en)\s+elan(?:visual|pet|home|center|transporte|kav)\b/i.test(explicit)) {
-    return explicit;
-  }
+  const explicitMatch = raw.match(
+    /(?:^|\n)\s*(?:nombre\s+del\s+proveedor|nombre)\s*(?:es\s*)?[:,-]\s*([^.;\n]+)/im
+  );
+  if (explicitMatch) return normalize(explicitMatch[1]);
 
   const patterns = [
     /(?:actualizar|actualiza|modificar|modifica|cambiar|cambia)(?:\s+los datos|\s+el contacto)?(?:\s+de|\s+del|\s+al|\s+el)?\s+proveedor\s+([^.;\n]+)/i,
