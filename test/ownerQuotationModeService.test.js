@@ -195,6 +195,9 @@ test('modo cotización acepta cliente nuevo y pregunta solo datos faltantes', as
   assert.match(out.outputText, /precio final autorizado/i);
 
   out = await processQuotationModeText({ identity, text: 'USD 500', dependencies: deps });
+  assert.match(out.outputText, /con IVA o sin IVA/i);
+
+  out = await processQuotationModeText({ identity, text: 'sin IVA', dependencies: deps });
   assert.match(out.outputText, /imagen de referencia/i);
 
   const state = await getState(identity);
@@ -203,6 +206,8 @@ test('modo cotización acepta cliente nuevo y pregunta solo datos faltantes', as
   assert.equal(state.data.customerName, 'Empresa Demo');
   assert.equal(state.data.companyName, 'Empresa Demo');
   assert.equal(state.data.explicitPriceUsd, 500);
+  assert.equal(state.data.taxIncluded, false);
+  assert.equal(state.data.taxRate, 0);
 });
 
 test('captura puede extraer negocio y trabajo y usa negocio como cliente si no hay persona', async () => {
@@ -258,9 +263,11 @@ test('sin imagen finaliza creando cliente y cotización oficial', async () => {
     },
     async updateContext() { return {}; },
     async prepareAndCreateQuotation(input) {
-      assert.equal(input.productQuery, 'Fachada ACM 2 x 1 m con letras PVC');
+      assert.equal(input.productQuery, '30 mantas cruza calle');
+      assert.equal(input.quantity, 30);
       assert.equal(input.explicitPrice.amount, 500);
       assert.equal(input.paymentTerms.depositPercent, 60);
+      assert.equal(input.taxRate, 15);
       return {
         ready: true,
         created: true,
@@ -273,10 +280,11 @@ test('sin imagen finaliza creando cliente y cotización oficial', async () => {
   await processQuotationModeText({ identity, text: 'Activa modo cotización', dependencies: deps });
   await processQuotationModeText({ identity, text: 'Empresa Demo', dependencies: deps });
   await processQuotationModeText({ identity, text: '78828089', dependencies: deps });
-  await processQuotationModeText({ identity, text: 'Fachada ACM 2 x 1 m con letras PVC', dependencies: deps });
+  await processQuotationModeText({ identity, text: '30 mantas cruza calle', dependencies: deps });
   await processQuotationModeText({ identity, text: '60/40', dependencies: deps });
   await processQuotationModeText({ identity, text: 'Managua', dependencies: deps });
   await processQuotationModeText({ identity, text: 'USD 500', dependencies: deps });
+  await processQuotationModeText({ identity, text: 'con IVA', dependencies: deps });
   const out = await processQuotationModeText({ identity, text: 'sin imagen', dependencies: deps });
 
   assert.equal(out.status, 'completed');

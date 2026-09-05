@@ -207,7 +207,36 @@ function paymentTermsFromText(text) {
 }
 
 function isNoImage(text) {
-  return /\b(sin imagen|no tengo imagen|no hay imagen|sin foto|no tengo foto|no hay foto)\b/.test(normalize(text));
+  const value = normalize(text);
+  return /^(?:no|ninguna?|ninguno)$/.test(value) ||
+    /\b(sin imagen|sin image|no image|no tengo imagen|no hay imagen|sin foto|sin photo|no tengo foto|no hay foto)\b/.test(value);
+}
+
+function parseTaxPreference(text) {
+  const value = normalize(text);
+
+  if (/\b(sin iva|no iva|sin impuesto|exento)\b/.test(value)) {
+    return { included: false, rate: 0 };
+  }
+
+  if (/\b(con iva|incluye iva|iva incluido|aplica iva|aplicar iva)\b/.test(value)) {
+    return { included: true, rate: 15 };
+  }
+
+  return null;
+}
+
+function parseQuantity(text) {
+  const value = normalize(text);
+
+  const explicit = value.match(/\b(?:cantidad|cant|qty)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\b/);
+  const leading = value.match(/^\s*(\d+(?:[.,]\d+)?)\b/);
+  const match = explicit || leading;
+
+  if (!match) return 1;
+
+  const quantity = Number(String(match[1]).replace(',', '.'));
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
 }
 
 function isUsefulText(text) {
@@ -227,6 +256,7 @@ function nextQuestion(step) {
     paymentTerms: '¿Cuáles son las condiciones de pago? Por ejemplo 60/40 o anticipo 60%.',
     address: '¿Cuál es la dirección del cliente o del proyecto?',
     price: '¿Cuál es el precio final autorizado en USD? También podés decirme “usar precio de biblioteca”.',
+    tax: '¿Esta cotización es con IVA o sin IVA?',
     image: '¿Hay imagen de referencia para la cotización? Si la hay, enviala ahora. Si no, decime “sin imagen”.'
   };
   return questions[step] || 'Continuemos con la cotización.';
@@ -348,6 +378,7 @@ function nextMissingStep(data) {
   if (!data.paymentTerms) return 'paymentTerms';
   if (!data.address) return 'address';
   if (!data.priceMode) return 'price';
+  if (typeof data.taxIncluded !== 'boolean') return 'tax';
   return 'image';
 }
 
@@ -524,8 +555,9 @@ async function finalizeQuotationMode(identity, state, metadata = {}, dependencie
     productQuery: state.data.description,
     width: dimensions.width,
     height: dimensions.height,
-    quantity: 1,
+    quantity: parseQuantity(state.data.description || ''),
     destination: undefined,
+    taxRate: Number(state.data.taxRate || 0),
     explicitPrice: state.data.priceMode === 'explicit'
       ? { amount: Number(state.data.explicitPriceUsd), currency: 'USD' }
       : undefined,
@@ -674,6 +706,20 @@ async function processQuotationModeText({ identity, text, metadata = {}, depende
     next.data.priceMode = price.mode;
     next.data.explicitPriceUsd = price.amountUsd;
     next.step = nextMissingStep(next.data);
+  } else if (next.step === 'tax') {
+    const tax = parseTaxPreference(text);
+    if (!tax) {
+      return {
+        handled: true,
+        mode: 'quotation',
+        status: 'in_progress',
+        outputText: 'Decime únicamente si la cotización es “con IVA” o “sin IVA”.'
+      };
+    }
+
+    next.data.taxIncluded = tax.included;
+    next.data.taxRate = tax.rate;
+    next.step = nextMissingStep(next.data);
   } else if (next.step === 'image') {
     if (!isNoImage(text)) {
       return {
@@ -686,12 +732,19 @@ async function processQuotationModeText({ identity, text, metadata = {}, depende
     next.data.imageProvided = false;
     await setState(identity, next, env);
     const final = await finalizeQuotationMode(identity, next, metadata, dependencies);
+
+    if (!final.completed) {
+      next.step = 'description';
+      await setState(identity, next, env);
+    }
+
     return {
       handled: true,
       mode: 'quotation',
       status: final.completed ? 'completed' : 'in_progress',
       outputText: final.outputText,
-      result: final
+      result: final,
+      state: final.completed ? undefined : next
     };
   }
 

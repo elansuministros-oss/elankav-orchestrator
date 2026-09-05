@@ -867,7 +867,12 @@ async function prepareAndCreateQuotation(input) {
     if (logisticsAmount > 0 && logisticsResult.currency !== currency) return { ready: false, question: `El precio está en ${currency} y la logística en ${logisticsResult.currency}. Necesito el tipo de cambio autorizado para consolidar la cotización.` };
 
     const baseSubtotal = explicit ? Number(explicit.amount) : Number(pricing.calculation.subtotal || 0);
-    const total = Number((baseSubtotal + logisticsAmount).toFixed(2));
+    const commercialSubtotal = Number((baseSubtotal + logisticsAmount).toFixed(2));
+    const taxRate = Number.isFinite(Number(input.taxRate))
+      ? Math.max(0, Number(input.taxRate))
+      : 0;
+    const taxUsd = Number((commercialSubtotal * taxRate / 100).toFixed(2));
+    const total = Number((commercialSubtotal + taxUsd).toFixed(2));
     const customer = customerResult.customer;
     const item = catalogFound ? pricing.item : { id: `OWNER-${randomUUID()}`, code: 'OWNER-CUSTOM', name: input.productQuery, description: input.productQuery, unit: 'servicio', unitPrice: baseSubtotal };
 
@@ -897,7 +902,7 @@ async function prepareAndCreateQuotation(input) {
       customerSnapshot: { customerId: customer.customerId || customer.id, name: customer.name || customer.companyName, companyName: customer.companyName || '', phone: customer.phone || '', email: customer.email || '', address: customer.address || '', city: customer.city || '' },
       executiveSnapshot: { executiveId: 'owner-whatsapp', name: 'ELAN Owner' },
       items,
-      pricing: { subtotalUsd: total, discountUsd: 0, taxUsd: 0, totalUsd: total, source: explicit ? 'OWNER_EXPLICIT_PRICE' : String(pricing.source || 'COMMERCIAL_PRODUCTS'), authority: explicit ? 'OWNER' : String(pricing.authority || 'CONNECT_COMMERCIAL_PRODUCTS') },
+      pricing: { subtotalUsd: commercialSubtotal, discountUsd: 0, taxRate, taxUsd, totalUsd: total, source: explicit ? 'OWNER_EXPLICIT_PRICE' : String(pricing.source || 'COMMERCIAL_PRODUCTS'), authority: explicit ? 'OWNER' : String(pricing.authority || 'CONNECT_COMMERCIAL_PRODUCTS') },
       paymentTerms: { depositPercent: terms.depositPercent, balancePercent: terms.balancePercent, depositUsd, balanceUsd },
       ownerCommercialOverride: explicit ? { applied: true, amountUsd: baseSubtotal, includesLogistics: Boolean(input.priceIncludesLogistics), source: 'owner-whatsapp' } : undefined,
       contractVersion: '1.0.0'
