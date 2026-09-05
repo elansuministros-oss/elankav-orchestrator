@@ -143,6 +143,30 @@ function parseContactRole(message) {
   return extractField(message, ['cargo', 'area', 'área', 'rol']);
 }
 
+function parseSupplierContactName(message) {
+  const raw = normalize(message);
+  const match = raw.match(
+    /(?:^|\n)\s*(?:nombre\s+del\s+contacto|contacto)\s*(?:es\s*)?[:,-]\s*([^.;\n]+)/im
+  );
+  return match ? normalize(match[1]) : '';
+}
+
+function parseSupplierFacebook(message) {
+  const raw = normalize(message);
+  const match = raw.match(
+    /(?:^|\n)\s*facebook\s*(?:es\s*)?[:,-]\s*(https?:\/\/[^\s\n]+)/im
+  );
+  return match ? normalize(match[1]) : '';
+}
+
+function parseSupplierDeclaredType(message) {
+  const raw = normalize(message);
+  const match = raw.match(
+    /(?:^|\n)\s*tipo\s*(?:es\s*)?[:,-]\s*([^\n]+)/im
+  );
+  return match ? normalize(match[1]).replace(/[.;]+$/g, '').trim() : '';
+}
+
 function detectCommand(message) {
   const raw = normalize(message);
   const value = normalizeCommand(raw);
@@ -221,16 +245,23 @@ function ownerKey({ externalUserId, phone }) {
 }
 
 function parseSupplierPayload(message) {
+  const whatsapp = parseWhatsapp(message);
+  const declaredType = parseSupplierDeclaredType(message);
+  const platform = parsePlatform(message) || 'elanvisual';
+
   return {
     name: parseSupplierName(message),
     supplierType: parseSupplierType(message) || 'mixed',
-    categories: parseCategories(message),
-    contactName: parseContactName(message),
+    categories: declaredType ? [declaredType] : parseCategories(message),
+    contactName: parseSupplierContactName(message),
     contactRole: parseContactRole(message),
-    whatsapp: parseWhatsapp(message),
-    phone: parseWhatsapp(message),
+    whatsapp,
+    phone: whatsapp,
     email: parseEmail(message),
-    country: /\bnacional\b/i.test(message) ? 'Nicaragua' : ''
+    country: /\bnacional\b/i.test(message) ? 'Nicaragua' : 'Nicaragua',
+    platform,
+    ...(declaredType ? { type: declaredType } : {}),
+    ...(parseSupplierFacebook(message) ? { facebook: parseSupplierFacebook(message) } : {})
   };
 }
 
