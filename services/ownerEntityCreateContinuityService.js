@@ -62,7 +62,21 @@ function hasCreateIntent(value) {
 
 function isCancelRequest(value) {
   const text = normalize(value);
-  return /^(?:elan\s+)?(?:cancela|cancelar|cancelalo|cancelala|olvidalo|olvidala|dejalo|dejala|ya\s+no)$/i.test(text);
+
+  return (
+    /^(?:elan\s+)?(?:cancela|cancelar|cancelalo|cancelala)(?:\s+.*)?$/i.test(text) ||
+    /^(?:elan\s+)?(?:olvidalo|olvidala|dejalo|dejala|ya\s+no)$/i.test(text)
+  );
+}
+
+function isProviderServiceCostRegistrationRequest(value) {
+  const text = normalize(value);
+
+  return (
+    /\b(registra|registrar|agrega|agregar|aplica|aplicar)\b/.test(text) &&
+    /\bservicios?\b/.test(text) &&
+    /\bcostos?\s+del\s+proveedor\b/.test(text)
+  );
 }
 
 function extractPhone(value) {
@@ -442,6 +456,20 @@ async function handleOwnerEntityCreateContinuity({
   if (pending && isExpired(pending, nowMs, env)) {
     await clearPendingEntityCreate(env);
     pending = null;
+  }
+
+  // Un registro de servicio/costo pertenece al proveedor existente.
+  // Nunca debe abrir ni continuar el flujo de creación de proveedor.
+  if (isProviderServiceCostRegistrationRequest(originalMessage)) {
+    if (pending) {
+      await clearPendingEntityCreate(env);
+    }
+
+    return {
+      handled: false,
+      bypassed: true,
+      reason: 'provider_service_cost_registration'
+    };
   }
 
   if (pending && isCancelRequest(raw)) {
