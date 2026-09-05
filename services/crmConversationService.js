@@ -93,16 +93,31 @@ function parsePlatform(message) {
 
 function parseSupplierName(message) {
   const raw = normalize(message);
+
+  // Structured Owner messages must win over the natural-language command.
+  // Example:
+  // "ELAN, registra este proveedor para ELANVISUAL.\nNombre: Impresiones Vida"
+  const explicit = extractField(raw, ['nombre del proveedor', 'proveedor', 'nombre']);
+  if (explicit && !/^(?:para|de|del|en)\s+elan(?:visual|pet|home|center|transporte|kav)\b/i.test(explicit)) {
+    return explicit;
+  }
+
   const patterns = [
     /(?:actualizar|actualiza|modificar|modifica|cambiar|cambia)(?:\s+los datos|\s+el contacto)?(?:\s+de|\s+del|\s+al|\s+el)?\s+proveedor\s+([^.;\n]+)/i,
     /(?:agregar|agrega|crear|registrar|registra)\s+(?:este\s+)?proveedor\s*[:,-]?\s*([^.;\n]+)/i
   ];
+
   for (const pattern of patterns) {
     const match = raw.match(pattern);
-    if (match) {
-      return normalize(match[1]).replace(/\b(?:contacto|whatsapp|telefono|correo|email|vende|venden|ofrece|ofrecen)\b.*$/i, '').trim();
-    }
+    if (!match) continue;
+    const candidate = normalize(match[1])
+      .replace(/\b(?:contacto|whatsapp|telefono|correo|email|vende|venden|ofrece|ofrecen)\b.*$/i, '')
+      .trim();
+
+    if (/^(?:para|de|del|en)\s+elan(?:visual|pet|home|center|transporte|kav)\b/i.test(candidate)) continue;
+    return candidate;
   }
+
   return '';
 }
 
