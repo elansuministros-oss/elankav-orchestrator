@@ -6,8 +6,45 @@ const clean = value => String(value || '').trim();
 const number = value => Number(String(value || '').replace(',', '.'));
 
 function field(text, label) {
-  const match = text.match(new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, 'im'));
-  return match ? clean(match[1]) : '';
+  const raw = String(text || '');
+
+  // Formato original multilínea.
+  const lineMatch = raw.match(
+    new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, 'im')
+  );
+  if (lineMatch) return clean(lineMatch[1]);
+
+  // WhatsApp Owner pasa por normalizeOwnerLanguage(), que aplana
+  // el mensaje a una sola línea. Detectar el valor hasta el
+  // siguiente campo estructurado.
+  const escapeRegex = value =>
+    String(value || '').replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+
+  const normalizedLabel = escapeRegex(label);
+
+  const knownLabels = [
+    'proveedor',
+    'servicio',
+    'material',
+    'unidad',
+    'pedido minimo',
+    'pedido mínimo',
+    'permanencia maxima instalada',
+    'permanencia máxima instalada',
+    'costos del proveedor'
+  ]
+    .filter(item => item.toLowerCase() !== String(label || '').toLowerCase())
+    .map(escapeRegex)
+    .join('|');
+
+  const flatMatch = raw.match(
+    new RegExp(
+      `\\b${normalizedLabel}\\s*:\\s*(.+?)(?=\\s+(?:${knownLabels})\\s*:|$)`,
+      'i'
+    )
+  );
+
+  return flatMatch ? clean(flatMatch[1]) : '';
 }
 
 function isProviderServiceRegistrationRequest(message) {
@@ -21,14 +58,14 @@ function isProviderServiceRegistrationRequest(message) {
 }
 
 function extractProvider(message) {
-  const labeled = field(message, 'Proveedor');
-  if (labeled) return labeled;
-
   const match = message.match(
     /proveedor\s+(.+?)\s+para\s+(?:ELANVISUAL|ELANHOME|ELANPET|ELANCENTER|ELANKAV)\b/i
   );
 
-  return match ? clean(match[1]) : '';
+  if (match) return clean(match[1]);
+
+  const labeled = field(message, 'Proveedor');
+  return labeled || '';
 }
 
 function extractPlatform(message) {
