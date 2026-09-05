@@ -300,6 +300,25 @@ function installElanUnifiedRuntimeMessagePatch(messageService=require('./message
     let intent=detectAuthorizedPriceLookup(args.message);let measureFollowUp=false;if(!intent&&detectPriceMeasureFollowUp(args.message)){try{intent=await recoverPreviousPriceIntent({context,args});measureFollowUp=Boolean(intent)}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_MEMORY_LOOKUP_FAILED]',{code:error?.code||null,message:error?.message||null})}}
     if(intent){let result;try{const execution=await executeThroughConnect({channel:channelOf(context,args),actor:ownerActor(context,args),tool:intent.tool,arguments:intent.arguments});const reply=measureFollowUp?formatMeasureFollowUp(execution):formatAuthorizedPriceResult(execution);console.log('[ELAN_UNIFIED_RUNTIME_EXECUTE]',{channel:'whatsapp',tool:intent.tool,status:execution?.result?.status||'OK',followUp:measureFollowUp});result=runtimeResult({args,context,execution,reply,command:intent.tool})}catch(error){console.error('[ELAN_UNIFIED_RUNTIME_FAILED]',{channel:'whatsapp',tool:intent.tool,code:error?.code||null});result=runtimeResult({args,context,execution:{actor:ownerActor(context,args),version:'1.0.0'},reply:`No pude consultar la autoridad comercial de CONNECT. Error: ${error?.code||'ELAN_RUNTIME_EXECUTION_FAILED'}. No voy a inventar un precio.`,command:intent.tool})}await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
 
+    const priorityBusinessCommand=detectOwnerBusinessGatewayCommand(args.message);
+    if(priorityBusinessCommand?.type==='business_provider_service_register'){
+      console.log('[ELAN_PROVIDER_SERVICE_PRIORITY_ROUTE]',{
+        handler:priorityBusinessCommand.type,
+        platform:platformOf(context,args)
+      });
+      const result=await originalProcessMessage(args);
+      if(result?.reply&&result?.suppressDelivery!==true){
+        await persistOwnerTurn({
+          context,
+          args,
+          direction:'outbound',
+          text:result.reply,
+          externalMessageId:result.responseId?'elan:'+result.responseId:null
+        });
+      }
+      return result;
+    }
+
     try{
       const continuity=await handleOwnerEntityCreateContinuity({message:args.message,actorKey:context?.phone||args?.phone||context?.externalUserId||args?.externalUserId||''});
       if(continuity?.handled){const result=await executeEntityCreateContinuity({continuity,context,args});await persistOwnerTurn({context,args,direction:'outbound',text:result.reply});return result}
