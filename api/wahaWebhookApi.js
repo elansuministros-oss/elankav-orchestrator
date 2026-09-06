@@ -46,7 +46,7 @@ const {
   getState: getQuotationModeState,
   processQuotationModeImage,
   processQuotationModeText
-} = require('../services/ownerQuotationModeService');
+} = require('../services/ownerQuotationModeElanOneLabBridge');
 const {
   attributeWhatsappResponseSafely
 } = require('../services/prospectingResponseAttributionService');
