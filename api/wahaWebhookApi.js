@@ -1308,6 +1308,7 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         chatId: incoming.chatId, event: incoming.event || 'message', senderRaw: incoming.senderRaw,
         ownerMode: ownerIdentity.isOwner === true, isOwner: ownerIdentity.isOwner === true,
         identityCandidates: incoming.identityCandidates || [],
+        whatsappName: incoming.whatsappName || null,
         messageType: incoming.messageType, originalText: incoming.text || null,
         media: incoming.media || null,
         transcribedText: incoming.messageType === 'audio' ? resolvedMessage : null,

@@ -15,7 +15,8 @@ const PROVIDER_PATTERNS = [
   /\b(ofrecemos|vendemos|distribuimos|fabricamos|importamos|suministramos)\b/,
   /\b(catalogo|lista de precios|tarifario|precios mayoristas|precio de distribuidor)\b/,
   /\b(proveedor|proveedores)\b.*\b(productos|servicios|materiales|insumos|catalogo|precios)\b/,
-  /\b(productos|servicios|materiales|insumos|catalogo|precios)\b.*\b(proveedor|proveedores)\b/
+  /\b(productos|servicios|materiales|insumos|catalogo|precios)\b.*\b(proveedor|proveedores)\b/,
+  /\bpara\s+(?:enviar|compartir|mandar)\s+(?:la\s+|el\s+)?(?:cotizacion|catalogo|tarifario|lista de precios)\b/
 ];
 
 const BUYER_PATTERNS = [
@@ -28,7 +29,7 @@ const BUYER_PATTERNS = [
 function knownRole(actor) {
   if (!actor || actor.resolutionStatus === 'not_found') return null;
   const role = normalize(actor.role);
-  if (['provider', 'customer', 'seller', 'family', 'owner', 'prospect'].includes(role)) return role;
+  if (['provider', 'provider_candidate', 'customer', 'seller', 'family', 'owner', 'prospect'].includes(role)) return role;
   return null;
 }
 
@@ -36,7 +37,7 @@ function classifyInboundCommercialRelationship({ message, actor } = {}) {
   const role = knownRole(actor);
   if (role) {
     return {
-      kind: role === 'provider' ? 'provider' : role === 'prospect' ? 'buyer_prospect' : role,
+      kind: role === 'provider' || role === 'provider_candidate' ? role : role === 'prospect' ? 'buyer_prospect' : role,
       source: 'known_identity',
       confidence: 'high',
       role

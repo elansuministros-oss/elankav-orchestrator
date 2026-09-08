@@ -7,6 +7,8 @@ const {
   clarificationMessage,
   providerCandidateMessage
 } = require('./inboundCommercialRoleService');
+const { upsertInboundProviderCandidate } = require('./inboundProviderCandidateRegistrationService');
+const { ingestProviderDocument } = require('./providerInboundIntelligenceService');
 
 const ORIGINAL_PROCESS = messageService.processMessage;
 const OWNER_OPS_CONTROL_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:(?:confirmar\s+OPS-\d+-[A-Z0-9]{6}|(?:estado|estatus|resultado|consulta|consultar|verifica|verificar)\s+OPS-\d+-[A-Z0-9]{6})|(?:despliega|desplegar|deploy|actualiza|actualizar)\s+(?:orchestrator|orquestador|connect|elanvisual|langflow)\s+(?:commit\s+)?[0-9a-f]{40}\b|(?:reinicia|reiniciar|restart|rearranca|rearrancar)\s+(?:orchestrator|orquestador))\b/i;
@@ -51,7 +53,40 @@ async function processMessageRoleFirst(input = {}) {
   });
 
   if (classification.kind === 'provider_candidate') {
-    const reply = providerCandidateMessage();
+    let provider = null;
+    let commercial = null;
+    try {
+      provider = await upsertInboundProviderCandidate(input);
+      if (provider && metadata.messageType === 'document' && metadata.media?.url) {
+        try {
+          commercial = await ingestProviderDocument({
+            providerId: provider.id,
+            mediaUrl: metadata.media.url,
+            mimeType: metadata.media.mimeType,
+            fileName: metadata.media.filename,
+            externalMessageId: metadata.messageId || undefined,
+            externalUserId: input.externalUserId || undefined,
+            phone: input.phone || undefined,
+            chatId: metadata.chatId || undefined
+          });
+        } catch (error) {
+          console.error('[INBOUND_PROVIDER_DOCUMENT_EXTRACTION_PENDING]', { providerId: provider.id, code: error?.code || null, status: error?.status || null });
+        }
+      }
+    } catch (error) {
+      console.error('[INBOUND_PROVIDER_AUTO_REGISTER_FAILED]', { code: error?.code || null, status: error?.status || null });
+    }
+    let reply = providerCandidateMessage();
+    if (provider) {
+      const saved = Number(commercial?.observationsSaved || 0);
+      if (metadata.messageType === 'document') {
+        reply = saved > 0
+          ? `Gracias. Registré a ${provider.tradeName} como proveedor, recibí el archivo y guardé ${saved} ${saved === 1 ? 'dato comercial' : 'datos comerciales'}.`
+          : `Gracias. Registré a ${provider.tradeName} como proveedor y recibí el archivo. Quedó asociado a su ficha comercial.`;
+      } else {
+        reply = `Gracias. Registré a ${provider.tradeName} como proveedor y asocié este contacto. Podés enviarme la cotización, catálogo o tarifario por este mismo WhatsApp.`;
+      }
+    }
     return {
       reply,
       outputText: reply,
@@ -59,8 +94,10 @@ async function processMessageRoleFirst(input = {}) {
       id: null,
       status: 'completed',
       usage: null,
-      actorRole: 'provider_candidate',
-      commercialRelationship: classification.kind
+      actorRole: provider ? 'provider' : 'provider_candidate',
+      commercialRelationship: classification.kind,
+      providerId: provider?.id || null,
+      observationsSaved: Number(commercial?.observationsSaved || 0)
     };
   }
 
