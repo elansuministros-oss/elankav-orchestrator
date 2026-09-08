@@ -49,11 +49,21 @@ function canonicalFrostUvProduct() {
   return 'vinil frost con impresión UV';
 }
 
+function parseMeasurementNumber(value) {
+  const normalized = normalize(value);
+  const words = { uno: 1, una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
+  if (Object.prototype.hasOwnProperty.call(words, normalized)) return words[normalized];
+  const numeric = Number(normalized.replace(',', '.'));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
 function parseMeasurements(message) {
   const source = text(message).replace(/,/g, '.');
-  const matches = [...source.matchAll(/(\d+(?:\.\d+)?)\s*(?:x|\*|×)\s*(\d+(?:\.\d+)?)/gi)];
+  const token = '(?:\\d+(?:\\.\\d+)?|uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)';
+  const pattern = new RegExp(`(${token})\\s*(?:m(?:etros?)?)?\\s*(?:x|\\*|×|por)\\s*(${token})\\s*(?:m(?:etros?)?)?`, 'gi');
+  const matches = [...source.matchAll(pattern)];
   return matches
-    .map((match) => ({ width: Number(match[1]), height: Number(match[2]), quantity: 1 }))
+    .map((match) => ({ width: parseMeasurementNumber(match[1]), height: parseMeasurementNumber(match[2]), quantity: 1 }))
     .filter((item) => item.width > 0 && item.height > 0);
 }
 

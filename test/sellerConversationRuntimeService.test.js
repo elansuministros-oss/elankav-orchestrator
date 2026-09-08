@@ -19,6 +19,13 @@ test('parses Juan five window measurements', () => {
   assert.deepEqual(measures[4], { width: 1.16, height: 2.35, quantity: 1 });
 });
 
+test('parses natural Spanish dimensions without asking again', () => {
+  const measures = parseMeasurements('Necesito cotizar un rótulo de 3 metros por uno para exterior');
+  assert.deepEqual(measures, [{ width: 3, height: 1, quantity: 1 }]);
+  const intent = quotationIntent('Necesito cotizar un rótulo de 3 metros por uno para exterior');
+  assert.equal(intent.measurements.length, 1);
+});
+
 test('extracts product and Altamira from natural seller request', () => {
   const intent = quotationIntent('Necesito cotizar vinil fros, para la rotulación de unas ventanas, el local queda en altamira');
   assert.ok(intent);
