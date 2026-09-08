@@ -170,7 +170,7 @@ async function resolveCommercialActor(input = {}, {
     });
   }
 
-  const baseUrl = resolveConnectUrl(env).replace(/\/+$/, '');
+  const baseUrl = clean(env.ELAN_ONE_ACTOR_IDENTITY_BASE_URL || resolveConnectUrl(env)).replace(/\/+$/, '');
   const url = new URL(`${baseUrl}/api/v1/actor-identity/resolve`);
   if (normalizedPhone) url.searchParams.set('phone', normalizedPhone);
   identities.forEach((identity) => url.searchParams.append('identities', identity));

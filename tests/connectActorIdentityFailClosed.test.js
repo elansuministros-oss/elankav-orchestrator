@@ -144,3 +144,27 @@ test('family role remains isolated from business permissions', () => {
   assert.equal(hasScope(policy, 'quotation.own.create'), false);
   assert.equal(hasScope(policy, 'financial.approve'), false);
 });
+
+
+test('ELAN ONE actor identity base URL overrides legacy CONNECT only for identity resolution', async () => {
+  const env = {
+    ...ENV,
+    ELAN_ONE_ACTOR_IDENTITY_BASE_URL: 'http://127.0.0.1:8098'
+  };
+  const fetchImpl = async (url) => {
+    assert.match(String(url), /^http:\/\/127\.0\.0\.1:8098\/api\/v1\/actor-identity\/resolve/);
+    return response(200, {
+      data: {
+        resolutionStatus: 'resolved', role: 'customer', registered: true,
+        actorId: 'customer-1', customerId: 'customer-1', scopes: ['price.read'],
+        platformAllowed: true, authority: 'econ_parties'
+      }
+    });
+  };
+  const actor = await resolveCommercialActor(
+    { phone: '50578828089', platform: 'ELANVISUAL' },
+    { fetchImpl, env }
+  );
+  assert.equal(actor.role, 'customer');
+  assert.equal(actor.authority, 'econ_parties');
+});
