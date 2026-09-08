@@ -1417,12 +1417,13 @@ async function handleWahaWebhookApi({ req, res, sendJson, dependencies = {} }) {
         const speech = await synthesizeImpl({ text: reply });
         logVoiceEvent('VOICE_SPEECH_COMPLETED', { ...incoming, mimeType: speech.mimeType });
         const sent = await sendWahaVoiceImpl({ session: incoming.session, chatId: incoming.chatId, data: speech.data, mimeType: speech.mimeType });
+        const textSent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });
         await persistConversationEventImpl(buildConversationEvent({
-          incoming, direction: 'outbound', text: reply, externalMessageId: sent?.messageId || sent?.id || null,
-          actorType: 'assistant', actorName: 'ELAN IA', metadata: { replyType: 'voice', ownerMode: Boolean(result?.context?.ownerMode), model: result?.model || null }
+          incoming, direction: 'outbound', text: reply, externalMessageId: textSent?.messageId || textSent?.id || sent?.messageId || sent?.id || null,
+          actorType: 'assistant', actorName: 'ELAN IA', metadata: { replyType: 'voice+text', ownerMode: Boolean(result?.context?.ownerMode), model: result?.model || null }
         }));
-        replyType = 'voice';
-        logVoiceEvent('VOICE_REPLY_SENT', incoming);
+        replyType = 'voice+text';
+        logVoiceEvent('VOICE_REPLY_SENT', { ...incoming, replyType });
       } catch (voiceError) {
         console.error('[WAHA_VOICE_REPLY_FALLBACK]', { message: voiceError.message, code: voiceError.code || null, status: voiceError.status || null });
         const sent = await sendWahaTextImpl({ session: incoming.session, chatId: incoming.chatId, text: reply });

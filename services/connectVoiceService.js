@@ -394,6 +394,8 @@ module.exports = {
   downloadWahaMedia,
   getConnectConfig,
   getWahaConfig,
+  isLocalVoiceEnabled,
+  synthesizeSpeechLocal,
   isAuthorizedWahaHost,
   normalizeMimeType,
   resolveAudioMimeType,

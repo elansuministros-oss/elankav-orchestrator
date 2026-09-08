@@ -17,6 +17,12 @@ async function synthesizeSpeechOfficial({ text, fetchImpl = fetch } = {}) {
   const normalizedText = String(text || '').trim();
   if (!normalizedText) throw createVoiceError('CONNECT_SPEECH_TEXT_REQUIRED', 400);
 
+  // ELAN ONE local voice is authoritative when enabled. CONNECT/OpenAI remains
+  // an optional provider, never a prerequisite for WhatsApp voice replies.
+  if (connectVoiceService.isLocalVoiceEnabled?.()) {
+    return connectVoiceService.synthesizeSpeechLocal({ text: normalizedText });
+  }
+
   const { baseUrl, token } = connectVoiceService.getConnectConfig();
   if (!token) throw createVoiceError('CONNECT_VOICE_TOKEN_REQUIRED', 503);
 

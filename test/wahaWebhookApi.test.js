@@ -1139,6 +1139,7 @@ test('procesa nota de voz, transcribe y responde con voz', async () => {
   const recorder = createSendJsonRecorder();
   const processed = [];
   const voices = [];
+  const texts = [];
 
   await handleWahaWebhookApi({
     req,
@@ -1162,6 +1163,10 @@ test('procesa nota de voz, transcribe y responde con voz', async () => {
       async sendWahaVoice(input) {
         voices.push(input);
         return { id: 'voice-reply' };
+      },
+      async sendWahaText(input) {
+        texts.push(input);
+        return { id: 'text-reply' };
       }
     }
   });
@@ -1170,7 +1175,9 @@ test('procesa nota de voz, transcribe y responde con voz', async () => {
   assert.equal(processed[0].metadata.transcribedText, 'Necesito una cotización para un rótulo');
   assert.equal(voices.length, 1);
   assert.equal(voices[0].chatId, '50584817885@c.us');
-  assert.equal(recorder.calls[0].payload.replyType, 'voice');
+  assert.equal(texts.length, 1);
+  assert.equal(texts[0].text, 'Claro. ¿Qué medida necesitás?');
+  assert.equal(recorder.calls[0].payload.replyType, 'voice+text');
   assert.equal(recorder.calls[0].payload.transcribed, true);
 });
 
@@ -1464,6 +1471,7 @@ test('POST /webhook/inbound conserva chatId @lid al responder voz', async () => 
   const res = createResponse();
   const recorder = createSendJsonRecorder();
   const voices = [];
+  const texts = [];
 
   await handleWahaWebhookApi({
     req,
@@ -1487,12 +1495,18 @@ test('POST /webhook/inbound conserva chatId @lid al responder voz', async () => 
       },
       async sendWahaVoice(input) {
         voices.push(input);
+        return { id: 'voice-lid' };
+      },
+      async sendWahaText(input) {
+        texts.push(input);
+        return { id: 'text-lid' };
       }
     }
   });
 
   assert.equal(voices[0].chatId, '168534952960065@lid');
-  assert.equal(recorder.calls[0].payload.replyType, 'voice');
+  assert.equal(texts.length, 1);
+  assert.equal(recorder.calls[0].payload.replyType, 'voice+text');
 });
 
 test('POST /webhook/inbound falla síntesis y responde el mismo texto', async () => {
