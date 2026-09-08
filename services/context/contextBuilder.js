@@ -114,8 +114,8 @@ function buildContext(input = {}) {
     input.metadata?.phone;
   const identity = resolveCanonicalIdentity(receivedIdentity);
   const directPhone = normalizePhone(input.phone || input.metadata?.phone);
-  const aliasPhone = identity.matchedAlias ? normalizePhone(identity.canonicalId) : '';
-  const phone = aliasPhone || directPhone;
+  const canonicalPhone = normalizePhone(identity.canonicalId);
+  const phone = canonicalPhone || directPhone;
   const ownerPhones = getOwnerPhones();
   const message = input.message || findMessage(args);
   const platformResolution = resolvePlatform({
@@ -125,6 +125,7 @@ function buildContext(input = {}) {
   });
   const channel = normalizeChannel(input.channel);
   const rawIdentity = normalizeText(receivedIdentity);
+  const canonicalExternalUserId = identity.canonicalId || rawIdentity;
 
   return Object.freeze({
     version: CONTEXT_VERSION,
@@ -134,8 +135,8 @@ function buildContext(input = {}) {
     message,
     platform: platformResolution.platform,
     channel: channel || null,
-    externalUserId: rawIdentity || null,
-    phone: phone || rawIdentity || null,
+    externalUserId: canonicalExternalUserId || null,
+    phone: phone || canonicalExternalUserId || null,
     owner: Object.freeze({
       isOwner: Boolean(phone && ownerPhones.includes(phone)),
       phone: phone || null
