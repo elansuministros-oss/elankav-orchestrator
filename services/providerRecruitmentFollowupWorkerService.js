@@ -1,6 +1,7 @@
 'use strict';
 
 const { createWahaDeliveryAdapter } = require('../adapters/wahaDeliveryAdapter');
+const { getOperatorState } = require('./operatorModeService');
 
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
@@ -157,6 +158,10 @@ async function runProviderRecruitmentFollowups({
   state.enabled=enabled(env);
   state.lastRunAt=now().toISOString();
   if(!state.enabled) return {...state,status:'DISABLED'};
+  const operatorState=await getOperatorState({operatorId:'owner',role:'OWNER',env});
+  if(operatorState.operationalControls?.autonomy!==true || operatorState.operationalControls?.providers!==true){
+    return {...state,status:'PAUSED_BY_OPERATOR'};
+  }
   if(!withinContactWindow(now(),env)) return {...state,status:'OUTSIDE_CONTACT_WINDOW'};
   if(state.running) return {...state,status:'ALREADY_RUNNING'};
   state.running=true;
