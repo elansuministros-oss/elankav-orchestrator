@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -81,8 +83,24 @@ function resolveElanOneCommercialUrl() {
   ).replace(/\/+$/, '');
 }
 
+function readTokenFromEnvFile(filePath) {
+  const path = normalizeText(filePath);
+  if (!path) return '';
+  try {
+    const line = fs.readFileSync(path, 'utf8').split(/\r?\n/).find((entry) => entry.startsWith('VQS_API_TOKEN='));
+    return line ? normalizeText(line.slice('VQS_API_TOKEN='.length).replace(/^['"]|['"]$/g, '')) : '';
+  } catch {
+    return '';
+  }
+}
+
 function elanOneCommercialHeaders() {
-  const token = normalizeText(process.env.ELAN_ONE_VQS_API_TOKEN || process.env.VQS_API_TOKEN || process.env.DESIGN_API_TOKEN);
+  const token = normalizeText(
+    process.env.ELAN_ONE_VQS_API_TOKEN ||
+    readTokenFromEnvFile(process.env.ELAN_ONE_VQS_ENV_FILE) ||
+    process.env.VQS_API_TOKEN ||
+    process.env.DESIGN_API_TOKEN
+  );
   if (!token) return null;
   return {
     Accept: 'application/json',
@@ -265,6 +283,7 @@ module.exports = {
   resolveConnectUrl,
   resolveElanOneCommercialUrl,
   commercialItemToKnowledge,
+  readTokenFromEnvFile,
   fetchElanOneCommercialKnowledge,
   commercialQueryTokens,
   filterCommercialKnowledgePayload,
