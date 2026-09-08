@@ -310,6 +310,10 @@ function buildDeterministicCustomerFallback({ input, context } = {}) {
     return '¡Hola! 👋 ¿Qué necesitás cotizar o consultar?';
   }
 
+  if (/\b(?:como|en que) podemos ayudarte\b/.test(text)) {
+    return 'Gracias por responder. Te contactamos de ELANVISUAL; trabajamos soluciones de comunicación visual, rotulación y señalización para empresas. ¿Con quién podemos conversar sobre mercadeo, compras o imagen?';
+  }
+
   if (/\b(que es|quienes son|que hace|a que se dedica)\b.*\belanvisual\b|^elanvisual\s*(que es|que hacen)?$/.test(text)) {
     return 'ELANVISUAL es nuestra unidad de comunicación visual. Trabajamos rótulos, fachadas, vinil, impresión y señalización para negocios y proyectos. Si me contás qué necesitás, te oriento con la opción adecuada.';
   }
