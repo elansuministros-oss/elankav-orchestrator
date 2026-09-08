@@ -3,6 +3,49 @@
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 const DEFAULT_TIMEOUT_MS = 8000;
 
+const GENERIC_COMMERCIAL_QUERY_TOKENS = new Set([
+  'precio', 'precios', 'cuanto', 'cuesta', 'costar', 'costo', 'costos', 'cotizar', 'cotizacion',
+  'presupuesto', 'valor', 'vale', 'necesito', 'quiero', 'dame', 'metro', 'metros', 'para', 'por',
+  'del', 'una', 'uno', 'unos', 'unas', 'con', 'sin', 'impresion', 'imprimir', 'impreso', 'impresa'
+]);
+
+function normalizeSearch(value) {
+  return normalizeText(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function commercialQueryTokens(query) {
+  return normalizeSearch(query)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2 && !GENERIC_COMMERCIAL_QUERY_TOKENS.has(token));
+}
+
+function knowledgeSearchWords(item = {}) {
+  const data = item?.data && typeof item.data === 'object' ? item.data : {};
+  const aliases = Array.isArray(data.aliases) ? data.aliases : [];
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  return normalizeSearch([
+    item.title,
+    ...tags,
+    ...aliases,
+    data.name,
+    data.sku,
+    data.productId
+  ].filter(Boolean).join(' ')).split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function filterCommercialKnowledgePayload(payload, query) {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.knowledge)) return payload;
+  const tokens = commercialQueryTokens(query);
+  if (!normalizeText(query)) return payload;
+  const knowledge = tokens.length
+    ? payload.knowledge.filter((item) => {
+        const words = new Set(knowledgeSearchWords(item));
+        return tokens.some((token) => words.has(token));
+      })
+    : [];
+  return { ...payload, knowledge };
+}
+
 function normalizeText(value) {
   return String(value || '').trim();
 }
@@ -96,7 +139,7 @@ async function fetchPlatformKnowledge({ platform, query, fetchFn = globalThis.fe
     platformId,
     query: normalizedQuery || null,
     available: Boolean(payload),
-    payload
+    payload: filterCommercialKnowledgePayload(payload, normalizedQuery)
   };
 }
 
@@ -125,6 +168,8 @@ module.exports = {
   DEFAULT_CONNECT_URL,
   normalizePlatform,
   resolveConnectUrl,
+  commercialQueryTokens,
+  filterCommercialKnowledgePayload,
   fetchPlatformKnowledge,
   loadPlatformKnowledgeSafely
 };
