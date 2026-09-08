@@ -15,6 +15,14 @@ const MODES = Object.freeze({
   PROGRAMADOR: 'PROGRAMADOR'
 });
 
+const OPERATIONAL_SCOPES = Object.freeze(['autonomy', 'sales', 'providers', 'copilot']);
+const DEFAULT_OPERATIONAL_CONTROLS = Object.freeze({
+  autonomy: false,
+  sales: true,
+  providers: true,
+  copilot: false
+});
+
 const ROLE_PROFILES = Object.freeze({
   OWNER: Object.freeze({
     role: 'OWNER',
@@ -191,6 +199,18 @@ async function writeStore(store, env = process.env) {
   await fs.rename(tempPath, storePath);
 }
 
+function resolveOperationalControls(current = {}) {
+  const stored = current.operationalControls && typeof current.operationalControls === 'object'
+    ? current.operationalControls
+    : {};
+  return Object.freeze({
+    ...DEFAULT_OPERATIONAL_CONTROLS,
+    ...Object.fromEntries(OPERATIONAL_SCOPES
+      .filter(scope => typeof stored[scope] === 'boolean')
+      .map(scope => [scope, stored[scope]]))
+  });
+}
+
 async function getOperatorState({ operatorId = 'owner', role = 'OWNER', env = process.env } = {}) {
   const profile = getRoleProfile(role);
   if (!profile) {
@@ -209,6 +229,7 @@ async function getOperatorState({ operatorId = 'owner', role = 'OWNER', env = pr
     activeMode,
     canChangeMode: profile.canChangeMode,
     allowedModes: profile.allowedModes,
+    operationalControls: resolveOperationalControls(current),
     activatedAt: current.activatedAt || null,
     previousMode: current.previousMode || null
   });
@@ -232,14 +253,31 @@ async function setOperatorMode({ operatorId = 'owner', role = 'OWNER', mode, env
     return state;
   }
   const store = await readStore(env);
-  const previousMode = store[operatorId]?.activeMode || profile.defaultMode;
+  const current = store[operatorId] || {};
+  const previousMode = current.activeMode || profile.defaultMode;
   const activatedAt = new Date().toISOString();
   store[operatorId] = {
+    ...current,
     role: profile.role,
     activeMode: targetMode,
     previousMode,
     activatedAt
   };
+  await writeStore(store, env);
+  return getOperatorState({ operatorId, role, env });
+}
+
+async function setOperationalControl({ operatorId = 'owner', role = 'OWNER', scope, enabled, env = process.env } = {}) {
+  const profile = getRoleProfile(role);
+  if (!profile || !profile.canChangeMode || !OPERATIONAL_SCOPES.includes(scope) || typeof enabled !== 'boolean') {
+    const error = new Error('OPERATIONAL_CONTROL_NOT_ALLOWED');
+    error.code = 'OPERATIONAL_CONTROL_NOT_ALLOWED';
+    throw error;
+  }
+  const store = await readStore(env);
+  const current = store[operatorId] || {};
+  const controls = { ...resolveOperationalControls(current), [scope]: enabled };
+  store[operatorId] = { ...current, role: profile.role, operationalControls: controls };
   await writeStore(store, env);
   return getOperatorState({ operatorId, role, env });
 }
@@ -255,6 +293,8 @@ function formatModeState(state) {
 module.exports = {
   DEFAULT_STORE_PATH,
   MODES,
+  OPERATIONAL_SCOPES,
+  DEFAULT_OPERATIONAL_CONTROLS,
   ROLE_PROFILES,
   TECHNICAL_OWNER_OPS_CAPABILITIES,
   MODE_TECHNICAL_CAPABILITIES,
@@ -266,5 +306,6 @@ module.exports = {
   getOperatorState,
   getRoleProfile,
   resolveMode,
+  setOperationalControl,
   setOperatorMode
 };

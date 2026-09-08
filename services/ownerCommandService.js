@@ -37,6 +37,7 @@ const {
   getOperatorState,
   isTechnicalOwnerOpsCapability,
   resolveMode,
+  setOperationalControl,
   setOperatorMode
 } = require('./operatorModeService');
 const {
@@ -76,6 +77,7 @@ const OWNER_COMMANDS = Object.freeze({
   OWNER_OPS_CONFIRM: 'owner_ops_confirm',
   MODE_GET: 'mode_get',
   MODE_SET: 'mode_set',
+  OPERATIONAL_CONTROL: 'operational_control',
   MODE_PERMISSIONS: 'mode_permissions',
   LANGUAGE_LEARN: 'language_learn',
   SELF_AUDIT: 'self_audit',
@@ -181,6 +183,16 @@ function resolveOwnerOpsTarget(normalizedMessage) {
   if (/\b(connect|elankav connect)\b/.test(normalizedMessage)) return 'connect';
   if (/\b(orchestrator|orquestador)\b/.test(normalizedMessage)) return 'orchestrator';
   return null;
+}
+
+function detectOwnerOperationalControlCommand(message, normalizedMessage = normalizeCommand(message)) {
+  const text = normalizedMessage.replace(/^elan\s*[,;:]?\s*/, '');
+  if (/^(activate|ponte en automatico|trabaja solo)$/.test(text)) return Object.freeze({ type: OWNER_COMMANDS.OPERATIONAL_CONTROL, scope: 'autonomy', enabled: true });
+  if (/^(desactivate|parate|pausa|pausa elan)$/.test(text)) return Object.freeze({ type: OWNER_COMMANDS.OPERATIONAL_CONTROL, scope: 'autonomy', enabled: false });
+  const domain = text.match(/^(activa|desactiva)\s+(?:modo\s+)?(ventas|proveedores|copiloto)$/);
+  if (!domain) return null;
+  const scopes = { ventas: 'sales', proveedores: 'providers', copiloto: 'copilot' };
+  return Object.freeze({ type: OWNER_COMMANDS.OPERATIONAL_CONTROL, scope: scopes[domain[2]], enabled: domain[1] === 'activa' });
 }
 
 function detectOwnerModeCommand(message, normalizedMessage = normalizeCommand(message)) {
@@ -518,6 +530,8 @@ function detectOwnerCommand(message) {
 
   if (permissionCommand) return permissionCommand;
 
+  const operationalControlCommand = detectOwnerOperationalControlCommand(message, normalized);
+  if (operationalControlCommand) return operationalControlCommand;
   const modeCommand = detectOwnerModeCommand(message, normalized);
   if (modeCommand) return modeCommand;
   const elanGoCommand = detectOwnerElanGoCommand(message);
@@ -620,6 +634,17 @@ async function executeOwnerCommand({ command, platform, ownerPhone = null }) {
   if (type === OWNER_COMMANDS.MODE_SET) {
     const state = await setOperatorMode({ operatorId: 'owner', role: 'OWNER', mode: command.mode });
     return { command: type, job: null, outputText: `Modo operativo actualizado.\n${formatModeState(state)}`, operatorMode: state };
+  }
+  if (type === OWNER_COMMANDS.OPERATIONAL_CONTROL) {
+    const state = await setOperationalControl({
+      operatorId: 'owner', role: 'OWNER', scope: command.scope, enabled: command.enabled
+    });
+    return {
+      command: type,
+      job: null,
+      outputText: `${command.scope}: ${command.enabled ? 'ON' : 'OFF'}`,
+      operatorMode: state
+    };
   }
 
   if (type === OWNER_COMMANDS.MODE_PERMISSIONS) {
