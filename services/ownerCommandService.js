@@ -118,7 +118,7 @@ const INFORMATION_ONLY_PATTERN =
 const TECHNICAL_ACTION_QUERY_PATTERN =
   /\b(service\.restart|service\.logs|git\.status|file\.inspect|test\.run|reiniciar|reinicia|restart|logs|git|tests?|pruebas?|deploy|archivo|repositorio)\b/;
 
-const SELF_AUDIT_PATTERN = /\b(auditate|autoaudita|auto audita|audita tus capacidades|audita tus accesos|audita lo que puedes|audita lo que podes|revisa tus capacidades|revisa tus accesos|que te falta|que podes hacer realmente|que puedes hacer realmente|estado de tus capacidades)\b/;
+const SELF_AUDIT_PATTERN = /\b(auditate|autoaudita|auto audita|audita tus capacidades|audita tus accesos|audita todas tus funciones|audita lo que puedes|audita lo que podes|revisa tus capacidades|revisa tus accesos|que te falta|que podes hacer realmente|que puedes hacer realmente|estado de tus capacidades)\b/;
 
 function normalizeCommand(value) {
   return String(value || '')

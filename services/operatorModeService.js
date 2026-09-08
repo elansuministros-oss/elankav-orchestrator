@@ -97,6 +97,7 @@ const MODE_TECHNICAL_CAPABILITIES = Object.freeze({
 const MODE_ALIASES = Object.freeze({
   general: MODES.OWNER_GENERAL,
   'asistente general': MODES.OWNER_GENERAL,
+  operador: MODES.OWNER_GENERAL,
   ventas: MODES.VENTAS,
   vendedor: MODES.VENTAS,
   vendedora: MODES.VENTAS,
