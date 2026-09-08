@@ -73,6 +73,76 @@ function resolveConnectUrl() {
   ).replace(/\/+$/, '');
 }
 
+function resolveElanOneCommercialUrl() {
+  return normalizeText(
+    process.env.ELAN_ONE_COMMERCIAL_BASE_URL ||
+    process.env.ELAN_ONE_ACTOR_IDENTITY_BASE_URL ||
+    process.env.ELAN_ONE_UNIFIED_MEMORY_BASE_URL
+  ).replace(/\/+$/, '');
+}
+
+function elanOneCommercialHeaders() {
+  const token = normalizeText(process.env.ELAN_ONE_VQS_API_TOKEN || process.env.VQS_API_TOKEN || process.env.DESIGN_API_TOKEN);
+  if (!token) return null;
+  return {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`
+  };
+}
+
+function commercialItemToKnowledge(item = {}, index = 0) {
+  const name = normalizeText(item.name || item.code || item.id || `Producto ${index + 1}`);
+  const price = item.pricePerM2 ?? item.pricePerLinearMeter ?? item.unitPrice ?? item.basePrice ?? item.minimumPrice ?? null;
+  const unit = item.formulaType === 'AREA_M2' ? 'm²' : item.formulaType === 'METRO_LINEAL' ? 'metro lineal' : item.formulaType === 'UNIDAD' ? 'unidad' : '';
+  const priceText = price !== null && price !== undefined ? ` Tarifa autorizada: ${normalizeText(item.currency || 'USD')} ${Number(price).toFixed(2)}${unit ? ` por ${unit}` : ''}.` : '';
+  return {
+    id: `elan-one-commercial-${normalizeText(item.id || item.code || index)}`,
+    platform_id: 'elanvisual',
+    item_type: 'PRODUCT',
+    title: name,
+    content: `${normalizeText(item.description || name)}.${priceText}`.trim(),
+    data: {
+      ...item,
+      authority: 'ELAN_ONE_COMMERCIAL_PRODUCTS',
+      approved: true,
+      ...(price !== null && price !== undefined ? { price } : {})
+    },
+    tags: [name, normalizeText(item.category), normalizeText(item.subcategory), normalizeText(item.code)].filter(Boolean),
+    status: 'ACTIVE'
+  };
+}
+
+async function fetchElanOneCommercialKnowledge(query, fetchFn = globalThis.fetch) {
+  const baseUrl = resolveElanOneCommercialUrl();
+  const headers = elanOneCommercialHeaders();
+  if (!baseUrl || !headers || typeof fetchFn !== 'function' || !normalizeText(query)) return null;
+  const response = await fetchFn(`${baseUrl}/api/v1/business/vqs/pricing/resolve`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ query: normalizeText(query) }),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS)
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.data) {
+    const error = new Error(`ELAN_ONE_COMMERCIAL_HTTP_${response.status}`);
+    error.code = payload?.code || payload?.error?.code || 'ELAN_ONE_COMMERCIAL_REQUEST_FAILED';
+    error.status = response.status;
+    throw error;
+  }
+  const data = payload.data;
+  if (data.status === 'NOT_FOUND') return { status: 'NOT_FOUND', knowledge: [] };
+  const items = data.status === 'MULTIPLE'
+    ? (Array.isArray(data.matches) ? data.matches : [])
+    : data.item ? [data.item] : [];
+  return {
+    status: normalizeText(data.status || 'FOUND'),
+    clarificationType: data.clarificationType || null,
+    question: data.question || null,
+    knowledge: items.map(commercialItemToKnowledge)
+  };
+}
+
 function buildHeaders() {
   const token = normalizeText(
     process.env.CONNECT_INTERNAL_API_TOKEN ||
@@ -133,13 +203,38 @@ async function fetchPlatformKnowledge({ platform, query, fetchFn = globalThis.fe
     throw error;
   }
 
+  let filteredPayload = filterCommercialKnowledgePayload(payload, normalizedQuery);
+  if (platformId === 'elanvisual' && normalizedQuery && Array.isArray(filteredPayload?.knowledge) && filteredPayload.knowledge.length === 0) {
+    try {
+      const fallback = await fetchElanOneCommercialKnowledge(normalizedQuery, fetchFn);
+      if (fallback?.knowledge?.length) {
+        filteredPayload = {
+          ...filteredPayload,
+          knowledge: fallback.knowledge,
+          commercialResolution: {
+            source: 'ELAN_ONE_COMMERCIAL_PRODUCTS',
+            status: fallback.status,
+            clarificationType: fallback.clarificationType,
+            question: fallback.question
+          }
+        };
+      }
+    } catch (error) {
+      console.error('[ELAN_ONE_COMMERCIAL_KNOWLEDGE_FALLBACK_FAILED]', {
+        code: error?.code || null,
+        status: error?.status || null,
+        message: error?.message || String(error)
+      });
+    }
+  }
+
   return {
     source: 'ELANKAV_CONNECT',
     policy: 'approved-commercial-catalogs-only',
     platformId,
     query: normalizedQuery || null,
     available: Boolean(payload),
-    payload: filterCommercialKnowledgePayload(payload, normalizedQuery)
+    payload: filteredPayload
   };
 }
 
@@ -168,6 +263,9 @@ module.exports = {
   DEFAULT_CONNECT_URL,
   normalizePlatform,
   resolveConnectUrl,
+  resolveElanOneCommercialUrl,
+  commercialItemToKnowledge,
+  fetchElanOneCommercialKnowledge,
   commercialQueryTokens,
   filterCommercialKnowledgePayload,
   fetchPlatformKnowledge,
