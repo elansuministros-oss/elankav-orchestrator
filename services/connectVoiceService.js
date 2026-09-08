@@ -1,5 +1,11 @@
 'use strict';
 
+const {
+  isLocalVoiceEnabled,
+  synthesizeSpeechLocal,
+  transcribeAudioLocal
+} = require('./localVoiceService');
+
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
 const DEFAULT_WAHA_BASE_URL = 'https://waha.elankav.com';
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -255,8 +261,18 @@ async function transcribeAudioDirect({ audio, mimeType, filename }) {
   return String(result?.text || '').trim();
 }
 
-async function transcribeAudio({ audio, mimeType, filename, fetchImpl = fetch }) {
+async function transcribeAudio({ audio, mimeType, filename, fetchImpl = fetch, localTranscribeImpl = transcribeAudioLocal }) {
   if (!audio?.length) throw createHttpError('CONNECT_AUDIO_REQUIRED', 400);
+
+  if (isLocalVoiceEnabled()) {
+    try {
+      const text = await localTranscribeImpl({ audio, mimeType, filename });
+      if (!String(text || '').trim()) throw createHttpError('VOICE_TRANSCRIPTION_EMPTY', 502);
+      return String(text).trim();
+    } catch (error) {
+      console.error('[LOCAL_STT_FAILED]', { code: error?.code || null, message: error?.message || String(error) });
+    }
+  }
 
   const { baseUrl } = getConnectConfig();
   const normalizedMimeType = assertSupportedAudioMimeType(mimeType || 'audio/ogg');
@@ -322,9 +338,17 @@ async function synthesizeSpeechDirect({ text }) {
   };
 }
 
-async function synthesizeSpeech({ text, fetchImpl = fetch }) {
+async function synthesizeSpeech({ text, fetchImpl = fetch, localSynthesizeImpl = synthesizeSpeechLocal }) {
   const normalizedText = String(text || '').trim();
   if (!normalizedText) throw createHttpError('CONNECT_SPEECH_TEXT_REQUIRED', 400);
+
+  if (isLocalVoiceEnabled()) {
+    try {
+      return await localSynthesizeImpl({ text: normalizedText });
+    } catch (error) {
+      console.error('[LOCAL_TTS_FAILED]', { code: error?.code || null, message: error?.message || String(error) });
+    }
+  }
 
   const { baseUrl } = getConnectConfig();
   try {

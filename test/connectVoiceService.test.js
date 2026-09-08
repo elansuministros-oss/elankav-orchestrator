@@ -7,6 +7,7 @@ const {
   isAuthorizedWahaHost,
   normalizeMimeType,
   resolveMediaUrl,
+  synthesizeSpeech,
   transcribeAudio
 } = require('../services/connectVoiceService');
 
@@ -195,5 +196,37 @@ test('CONNECT devuelve JSON en errores 404 sin token expuesto', async () => {
       }),
       { code: 'VOICE_CONFIGURATION_INVALID' }
     );
+  });
+});
+
+
+test('STT local activo evita CONNECT y OpenAI', async () => {
+  await withEnv({ ELAN_LOCAL_VOICE_ENABLED: 'true' }, async () => {
+    let fetchCalls = 0;
+    let localCalls = 0;
+    const text = await transcribeAudio({
+      audio: Buffer.from('audio'),
+      mimeType: 'audio/ogg',
+      localTranscribeImpl: async () => { localCalls += 1; return 'hola desde voz local'; },
+      fetchImpl: async () => { fetchCalls += 1; throw new Error('CONNECT_SHOULD_NOT_RUN'); }
+    });
+    assert.equal(text, 'hola desde voz local');
+    assert.equal(localCalls, 1);
+    assert.equal(fetchCalls, 0);
+  });
+});
+
+test('TTS local activo evita CONNECT y OpenAI', async () => {
+  await withEnv({ ELAN_LOCAL_VOICE_ENABLED: 'true' }, async () => {
+    let fetchCalls = 0;
+    let localCalls = 0;
+    const speech = await synthesizeSpeech({
+      text: 'respuesta local',
+      localSynthesizeImpl: async () => { localCalls += 1; return { data: 'd2F2', mimeType: 'audio/wav' }; },
+      fetchImpl: async () => { fetchCalls += 1; throw new Error('CONNECT_SHOULD_NOT_RUN'); }
+    });
+    assert.equal(speech.mimeType, 'audio/wav');
+    assert.equal(localCalls, 1);
+    assert.equal(fetchCalls, 0);
   });
 });
