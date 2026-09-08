@@ -30,6 +30,10 @@ function resolveConnectUrl(env = process.env) {
   return clean(env.ELANKAV_CONNECT_URL || env.CONNECT_URL || env.CONNECT_API_URL) || DEFAULT_CONNECT_URL;
 }
 
+function resolveUnifiedMemoryUrl(env = process.env) {
+  return clean(env.ELAN_ONE_UNIFIED_MEMORY_BASE_URL || resolveConnectUrl(env)).replace(/\/+$/, '');
+}
+
 function resolveConnectToken(env = process.env) {
   return clean(
     env.CONNECT_INTERNAL_API_TOKEN ||
@@ -158,7 +162,8 @@ async function requestConversationDecision(
 async function readUnifiedMemory({ actorKey, actorRole, platform = 'ELANVISUAL', limit = 20 } = {}, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
   const key = clean(actorKey);
   if (!key) throw Object.assign(new Error('ACTOR_KEY_REQUIRED'), { code: 'ACTOR_KEY_REQUIRED' });
-  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const { token } = requireTransport(fetchImpl, env);
+  const baseUrl = resolveUnifiedMemoryUrl(env);
   const query = new URLSearchParams({
     actorKey: key,
     actorRole: clean(actorRole),
@@ -185,7 +190,8 @@ async function writeUnifiedMemoryState(
 ) {
   const key = clean(actorKey);
   if (!key) throw Object.assign(new Error('ACTOR_KEY_REQUIRED'), { code: 'ACTOR_KEY_REQUIRED' });
-  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const { token } = requireTransport(fetchImpl, env);
+  const baseUrl = resolveUnifiedMemoryUrl(env);
   const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory/state`, {
     method: 'PATCH',
     headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },
@@ -223,7 +229,8 @@ async function writeUnifiedMemoryStateSafely(input, options) {
 }
 
 async function publishUnifiedMemoryEvent(event, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
-  const { token, baseUrl } = requireTransport(fetchImpl, env);
+  const { token } = requireTransport(fetchImpl, env);
+  const baseUrl = resolveUnifiedMemoryUrl(env);
   const response = await fetchImpl(`${baseUrl}/api/v1/unified-memory/events`, {
     method: 'POST',
     headers: { ...buildHeaders(token), 'Content-Type': 'application/json' },

@@ -4,8 +4,11 @@ const assert = require('node:assert/strict');
 const {
   DEFAULT_CONNECT_URL,
   publishConversationEvent,
+  publishUnifiedMemoryEvent,
+  readUnifiedMemory,
   requestConversationDecision,
-  resolveConnectUrl
+  resolveConnectUrl,
+  writeUnifiedMemoryState
 } = require('../services/connectConversationClient');
 
 test('usa CONNECT oficial como URL por defecto', () => {
@@ -47,4 +50,34 @@ test('publica evento de conversacion a CONNECT con token interno', async () => {
   assert.equal(result.ok, true);
   assert.equal(calls[0].url, 'https://connect.test/api/v1/conversations/events');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer internal-token');
+});
+
+
+test('memoria unificada usa ELAN ONE sin redirigir decisiones de CONNECT', async () => {
+  const calls = [];
+  const env = {
+    ELANKAV_CONNECT_URL: 'https://connect.test',
+    ELAN_ONE_UNIFIED_MEMORY_BASE_URL: 'http://127.0.0.1:8098',
+    CONNECT_INTERNAL_TOKEN: 'internal-token'
+  };
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method || 'GET' });
+    if (String(url).includes('/conversations/decision')) {
+      return new Response(JSON.stringify({ ok: true, action: 'RESPOND', welcome: { send: false } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: true, history: [], workingState: {} }), { status: 200 });
+  };
+
+  await requestConversationDecision({ identity: 'x', platform: 'ELANVISUAL', message: 'Hola' }, { env, fetchImpl });
+  await readUnifiedMemory({ actorKey: 'seller:1', actorRole: 'seller' }, { env, fetchImpl });
+  await writeUnifiedMemoryState({ actorKey: 'seller:1', actorRole: 'seller', workingState: {} }, { env, fetchImpl });
+  await publishUnifiedMemoryEvent({
+    actorKey: 'seller:1', actorRole: 'seller', platform: 'ELANVISUAL', sourceChannel: 'whatsapp',
+    direction: 'inbound', text: 'hola', messageType: 'text'
+  }, { env, fetchImpl });
+
+  assert.equal(calls[0].url, 'https://connect.test/api/v1/conversations/decision');
+  assert.match(calls[1].url, /^http:\/\/127\.0\.0\.1:8098\/api\/v1\/unified-memory\?/);
+  assert.equal(calls[2].url, 'http://127.0.0.1:8098/api/v1/unified-memory/state');
+  assert.equal(calls[3].url, 'http://127.0.0.1:8098/api/v1/unified-memory/events');
 });
