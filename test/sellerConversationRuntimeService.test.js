@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  buildPrintSalesGuidance,
   buildQuotationDocument,
   isCreateFollowUp,
   isLinkFollowUp,
@@ -24,6 +25,27 @@ test('parses natural Spanish dimensions without asking again', () => {
   assert.deepEqual(measures, [{ width: 3, height: 1, quantity: 1 }]);
   const intent = quotationIntent('Necesito cotizar un rótulo de 3 metros por uno para exterior');
   assert.equal(intent.measurements.length, 1);
+});
+
+test('guides a lona buyer without asking for technology or grammage', () => {
+  const reply = buildPrintSalesGuidance('Cotizame una lona de 3 x 1 para exterior');
+  assert.match(reply, /ecosolvente/i);
+  assert.match(reply, /UV/);
+  assert.match(reply, /13 oz/i);
+  assert.doesNotMatch(reply, /(?:qué|que) (?:tecnología|tecnologia|gramaje)/i);
+});
+
+test('recommends the relevant lona instead of dumping the catalog', () => {
+  assert.match(buildPrintSalesGuidance('lona exterior con mucho viento'), /lona mesh/i);
+  assert.match(buildPrintSalesGuidance('lona para caja de luz iluminada'), /20 oz/i);
+  assert.match(buildPrintSalesGuidance('lona para campaña temporal'), /8\/7 oz/i);
+});
+
+test('does not assume lona for a generic outdoor sign', () => {
+  const reply = buildPrintSalesGuidance('Necesito cotizar un rótulo de 3 metros por uno para exterior');
+  assert.match(reply, /lona impresa/i);
+  assert.match(reply, /rótulo rígido o luminoso/i);
+  assert.doesNotMatch(reply, /13 oz/i);
 });
 
 test('extracts product and Altamira from natural seller request', () => {

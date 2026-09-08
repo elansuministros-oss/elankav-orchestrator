@@ -49,6 +49,39 @@ function canonicalFrostUvProduct() {
   return 'vinil frost con impresión UV';
 }
 
+function isFlexiblePrintRequest(value) {
+  return /\b(?:lona|banner|manta)\b/i.test(normalize(value));
+}
+
+function isGenericOutdoorSignRequest(value) {
+  const source = normalize(value);
+  if (!/\brotulo\b/.test(source) || !/\b(?:exterior|intemperie|afuera)\b/.test(source)) return false;
+  return !/\b(?:lona|banner|manta|acrilico|pvc|acm|alucobond|luminos|caja de luz|letras?)\b/.test(source);
+}
+
+function buildPrintSalesGuidance(value) {
+  if (isFlexiblePrintRequest(value)) {
+    const source = normalize(value);
+    let material = 'lona banner de 13 oz';
+    let reason = 'porque es una opción equilibrada para exterior';
+    if (/\b(?:retroilumin|caja de luz|con luz|iluminad)\b/.test(source)) {
+      material = 'lona traslúcida de 20 oz';
+      reason = 'porque está pensada para trabajar con iluminación';
+    } else if (/\b(?:mucho viento|zona ventosa|viento fuerte|ventoso)\b/.test(source)) {
+      material = 'lona mesh';
+      reason = 'porque deja pasar mejor el viento';
+    } else if (/\b(?:temporal|campana|evento|promocion|por pocos dias|corto plazo)\b/.test(source)) {
+      material = 'lona 8/7 oz';
+      reason = 'porque funciona bien cuando el uso será temporal';
+    }
+    return `Para ese trabajo yo te recomiendo ${material}, ${reason}. Podemos imprimirla en ecosolvente o en UV; las dos son buenas. La ecosolvente trabaja con tinta ecosolvente y la UV cura la tinta con luz ultravioleta. No necesitás escoger tecnología ni gramaje: yo te guío según dónde va instalada, cuánto tiempo la vas a usar y el presupuesto.`;
+  }
+  if (isGenericOutdoorSignRequest(value)) {
+    return 'Ya tengo la medida para exterior. Antes de definir el precio necesito saber qué tipo de solución buscás: si es una lona impresa, yo te recomiendo la tecnología y la lona adecuada sin pedirte gramaje; si es un rótulo rígido o luminoso, cambia completamente el sistema. ¿Lo querés en lona impresa o rígido/luminoso?';
+  }
+  return '';
+}
+
 function parseMeasurementNumber(value) {
   const normalized = normalize(value);
   const words = { uno: 1, una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
@@ -285,7 +318,20 @@ async function handleSellerConversationMessage(message, actor) {
       const frostUvNote = pending.productQuery === canonicalFrostUvProduct() ? ' Usaré la tarifa autorizada de US$25/m² y presentación de 1.37 m.' : '';
       return { handled: true, outputText: `Perfecto. Voy a cotizar ${pending.productQuery}${pending.location ? ` para ${pending.location}` : ''}.${frostUvNote} Pasame las medidas en ancho × alto.` };
     }
+    const printGuidance = buildPrintSalesGuidance(`${pending.productQuery} ${pending.raw || ''}`);
+    if (printGuidance) return { handled: true, outputText: `${printGuidance} Si te parece bien, pasame el nombre y WhatsApp del cliente.` };
     return { handled: true, outputText: `Tengo ${pending.measurements.length} medida${pending.measurements.length === 1 ? '' : 's'} para ${pending.productQuery}. Ahora indicame el nombre y WhatsApp del cliente.` };
+  }
+
+  if (current.pendingQuotation?.measurements?.length && isGenericOutdoorSignRequest(`${current.pendingQuotation.productQuery || ''} ${current.pendingQuotation.raw || ''}`) && isFlexiblePrintRequest(message)) {
+    const pending = {
+      ...current.pendingQuotation,
+      productQuery: 'lona banner para exterior',
+      raw: `${text(current.pendingQuotation.raw)}\n${text(message)}`.trim(),
+      updatedAt: new Date().toISOString()
+    };
+    await updateSellerContext(id, { pendingQuotation: pending });
+    return { handled: true, outputText: `${buildPrintSalesGuidance(pending.productQuery)} Si no aplica una condición especial, pasame el nombre y WhatsApp del cliente.` };
   }
 
   const measures = parseMeasurements(message);
@@ -328,6 +374,7 @@ async function handleSellerConversationMessage(message, actor) {
 }
 
 module.exports = {
+  buildPrintSalesGuidance,
   buildQuotationDocument,
   canonicalFrostUvProduct,
   createPendingQuotation,
@@ -335,6 +382,8 @@ module.exports = {
   handleSellerConversationMessage,
   hasUvPrintIntent,
   isCreateFollowUp,
+  isFlexiblePrintRequest,
+  isGenericOutdoorSignRequest,
   isLinkFollowUp,
   isSendFollowUp,
   parseCustomerIdentity,
