@@ -297,6 +297,10 @@ function knowledgeObjects(value, out = []) {
   return out;
 }
 
+function buildDeterministicOwnerFallback() {
+  return 'sin saldo';
+}
+
 function buildDeterministicCustomerFallback({ input, context } = {}) {
   const raw = String(input || '').trim();
   const text = normalizeIntentText(raw);
@@ -445,9 +449,14 @@ async function generateText({
       (status === 429 && message.includes('quota'));
 
     if (noCreditOrUnavailable) {
+      const ownerFallback = context?.ownerMode === true;
       return {
-        outputText: buildDeterministicCustomerFallback({ input, context }),
-        model: 'elan-deterministic-commercial-fallback-v1',
+        outputText: ownerFallback
+          ? buildDeterministicOwnerFallback()
+          : buildDeterministicCustomerFallback({ input, context }),
+        model: ownerFallback
+          ? 'elan-deterministic-owner-fallback-v1'
+          : 'elan-deterministic-commercial-fallback-v1',
         id: null,
         status: 'completed',
         usage: null,
