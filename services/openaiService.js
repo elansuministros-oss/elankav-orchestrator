@@ -284,13 +284,74 @@ function buildContextInstructions(context) {
   return lines.join(' ');
 }
 
+function knowledgeObjects(value, out = []) {
+  if (!value || out.length >= 500) return out;
+  if (Array.isArray(value)) {
+    for (const item of value) knowledgeObjects(item, out);
+    return out;
+  }
+  if (typeof value === 'object') {
+    out.push(value);
+    for (const item of Object.values(value)) knowledgeObjects(item, out);
+  }
+  return out;
+}
+
+function buildDeterministicCustomerFallback({ input, context } = {}) {
+  const raw = String(input || '').trim();
+  const text = normalizeIntentText(raw);
+  if (!text) return '¿En qué te puedo ayudar?';
+
+  if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|hello)\b/.test(text) && text.split(' ').length <= 5) {
+    return '¡Hola! 👋 ¿Qué necesitás cotizar o consultar?';
+  }
+
+  const wantsPrice = /\b(precio|cuanto|cotiz\w*|presupuesto|valor|costo)\b/.test(text);
+  const asksDesign = /\b(diseno|logo|logotipo|creativ\w*)\b/.test(text);
+  const exterior = /(exterior|afuera|intemperie)/.test(text);
+  const interior = /(interior|adentro)/.test(text);
+  const hasMeasure = /\b\d+(?:[.,]\d+)?\s*(?:x|por)\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*(?:cm|m|mt|mts|metro|metros)\b/.test(text);
+
+  if (wantsPrice && context?.officialKnowledge?.available && context?.officialKnowledge?.payload) {
+    const terms = text.split(' ').filter(word => word.length >= 4 && !['precio','cuanto','cotizar','cotizacion','presupuesto','costo','quiero','necesito'].includes(word));
+    let best = null;
+    for (const obj of knowledgeObjects(context.officialKnowledge.payload, [])) {
+      let serialized = '';
+      try { serialized = normalizeIntentText(JSON.stringify(obj)); } catch { serialized = ''; }
+      if (!serialized) continue;
+      const score = terms.reduce((sum, term) => sum + (serialized.includes(term) ? 1 : 0), 0);
+      const price = obj.price ?? obj.unitPrice ?? obj.unit_price ?? obj.basePrice ?? obj.pricePerM2 ?? obj.price_per_m2 ?? null;
+      if (score > 0 && price !== null && price !== undefined && Number.isFinite(Number(price))) {
+        if (!best || score > best.score) best = { obj, score, price: Number(price) };
+      }
+    }
+    if (best) {
+      const currency = String(best.obj.currency || best.obj.moneda || 'USD').trim().toUpperCase();
+      const unit = String(best.obj.unit || best.obj.unidad || best.obj.presentation || '').trim();
+      const label = String(best.obj.name || best.obj.productName || best.obj.title || best.obj.description || 'esa opción').trim();
+      return `Tengo registrado ${label} en ${currency} ${best.price.toFixed(2)}${unit ? ` por ${unit}` : ''}. Si me pasás la medida o cantidad exacta, te ayudo a cerrar la cotización.`;
+    }
+  }
+
+  if (wantsPrice) {
+    if (!hasMeasure) return `Claro. Para darte un precio útil, ¿qué medida aproximada necesitás${exterior || interior ? '' : ' y sería para interior o exterior'}?`;
+    return 'Sí te ayudo con la cotización. Ya tengo la medida; decime únicamente qué producto o acabado querés cotizar para no inventarte un precio.';
+  }
+
+  if (asksDesign) return 'Sí, podemos trabajar opciones de diseño. ¿Es para un rótulo, logotipo o alguna pieza específica?';
+  if (exterior || interior) return `Perfecto, lo tomo como uso ${exterior ? 'exterior' : 'interior'}. ¿Qué medida aproximada necesitás?`;
+
+  return 'Entendido. Contame qué producto o trabajo necesitás y te ayudo a avanzar desde aquí.';
+}
+
 async function generateText({
   input,
   instructions,
   context,
   history,
   ownerCommercialResponder = answerOwnerCommercialQuery,
-  ownerCommercialDetector = looksLikeCommercialIntelligenceQuery
+  ownerCommercialDetector = looksLikeCommercialIntelligenceQuery,
+  responseCreator = createResponse
 }) {
   const conversationPolicy = context?.ownerMode === true
     ? buildConversationInstructions({
@@ -361,7 +422,7 @@ async function generateText({
     .join('\n\n');
 
   try {
-    return await createResponse({
+    return await responseCreator({
       input: buildResponseInput({ input, history }),
       instructions: resolvedInstructions
     });
@@ -371,22 +432,26 @@ async function generateText({
     const message = String(error?.message || '').toLowerCase();
     const status = Number(error?.status || 0);
 
-    const noCredit =
+    const noCreditOrUnavailable =
       code.includes('insufficient_quota') ||
       code.includes('billing_hard_limit') ||
+      code.includes('openai_not_configured') ||
       type.includes('insufficient_quota') ||
       message.includes('insufficient_quota') ||
       message.includes('billing hard limit') ||
       message.includes('exceeded your current quota') ||
+      message.includes('api_key no esta configurada') ||
+      message.includes('api_key no está configurada') ||
       (status === 429 && message.includes('quota'));
 
-    if (noCredit) {
+    if (noCreditOrUnavailable) {
       return {
-        outputText: 'sin saldo',
-        model: 'openai-no-credit-fallback',
+        outputText: buildDeterministicCustomerFallback({ input, context }),
+        model: 'elan-deterministic-commercial-fallback-v1',
         id: null,
-        status: 'degraded',
-        usage: null
+        status: 'completed',
+        usage: null,
+        fallbackReason: code || type || 'openai_unavailable'
       };
     }
 
@@ -406,5 +471,6 @@ module.exports = {
   detectVerifiedIdentityQuestion,
   verifiedRoleLabel,
   buildVerifiedActorDirectResponse,
+  buildDeterministicCustomerFallback,
   generateText
 };
