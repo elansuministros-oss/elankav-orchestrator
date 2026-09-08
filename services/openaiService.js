@@ -310,6 +310,10 @@ function buildDeterministicCustomerFallback({ input, context } = {}) {
     return '¡Hola! 👋 ¿Qué necesitás cotizar o consultar?';
   }
 
+  if (/\b(que es|quienes son|que hace|a que se dedica)\b.*\belanvisual\b|^elanvisual\s*(que es|que hacen)?$/.test(text)) {
+    return 'ELANVISUAL es nuestra unidad de comunicación visual. Trabajamos rótulos, fachadas, vinil, impresión y señalización para negocios y proyectos. Si me contás qué necesitás, te oriento con la opción adecuada.';
+  }
+
   const wantsPrice = /\b(precio|cuanto|cotiz\w*|presupuesto|valor|costo)\b/.test(text);
   const asksDesign = /\b(diseno|logo|logotipo|creativ\w*)\b/.test(text);
   const exterior = /(exterior|afuera|intemperie)/.test(text);
