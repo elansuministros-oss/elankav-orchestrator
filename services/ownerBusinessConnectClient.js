@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHmac } = require('node:crypto');
+const { readTokenFromEnvFile } = require('./connectPlatformKnowledgeService');
 
 class OwnerBusinessConnectError extends Error {
   constructor(code, message, statusCode, details = null) {
@@ -78,7 +79,78 @@ async function listOwnerFamily(term='',env){return requestConnect(`/api/v1/busin
 async function createOwnerFamily(input,env){return requestConnect('/api/v1/business/vqs/owner-directory/family',{method:'POST',body:input},env)}
 async function updateOwnerFamily(id,input,env){return requestConnect(`/api/v1/business/vqs/owner-directory/family/${query(id)}`,{method:'PATCH',body:input},env)}
 async function deactivateOwnerFamily(id,env){return requestConnect(`/api/v1/business/vqs/owner-directory/family/${query(id)}/deactivate`,{method:'POST',body:{}},env)}
-async function searchOwnerContacts(term,env){return requestConnect(`/api/v1/business/vqs/owner-directory/contacts?q=${query(term)}`,{},env)}
+async function searchOwnerContacts(term, env = process.env) {
+  const runtimeEnv = env || process.env;
+  const baseUrl = String(
+    runtimeEnv.ELAN_ONE_COMMERCIAL_BASE_URL ||
+    runtimeEnv.ELAN_ONE_ACTOR_IDENTITY_BASE_URL ||
+    runtimeEnv.ELAN_ONE_UNIFIED_MEMORY_BASE_URL ||
+    ''
+  ).trim().replace(/\/+$/, '');
+  const token = String(
+    runtimeEnv.ELAN_ONE_VQS_API_TOKEN ||
+    readTokenFromEnvFile(runtimeEnv.ELAN_ONE_VQS_ENV_FILE) ||
+    runtimeEnv.VQS_API_TOKEN ||
+    runtimeEnv.DESIGN_API_TOKEN ||
+    ''
+  ).trim();
+  if (!baseUrl) throw new OwnerBusinessConnectError('ELAN_ONE_COMMERCIAL_BASE_URL_REQUIRED', 'No está configurada la autoridad comercial de ELAN ONE.', 503);
+  if (!token) throw new OwnerBusinessConnectError('ELAN_ONE_VQS_API_TOKEN_REQUIRED', 'No está configurada la credencial comercial de ELAN ONE.', 503);
+
+  const request = async (path) => {
+    const response = await fetch(`${baseUrl}${path}`, { method: 'GET', headers: headers(token) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const nested = payload && typeof payload.error === 'object' ? payload.error : {};
+      throw new OwnerBusinessConnectError(
+        String(payload.code || nested.code || 'ELAN_ONE_COMMERCIAL_REQUEST_FAILED'),
+        String((typeof payload.error === 'string' ? payload.error : nested.message) || payload.message || 'ELAN ONE rechazó la operación.'),
+        response.status,
+        nested.details || payload.details || null
+      );
+    }
+    return payload;
+  };
+
+  const searchTerm = String(term || '').trim();
+  const fetchRows = async (value) => {
+    const [customersPayload, providersPayload] = await Promise.all([
+      request(`/api/v1/business/vqs/customers/directory-search?q=${query(value)}&limit=30`),
+      request(`/api/v1/providers?status=active&search=${query(value)}`)
+    ]);
+    const customers = Array.isArray(customersPayload?.data?.results)
+      ? customersPayload.data.results.map((row) => row?.customer || row).filter(Boolean)
+      : [];
+    const providers = Array.isArray(providersPayload)
+      ? providersPayload.map((row) => ({ ...row, name: row?.contactName || row?.tradeName || row?.legalName || 'Proveedor', companyName: row?.tradeName || row?.legalName || '' }))
+      : [];
+    return [...customers, ...providers];
+  };
+
+  let results = await fetchRows(searchTerm);
+  const tokens = [...new Set(searchTerm.toLowerCase().split(/\s+/).map((value) => value.trim()).filter((value) => value.length >= 3))];
+  if (!results.length && tokens.length > 1) {
+    const tokenRows = await Promise.all(tokens.map(fetchRows));
+    const identity = (row) => String(row?.customerId || row?.id || row?.email || row?.phone || row?.name || '').trim().toLowerCase();
+    const counts = new Map();
+    const byId = new Map();
+    for (const rows of tokenRows) {
+      const seen = new Set();
+      for (const row of rows) {
+        const id = identity(row);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        byId.set(id, row);
+        counts.set(id, (counts.get(id) || 0) + 1);
+      }
+    }
+    results = [...counts.entries()]
+      .filter(([, count]) => count === tokens.length)
+      .map(([id]) => byId.get(id))
+      .filter(Boolean);
+  }
+  return { data: { query: searchTerm, count: results.length, results, authority: 'ELAN_ONE_MARIADB' } };
+}
 async function sendOwnerWhatsApp(input,env){return requestConnect('/api/v1/business/vqs/owner-directory/send-whatsapp',{method:'POST',body:input},env)}
 
 async function resolveCatalogPricing(input,env){return requestConnect('/api/v1/business/vqs/pricing/resolve',{method:'POST',body:input},env)}
