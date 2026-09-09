@@ -7,11 +7,23 @@ const {
   clarificationMessage,
   providerCandidateMessage
 } = require('./inboundCommercialRoleService');
-const { upsertInboundProviderCandidate } = require('./inboundProviderCandidateRegistrationService');
+const {
+  candidateFromInput,
+  upsertInboundProviderCandidate
+} = require('./inboundProviderCandidateRegistrationService');
 const { ingestProviderDocument } = require('./providerInboundIntelligenceService');
 
 const ORIGINAL_PROCESS = messageService.processMessage;
 const OWNER_OPS_CONTROL_PATTERN = /^(?:elan\s*[,;:]?\s*)?(?:(?:confirmar\s+OPS-\d+-[A-Z0-9]{6}|(?:estado|estatus|resultado|consulta|consultar|verifica|verificar)\s+OPS-\d+-[A-Z0-9]{6})|(?:despliega|desplegar|deploy|actualiza|actualizar)\s+(?:orchestrator|orquestador|connect|elanvisual|langflow)\s+(?:commit\s+)?[0-9a-f]{40}\b|(?:reinicia|reiniciar|restart|rearranca|rearrancar)\s+(?:orchestrator|orquestador))\b/i;
+
+function resolveInboundClassification(input, actor) {
+  const classification = classifyInboundCommercialRelationship({ message: input.message, actor });
+  const explicitProvider = candidateFromInput(input);
+  if (explicitProvider && classification.kind === 'buyer_prospect' && classification.role === 'prospect') {
+    return { kind: 'provider_candidate', source: 'explicit_provider_evidence', confidence: 'high', role: 'prospect' };
+  }
+  return classification;
+}
 
 async function processMessageRoleFirst(input = {}) {
   const channel = String(input.channel || '').trim().toLowerCase();
@@ -44,7 +56,7 @@ async function processMessageRoleFirst(input = {}) {
     console.error('[INBOUND_ROLE_IDENTITY_LOOKUP_FAILED]', { code: error?.code || null });
   }
 
-  const classification = classifyInboundCommercialRelationship({ message: input.message, actor });
+  const classification = resolveInboundClassification(input, actor);
   console.log('[INBOUND_COMMERCIAL_ROLE]', {
     kind: classification.kind,
     source: classification.source,
@@ -122,5 +134,6 @@ messageService.processMessage = processMessageRoleFirst;
 
 module.exports = {
   OWNER_OPS_CONTROL_PATTERN,
-  processMessageRoleFirst
+  processMessageRoleFirst,
+  resolveInboundClassification
 };
