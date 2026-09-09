@@ -222,18 +222,32 @@ async function downloadProviderMedia({ url, fetchImpl = fetch }) {
 async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName, externalMessageId, externalUserId, phone, chatId, fetchImpl = fetch }) {
   const media = await downloadProviderMedia({ url: mediaUrl, fetchImpl });
   const finalMime = String(media.mimeType || mimeType || 'application/octet-stream').split(';')[0].trim();
-  const response = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/intelligence/documents`, {
-    method: 'POST',
-    headers: providerHeaders({
-      'Content-Type': finalMime || 'application/octet-stream',
-      'X-File-Name': encodeURIComponent(fileName || 'provider-attachment'),
-      'X-Source-Channel': 'whatsapp',
-      ...(externalMessageId ? { 'X-External-Message-Id': encodeURIComponent(externalMessageId) } : {})
-    }),
-    body: media.buffer,
-    signal: AbortSignal.timeout(150_000)
-  });
-  const commercial = await readJsonResponse(response);
+  let commercial = {};
+  let commercialError = null;
+  try {
+    const response = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/intelligence/documents`, {
+      method: 'POST',
+      headers: providerHeaders({
+        'Content-Type': finalMime || 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(fileName || 'provider-attachment'),
+        'X-Source-Channel': 'whatsapp',
+        ...(externalMessageId ? { 'X-External-Message-Id': encodeURIComponent(externalMessageId) } : {})
+      }),
+      body: media.buffer,
+      signal: AbortSignal.timeout(150_000)
+    });
+    commercial = await readJsonResponse(response);
+  } catch (error) {
+    commercialError = error;
+    console.error('[PROVIDER_COMMERCIAL_DOCUMENT_ANALYSIS_PENDING]', {
+      providerId,
+      code: error?.code || null,
+      status: error?.status || null
+    });
+  }
+  const recruitmentDocumentType = commercial?.documentType || (
+    /(?:cotiz|proforma)/i.test(String(fileName || '')) ? 'quotation' : null
+  );
   let recruitment = null;
   try {
     const recruitmentResponse = await fetchImpl(`${connectBaseUrl()}/api/v1/providers/${encodeURIComponent(providerId)}/recruitment/documents`, {
@@ -242,7 +256,7 @@ async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName
         'Content-Type': finalMime || 'application/octet-stream',
         'X-File-Name': encodeURIComponent(fileName || 'provider-attachment'),
         ...(externalMessageId ? { 'X-External-Message-Id': encodeURIComponent(externalMessageId) } : {}),
-        ...(commercial?.documentType ? { 'X-Document-Type': encodeURIComponent(commercial.documentType) } : {}),
+        ...(recruitmentDocumentType ? { 'X-Document-Type': encodeURIComponent(recruitmentDocumentType) } : {}),
         ...(externalUserId ? { 'X-External-User-Id': encodeURIComponent(externalUserId) } : {}),
         ...(phone ? { 'X-Phone': encodeURIComponent(phone) } : {}),
         ...(chatId ? { 'X-Chat-Id': encodeURIComponent(chatId) } : {})
@@ -259,7 +273,15 @@ async function ingestProviderDocument({ providerId, mediaUrl, mimeType, fileName
       message: error?.message || String(error)
     });
   }
-  return { ...commercial, recruitment };
+  if (!recruitment && commercialError) throw commercialError;
+  return {
+    ...commercial,
+    ...(commercialError ? {
+      commercialAnalysisPending: true,
+      commercialAnalysisErrorCode: commercialError.code || 'PROVIDER_COMMERCIAL_ANALYSIS_PENDING'
+    } : {}),
+    recruitment
+  };
 }
 
 module.exports = {
