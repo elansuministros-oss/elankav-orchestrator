@@ -32,9 +32,14 @@ function wahaConfig() {
     process.env.WAHA_INTERNAL_BASE_URL || process.env.WAHA_BASE_URL,
     DEFAULT_WAHA_BASE_URL
   );
+  const publicBaseUrl = normalizeBaseUrl(
+    process.env.WAHA_PUBLIC_BASE_URL,
+    DEFAULT_WAHA_BASE_URL
+  );
   return {
     baseUrl,
     internalBaseUrl,
+    publicBaseUrl,
     apiKey: String(process.env.WAHA_API_KEY || process.env.WAHA_API_TOKEN || '').trim()
   };
 }
@@ -196,7 +201,7 @@ async function downloadProviderMedia({ url, fetchImpl = fetch }) {
   try {
     return await downloadMediaOnce({
       url: primary,
-      authorizedBaseUrls: [config.baseUrl, config.internalBaseUrl],
+      authorizedBaseUrls: [config.baseUrl, config.internalBaseUrl, config.publicBaseUrl],
       apiKey: config.apiKey,
       fetchImpl
     });
@@ -207,7 +212,7 @@ async function downloadProviderMedia({ url, fetchImpl = fetch }) {
     const fallback = resolveMediaUrl(`${parsed.pathname}${parsed.search}`, config.internalBaseUrl);
     return downloadMediaOnce({
       url: fallback,
-      authorizedBaseUrls: [config.baseUrl, config.internalBaseUrl],
+      authorizedBaseUrls: [config.baseUrl, config.internalBaseUrl, config.publicBaseUrl],
       apiKey: config.apiKey,
       fetchImpl
     });
