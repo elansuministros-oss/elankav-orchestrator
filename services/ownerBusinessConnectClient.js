@@ -115,7 +115,7 @@ async function searchOwnerContacts(term, env = process.env) {
   const searchTerm = String(term || '').trim();
   const fetchRows = async (value) => {
     const [customersPayload, providersPayload] = await Promise.all([
-      request(`/api/v1/business/vqs/customers/directory-search?q=${query(value)}&limit=30`),
+      request(`/api/v1/business/vqs/customers/directory-search?q=${query(value)}&limit=100`),
       request(`/api/v1/providers?status=active&search=${query(value)}`)
     ]);
     const customers = Array.isArray(customersPayload?.data?.results)

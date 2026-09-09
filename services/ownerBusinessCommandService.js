@@ -34,6 +34,7 @@ const BUSINESS_COMMANDS = Object.freeze({
   CUSTOMER_SEARCH: 'business_customer_search',
   CUSTOMER_LIST: 'business_customer_list',
   CONTACT_SEARCH: 'business_contact_search',
+  CONTACT_LIST: 'business_contact_list',
   PROVIDER_SEARCH: 'business_provider_search',
   PROVIDER_LIST: 'business_provider_list',
   PROVIDER_QUOTE_REQUEST: 'business_provider_quote_request',
@@ -96,6 +97,16 @@ function parseCustomerSearch(message) {
   const match = normalized.match(/^(?:elan\s+)?(?:busca|buscar|encuentra|encontra|localiza)\s+(?:al\s+|el\s+|la\s+)?cliente\s+(.+)$/);
   if (!match) return null;
   return { type: BUSINESS_COMMANDS.CUSTOMER_SEARCH, query: match[1].trim() };
+}
+
+function parseContactList(message) {
+  const normalized = normalize(message);
+  const hasContacts = /\bcontactos\b/.test(normalized);
+  if (!hasContacts) return null;
+  const asksList = /\b(lista|listar|muestra|mostrar|busca|buscar|todos|completa|completo)\b/.test(normalized);
+  const collection = /\b(lista(?:\s+completa)?(?:\s+de)?\s+contactos|todos\s+los\s+contactos|contactos\s+registrados)\b/.test(normalized);
+  if (!asksList && !collection) return null;
+  return { type: BUSINESS_COMMANDS.CONTACT_LIST };
 }
 
 function parseContactSearch(message) {
@@ -653,6 +664,7 @@ function detectOwnerBusinessCommand(message) {
   if (quotation) return { type: BUSINESS_COMMANDS.QUOTATION_CREATE, input: quotation };
   return parseCustomerList(message)
     || parseCustomerSearch(message)
+    || parseContactList(message)
     || parseContactSearch(message)
     || parseProviderQuoteRequest(message)
     || parseProviderList(message)
@@ -707,6 +719,28 @@ function contactRows(result) {
   if (Array.isArray(result?.results)) return result.results;
   if (Array.isArray(result)) return result;
   return [];
+}
+
+function formatContactList(result) {
+  const rows = contactRows(result).slice().sort((a, b) => {
+    const left = String(a?.name || a?.displayName || a?.contactName || a?.companyName || '').trim();
+    const right = String(b?.name || b?.displayName || b?.contactName || b?.companyName || '').trim();
+    return left.localeCompare(right, 'es', { sensitivity: 'base' });
+  });
+  if (!rows.length) return 'No hay contactos oficiales registrados en ELAN ONE.';
+  const lines = rows.map((row, index) => {
+    const name = String(row?.name || row?.displayName || row?.contactName || row?.companyName || 'Sin nombre').trim();
+    const company = String(row?.companyName || row?.company || '').trim();
+    const phone = String(row?.whatsapp || row?.phone || '').trim();
+    const email = String(row?.email || '').trim();
+    return [
+      `${index + 1}. ${name}`,
+      company && company !== name ? `   Empresa: ${company}` : '',
+      phone ? `   WhatsApp: ${phone}` : '',
+      email ? `   Correo: ${email}` : ''
+    ].filter(Boolean).join('\n');
+  });
+  return [`Contactos oficiales: ${rows.length}`, ...lines].join('\n\n');
 }
 
 function formatContactSearch(result, query) {
@@ -1267,6 +1301,11 @@ async function executeOwnerBusinessCommand(command) {
     return { handled: true, outputText: formatCustomer(top, true), result };
   }
 
+  if (command.type === BUSINESS_COMMANDS.CONTACT_LIST) {
+    const result = await searchOwnerContacts('');
+    return { handled: true, outputText: formatContactList(result), result };
+  }
+
   if (command.type === BUSINESS_COMMANDS.CONTACT_SEARCH) {
     const result = await searchOwnerContacts(command.query);
     return { handled: true, outputText: formatContactSearch(result, command.query), result };
@@ -1505,6 +1544,7 @@ module.exports = {
   labeledValue,
   parseCustomerList,
   parseCustomerSearch,
+  parseContactList,
   parseContactSearch,
   parseDimensions,
   parseExplicitRate,
