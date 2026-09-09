@@ -53,6 +53,7 @@ test('LID se conserva como identidad y nunca se convierte en teléfono', () => {
   });
 
   assert.equal(normalizePhone('168534952960065@lid'), '');
+  assert.equal(normalizePhone('50585854070:90@s.whatsapp.net'), '50585854070');
   assert.equal(incoming.senderRaw, '168534952960065@lid');
   assert.equal(incoming.chatId, '168534952960065@lid');
   assert.equal(incoming.phone, '');

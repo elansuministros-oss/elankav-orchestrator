@@ -113,10 +113,10 @@ function readJsonBody(req) {
 }
 
 function normalizePhone(value) {
-  if (String(value || '').toLowerCase().includes('@lid')) return '';
-  const raw = String(value || '')
-    .split('@')[0]
-    .replace(/\D/g, '');
+  const input = String(value || '').trim();
+  if (input.toLowerCase().includes('@lid')) return '';
+  const local = input.split('@')[0].replace(/:\d+$/, '');
+  const raw = local.replace(/\D/g, '');
   if (!raw) return '';
   return raw.length === 8 ? `505${raw}` : raw;
 }
