@@ -9,7 +9,8 @@ const {
   rememberPendingMedia,
   consumePendingMedia,
   clearPendingOwnerMedia,
-  runCommand
+  runCommand,
+  verifiedOwnerIdentity
 } = require('../services/ownerProviderRecruitmentMessagePatch');
 
 process.env.CONNECT_PROVIDER_INTELLIGENCE_TOKEN = process.env.CONNECT_PROVIDER_INTELLIGENCE_TOKEN || 'test-provider-token';
@@ -26,6 +27,28 @@ test('detecta comandos Owner de reclutamiento sin confundir consultas generales'
   assert.equal(commandKind('ELAN muéstrame lo que respondió este proveedor'), 'show_response');
   assert.equal(commandKind('ELAN agrega este catálogo al proveedor', { media: { url: 'https://waha.test/catalog.pdf' } }), 'add_catalog');
   assert.equal(commandKind('mostrame clientes pendientes'), null);
+});
+
+
+
+test('Owner @lid protegido entra al flujo canónico de proveedor y la orden real se clasifica como registro', () => {
+  const oldPhones = process.env.ORCHESTRATOR_OWNER_PHONES;
+  process.env.ORCHESTRATOR_OWNER_PHONES = '50588388940';
+  try {
+    assert.equal(verifiedOwnerIdentity({
+      message: 'ELAN agrega proveedor',
+      platform: 'elanvisual',
+      channel: 'whatsapp',
+      externalUserId: '215440458567779@lid',
+      phone: '',
+      metadata: { senderRaw: '215440458567779@lid', ownerMode: true, isOwner: true }
+    }), true);
+    const realOrder = 'ELAN, agregá como proveedor a ALQUICHEVEZ. Su WhatsApp correcto es 50585854070. Revisá la conversación real que tenemos con ese número, identificá sus datos y la cotización que nos envió, registralo como proveedor en ELAN ONE y guardá sus precios y documentos. No inventés información y no le enviés ningún mensaje al proveedor. Avisame qué encontraste y qué registraste.';
+    assert.equal(commandKind(realOrder, {}), 'register');
+  } finally {
+    if (oldPhones === undefined) delete process.env.ORCHESTRATOR_OWNER_PHONES;
+    else process.env.ORCHESTRATOR_OWNER_PHONES = oldPhones;
+  }
 });
 
 test('mensaje externo identifica inequívocamente a ELAN como IA', () => {

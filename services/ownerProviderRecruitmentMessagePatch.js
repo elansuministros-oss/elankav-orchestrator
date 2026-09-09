@@ -3,7 +3,7 @@
 const messageService = require('./messageService');
 const { createWahaDeliveryAdapter, normalizePhone } = require('../adapters/wahaDeliveryAdapter');
 const { downloadProviderMedia } = require('./providerInboundIntelligenceService');
-const { rawOwnerIdentity } = require('./ownerProviderCandidateOutreachMessagePatch');
+const { buildContext } = require('./context/contextBuilder');
 const { withinContactWindow } = require('./providerRecruitmentFollowupWorkerService');
 
 const DEFAULT_CONNECT_URL = 'https://connect.elankav.com';
@@ -61,6 +61,9 @@ async function postBytes(path, bytes, {mimeType,fileName,messageId,contextText,d
 function extractPhone(message) {
   const match=clean(message).match(/(?:\+?505[\s().-]*)?\d{4}[\s.-]*\d{4}/);
   return match ? normalizePhone(match[0]) : '';
+}
+function verifiedOwnerIdentity(args={}) {
+  return buildContext(args).owner.isOwner === true;
 }
 function pendingKey(args={}) { return normalizePhone(args.phone || args.externalUserId || args.metadata?.senderRaw || '') || 'owner'; }
 function rememberPendingMedia(args,kind) {
@@ -340,7 +343,7 @@ function installOwnerProviderRecruitmentMessagePatch() {
   const previous=messageService.processMessage;
   if(typeof previous!=='function') throw Object.assign(new Error('MESSAGE_SERVICE_PROCESS_MESSAGE_REQUIRED'),{code:'MESSAGE_SERVICE_PROCESS_MESSAGE_REQUIRED'});
   messageService.processMessage=async function processMessageWithProviderRecruitment(args={}){
-    if(!rawOwnerIdentity(args)) return previous(args);
+    if(!verifiedOwnerIdentity(args)) return previous(args);
     const pending=consumePendingMedia(args);
     const detected=commandKind(args.message,args.metadata);
     const kind=pending?.kind || detected;
@@ -381,5 +384,5 @@ function installOwnerProviderRecruitmentMessagePatch() {
 
 module.exports={
   autonomousInvestigationEnabled,commandKind,contactProvider,extractProviderQuery,initialMessage,installOwnerProviderRecruitmentMessagePatch,
-  intakeFromOwner,resolveTarget,runCommand,rememberPendingMedia,consumePendingMedia,clearPendingOwnerMedia
+  intakeFromOwner,resolveTarget,runCommand,rememberPendingMedia,consumePendingMedia,clearPendingOwnerMedia,verifiedOwnerIdentity
 };
