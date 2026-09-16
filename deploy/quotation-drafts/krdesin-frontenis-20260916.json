@@ -1,0 +1,219 @@
+{
+  "artifact_type": "ELAN_OWNER_QUOTATION_DRAFT_BUNDLE",
+  "version": "1.0",
+  "created_date": "2026-09-16",
+  "status": "READY_FOR_DEPLOY_AS_DRAFT",
+  "customer": {
+    "name": "Krdesin"
+  },
+  "project": {
+    "name": "Rótulo pared frontal cancha frontenis",
+    "wall_overall_m": {
+      "width": 25.6,
+      "height": 9.0
+    },
+    "sign_frame_m": {
+      "width": 14.67,
+      "height": 4.8,
+      "budget_led_perimeter_m": 40
+    },
+    "logo_reference": {
+      "reserved_zone_width_m": 3.56,
+      "inner_reference_width_m": 2.7,
+      "note": "Conservar proporción real del arte aprobado; no escalar para llenar el área."
+    },
+    "lettering": {
+      "typeface": "Tahoma Bold",
+      "letter_height_mm": 400,
+      "total_letters": 56,
+      "text_lines": [
+        "CENTRO RECREATIVO",
+        "Y ESCUELA DE SERVICIOS",
+        "TURÍSTICOS NICARAGÜITA"
+      ],
+      "rule": "Altura nominal 400 mm; anchos proporcionales a cada carácter. No deformar ni reducir para nesting."
+    },
+    "lighting_scope": "Solo contorno exterior del cuadro del rótulo. Logo y letras sin iluminación interna."
+  },
+  "commercial_policy": {
+    "target_cost_multiplier": 1.4,
+    "target_markup_on_direct_cost_percent": 40,
+    "apply_after_direct_cost_closure": true,
+    "do_not_apply_percentage_per_line_item": true,
+    "customer_view": "Mostrar únicamente cuatro ítems comerciales por propuesta; ocultar costos internos."
+  },
+  "known_internal_costs": {
+    "pvc_10mm": {
+      "quantity_sheets": 6,
+      "quantity_status": "PROVISIONAL_UNTIL_NESTING",
+      "sheet_mm": [1220, 2440],
+      "unit_price_net_usd": 39.95,
+      "vat_rate": 0.15,
+      "known_total_with_vat_usd": 275.65
+    },
+    "pvc_25mm": {
+      "quantity_sheets": 6,
+      "quantity_status": "PROVISIONAL_UNTIL_NESTING",
+      "sheet_mm": [1220, 2440],
+      "unit_price_net_usd": 112.0,
+      "vat_rate": 0.15,
+      "known_total_with_vat_usd": 772.8
+    },
+    "cnc_cutting": {
+      "basis": "6 provisional sheets x USD 35/sheet",
+      "cost_usd": 210.0,
+      "rule": "Replace with exact sheet count after nesting. Do not add separate CNC operator cost if USD 35/sheet already includes the cutting service."
+    },
+    "pvc_finishing_labor": {
+      "scope": "Preparación, lijado, primer/application labor, pintura, retoques y limpieza",
+      "cost_nio": 4200.0
+    },
+    "installation_labor": {
+      "installers": {
+        "people": 2,
+        "days": 3,
+        "rate_nio_per_day": 850,
+        "subtotal_nio": 5100
+      },
+      "helpers": {
+        "people": 2,
+        "days": 3,
+        "rate_nio_per_day": 500,
+        "subtotal_nio": 3000
+      },
+      "electrician": {
+        "people": 1,
+        "days": 1,
+        "rate_nio_per_day": 900,
+        "subtotal_nio": 900
+      },
+      "supervisor": {
+        "people": 1,
+        "days": 1,
+        "rate_nio_per_day": 1200,
+        "subtotal_nio": 1200
+      },
+      "subtotal_nio": 10200
+    },
+    "access_equipment": {
+      "description": "Andamio/equipo de acceso",
+      "days": 3,
+      "rate_nio_per_day": 1200,
+      "subtotal_nio": 3600
+    },
+    "haulage": {
+      "rate_nio_per_km": 21.97,
+      "distance_km": null,
+      "status": "PENDING_SITE_LOCATION"
+    },
+    "economic_led": {
+      "product": "Manguera plana LED 5050 SMD 127 V IP65",
+      "installed_m": 40,
+      "purchase_m": 45,
+      "unit_price_net_nio_per_m": 373.23,
+      "vat_rate": 0.15,
+      "known_total_with_vat_nio": 19314.65,
+      "accessories_status": "PENDING_PRICE_CLOSURE"
+    },
+    "paint_materials": {
+      "status": "PENDING_PRICE_CLOSURE",
+      "required": [
+        "Primer compatible con PVC",
+        "Pintura de acabado exterior para letras",
+        "Pinturas multicolor para flor/logotipo",
+        "Thinner/reductor/limpiador",
+        "Lijas y consumibles"
+      ]
+    }
+  },
+  "proposals": [
+    {
+      "code": "A",
+      "name": "PVC 10 mm + iluminación perimetral económica",
+      "items": [
+        {
+          "item": 1,
+          "title": "Logo floral",
+          "description": "Fabricación de 1 conjunto de logotipo floral lateral en PVC espumado de 10 mm de espesor, según arte aprobado. Zona reservada indicada en plano: 3.56 m de ancho, con referencia interior de 2.70 m; conservar proporción real del arte. Incluye ajuste vectorial final, corte CNC, preparación de caras y cantos, lijado, primer compatible con PVC, pintura multicolor según diseño, acabado para exterior, preparación para fijación y plantilla de instalación. Sin iluminación interna.",
+          "commercial_price_status": "PENDING_DIRECT_COST_CLOSURE"
+        },
+        {
+          "item": 2,
+          "title": "Letras corporativas",
+          "description": "Fabricación de 56 letras individuales en PVC espumado de 10 mm, tipografía Tahoma Bold, correspondientes a CENTRO RECREATIVO / Y ESCUELA DE SERVICIOS / TURÍSTICOS NICARAGÜITA. Altura nominal máxima 400 mm por letra; anchos proporcionales a la geometría real de cada carácter. Incluye corte CNC, preparación de superficies y cantos, lijado, primer, pintura para exterior, retoques, limpieza y plantilla de instalación 1:1. Sin iluminación interna.",
+          "commercial_price_status": "PENDING_DIRECT_COST_CLOSURE"
+        },
+        {
+          "item": 3,
+          "title": "Iluminación perimetral",
+          "description": "Suministro e instalación de aproximadamente 40 ml de manguera plana LED económica 5050 SMD, 127 V, IP65, sobre el contorno exterior del rótulo de 14.67 m x 4.80 m. Compra técnica prevista: 45 ml para cubrir cortes y terminaciones. Incluye alimentadores, conectores, terminales, tapas, fijaciones, cableado necesario, protección eléctrica correspondiente, conexiones y pruebas. Iluminación únicamente perimetral.",
+          "commercial_price_status": "PENDING_ACCESSORIES_COST_CLOSURE"
+        },
+        {
+          "item": 4,
+          "title": "Instalación",
+          "description": "Servicio integral de montaje en sitio del logo floral, 56 letras individuales e iluminación perimetral. Incluye acarreo y movilización, personal técnico, ayudantes, replanteo, presentación y nivelación de plantillas, perforaciones, fijaciones, adhesivos, montaje, conexiones eléctricas, pruebas, alquiler de andamios/equipo de acceso, herramientas, consumibles y limpieza final.",
+          "commercial_price_status": "PENDING_SITE_LOCATION_FOR_HAULAGE"
+        }
+      ]
+    },
+    {
+      "code": "B",
+      "name": "PVC 25 mm + iluminación perimetral económica",
+      "items": [
+        {
+          "item": 1,
+          "title": "Logo floral",
+          "description": "Fabricación de 1 conjunto de logotipo floral lateral en PVC espumado de 25 mm de espesor, según arte aprobado. Zona reservada indicada en plano: 3.56 m de ancho, con referencia interior de 2.70 m; conservar proporción real del arte. Incluye ajuste vectorial final, corte CNC, preparación de caras y cantos, lijado, primer compatible con PVC, pintura multicolor según diseño, acabado para exterior, preparación para fijación y plantilla de instalación. Sin iluminación interna.",
+          "commercial_price_status": "PENDING_DIRECT_COST_CLOSURE"
+        },
+        {
+          "item": 2,
+          "title": "Letras corporativas",
+          "description": "Fabricación de 56 letras individuales en PVC espumado de 25 mm, tipografía Tahoma Bold, correspondientes a CENTRO RECREATIVO / Y ESCUELA DE SERVICIOS / TURÍSTICOS NICARAGÜITA. Altura nominal máxima 400 mm por letra; anchos proporcionales a la geometría real de cada carácter. Incluye corte CNC, preparación de superficies y cantos, lijado, primer, pintura para exterior, retoques, limpieza y plantilla de instalación 1:1. Sin iluminación interna.",
+          "commercial_price_status": "PENDING_DIRECT_COST_CLOSURE"
+        },
+        {
+          "item": 3,
+          "title": "Iluminación perimetral",
+          "description": "Suministro e instalación de aproximadamente 40 ml de manguera plana LED económica 5050 SMD, 127 V, IP65, sobre el contorno exterior del rótulo de 14.67 m x 4.80 m. Compra técnica prevista: 45 ml para cubrir cortes y terminaciones. Incluye alimentadores, conectores, terminales, tapas, fijaciones, cableado necesario, protección eléctrica correspondiente, conexiones y pruebas. Iluminación únicamente perimetral.",
+          "commercial_price_status": "PENDING_ACCESSORIES_COST_CLOSURE"
+        },
+        {
+          "item": 4,
+          "title": "Instalación",
+          "description": "Servicio integral de montaje en sitio del logo floral, 56 letras individuales e iluminación perimetral. Incluye acarreo y movilización, personal técnico, ayudantes, replanteo, presentación y nivelación de plantillas, perforaciones, fijaciones y adhesivos ajustados al mayor espesor/peso del PVC de 25 mm, montaje, conexiones eléctricas, pruebas, alquiler de andamios/equipo de acceso, herramientas, consumibles y limpieza final.",
+          "commercial_price_status": "PENDING_SITE_LOCATION_FOR_HAULAGE"
+        }
+      ]
+    }
+  ],
+  "deployment_gates": [
+    {
+      "code": "NESTING_EXACT_PVC_USAGE",
+      "status": "PENDING",
+      "rule": "Las 6 láminas son provisionales. Sustituir por consumo exacto antes de precio comercial final."
+    },
+    {
+      "code": "PAINT_MATERIAL_PRICE_CLOSURE",
+      "status": "PENDING"
+    },
+    {
+      "code": "LED_ACCESSORY_PRICE_CLOSURE",
+      "status": "PENDING"
+    },
+    {
+      "code": "SITE_LOCATION_HAULAGE",
+      "status": "PENDING"
+    }
+  ],
+  "safe_execution": {
+    "create_as_draft": true,
+    "send_to_customer": false,
+    "approve_quotation": false,
+    "create_work_order": false,
+    "external_message": false,
+    "rule": "El despliegue solo debe dejar disponible el bundle para que ELAN lo aplique como BORRADOR. No emitir ni enviar hasta cerrar gates y recibir aprobación expresa del Owner."
+  },
+  "owner_apply_command": "ELAN, aplicá el bundle Krdesin Frontenis 2026-09-16 desde Git como cotización en borrador. No enviar al cliente."
+}
