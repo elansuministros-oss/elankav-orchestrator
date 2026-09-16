@@ -5,8 +5,10 @@ on:
     paths:
       - 'services/ownerOpsSupervisorCommandPatch.js'
       - 'services/inboundCommercialRoleMessagePatch.js'
+      - 'services/ownerQuotationModeElanOneLabBridge.js'
       - 'tests/ownerOpsOperationalBypass.test.js'
       - 'tests/ownerOpsConfirmationBypassContract.test.js'
+      - 'tests/ownerQuotationModeElanOneLabBridgeOwnerOpsBypass.test.js'
       - '.github/workflows/owner-ops-routing-regression-ci.yml'
 
 jobs:
@@ -20,3 +22,4 @@ jobs:
       - run: npm install --cache "$RUNNER_TEMP/npm-cache"
       - run: node tests/ownerOpsOperationalBypass.test.js
       - run: node tests/ownerOpsConfirmationBypassContract.test.js
+      - run: node tests/ownerQuotationModeElanOneLabBridgeOwnerOpsBypass.test.js
