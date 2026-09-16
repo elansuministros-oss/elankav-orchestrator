@@ -2,6 +2,9 @@
 
 const { execFile } = require('node:child_process');
 const { readFileSync } = require('node:fs');
+const {
+  isQuotationModeBypassRequest
+} = require('./ownerQuotationModeService');
 
 const LAB_SERVICE_PATH =
   '/opt/elankav-new-lab/orchestrator-provider-service-lab/services/ownerQuotationModeService.js';
@@ -95,7 +98,15 @@ async function getState(identity) {
   return runLab('getState', { identity });
 }
 
-async function processQuotationModeText(input) {
+async function processQuotationModeText(input = {}) {
+  if (isQuotationModeBypassRequest(input.text)) {
+    return {
+      handled: false,
+      bypassed: true,
+      mode: 'quotation'
+    };
+  }
+
   return runLab('processQuotationModeText', input);
 }
 
