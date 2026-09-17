@@ -9,6 +9,10 @@ const TARGET = '/opt/elankav-new-lab/orchestrator-core/src/server.js';
 const OWNER_COMMAND_SERVICE = '/opt/elankav/orchestrator/services/ownerCommandService.js';
 const UNIT = 'elan-one-orchestrator-core.service';
 const MARKER = 'owner-command-protected-bridge';
+const ALLOWED_BEFORE_HASHES = new Set([
+  'c9f4992f79ea3e8359a5d9233038263316f3c5cdf2e15cfa9dbac967d816edb4',
+  'ebacb52b54711b90a4e2b98656e14110518d7387760761297705f22bfbdd99af'
+]);
 
 const OLD_BLOCK = `            } else if (chatId === OWNER_CHAT_ID) {
               reply = 'ELAN ONE conectado';
@@ -61,6 +65,7 @@ if (!fs.existsSync(OWNER_COMMAND_SERVICE)) abort('OWNER_COMMAND_SERVICE_NOT_FOUN
 const ownerModule = require(OWNER_COMMAND_SERVICE);
 if (typeof ownerModule.detectOwnerCommand !== 'function') abort('OWNER_DETECTOR_NOT_AVAILABLE');
 if (typeof ownerModule.executeOwnerCommand !== 'function') abort('OWNER_EXECUTOR_NOT_AVAILABLE');
+if (!ownerModule.detectOwnerCommand('ELAN capacidades')) abort('OWNER_CAPABILITY_COMMAND_NOT_DETECTED');
 
 const before = fs.readFileSync(TARGET, 'utf8');
 const beforeHash = sha256(before);
@@ -70,6 +75,10 @@ if (before.includes(MARKER)) {
   run('node', ['--check', TARGET]);
   console.log('OWNER_MOBILE_ROUTER_RESCUE=ALREADY_APPLIED');
   process.exit(0);
+}
+
+if (!ALLOWED_BEFORE_HASHES.has(beforeHash)) {
+  abort(`UNRECOGNIZED_BASELINE_${beforeHash}`);
 }
 
 const occurrences = countOccurrences(before, OLD_BLOCK);
